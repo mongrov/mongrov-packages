@@ -58,9 +58,5 @@ export interface LoggerConfig {
   transports?: LogTransport[]
   appVersion: string
   updateId?: string
-  /** @deprecated Use `onLog` instead. */
-  onError?: (entry: LogEntry) => void
-  /** Called for every warn / error entry. Use for Sentry breadcrumbs, analytics, etc. */
-  onLog?: (entry: LogEntry) => void
   onException?: (error: Error, context?: Record<string, unknown>) => void
 }

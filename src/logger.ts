@@ -146,11 +146,6 @@ export function createLogger(config: LoggerConfig): Logger {
       })
     }
 
-    // Callback hooks for error/warn
-    const onLog = config.onLog ?? config.onError
-    if ((level === 'error' || level === 'warn') && onLog) {
-      onLog(entry)
-    }
   }
 
   const logger: Logger = {

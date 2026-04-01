@@ -110,41 +110,33 @@ describe('Logger', () => {
     await logger.destroy()
   })
 
-  it('should call onLog callback for warn and error levels', async () => {
-    const onLog = jest.fn()
+  it('should support custom transport for Sentry-style breadcrumbs', async () => {
+    const breadcrumbs: LogEntry[] = []
+    const sentryTransport: LogTransport = {
+      name: 'sentry-breadcrumbs',
+      send: async (entries) => {
+        for (const entry of entries) {
+          if (entry.level === 'warn' || entry.level === 'error') {
+            breadcrumbs.push(entry)
+          }
+        }
+      },
+    }
+
     const logger = createLogger({
       appVersion: '1.0.0',
-      onLog,
-      ringBuffer: true,
+      transports: [sentryTransport],
     })
 
-    logger.info('info - no callback')
-    logger.warn('warn - callback')
-    logger.error('error - callback')
+    logger.info('info - no breadcrumb')
+    logger.warn('warn - breadcrumb')
+    logger.error('error - breadcrumb')
 
     await new Promise((r) => setTimeout(r, 10))
 
-    expect(onLog).toHaveBeenCalledTimes(2)
-    expect(onLog.mock.calls[0][0].level).toBe('warn')
-    expect(onLog.mock.calls[0][0].message).toBe('warn - callback')
-    expect(onLog.mock.calls[1][0].level).toBe('error')
-
-    await logger.destroy()
-  })
-
-  it('should support deprecated onError as fallback for onLog', async () => {
-    const onError = jest.fn()
-    const logger = createLogger({
-      appVersion: '1.0.0',
-      onError,
-      ringBuffer: true,
-    })
-
-    logger.warn('via deprecated')
-
-    await new Promise((r) => setTimeout(r, 10))
-
-    expect(onError).toHaveBeenCalledTimes(1)
+    expect(breadcrumbs).toHaveLength(2)
+    expect(breadcrumbs[0].level).toBe('warn')
+    expect(breadcrumbs[1].level).toBe('error')
 
     await logger.destroy()
   })
