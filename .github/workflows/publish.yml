@@ -3,7 +3,7 @@ name: Publish to npm
 on:
   push:
     tags:
-      - 'v*'
+      - '@mongrov/*@*'
 
 jobs:
   publish:
@@ -14,33 +14,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
           registry-url: https://registry.npmjs.org
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
-      - name: Verify version matches tag
+      - name: Determine package from tag
+        id: pkg
         run: |
-          TAG=${GITHUB_REF#refs/tags/v}
-          PKG=$(node -p "require('./package.json').version")
-          if [ "$TAG" != "$PKG" ]; then
-            echo "::error::Tag v$TAG does not match package.json version $PKG"
+          TAG=${GITHUB_REF#refs/tags/@mongrov/}
+          PKG=$(echo "$TAG" | sed 's/@.*//')
+          VERSION=$(echo "$TAG" | sed 's/.*@//')
+          echo "package=$PKG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify version matches package.json
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/${{ steps.pkg.outputs.package }}/package.json').version")
+          if [ "${{ steps.pkg.outputs.version }}" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version ${{ steps.pkg.outputs.version }} does not match package.json version $PKG_VERSION"
             exit 1
           fi
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm --filter @mongrov/${{ steps.pkg.outputs.package }} run typecheck
 
       - name: Test
-        run: npm test -- --ci
+        run: pnpm --filter @mongrov/${{ steps.pkg.outputs.package }} run test
 
       - name: Build
-        run: npm run build
+        run: pnpm --filter @mongrov/${{ steps.pkg.outputs.package }} run build
 
       - name: Publish
-        run: npm publish --provenance --access public
+        run: pnpm --filter @mongrov/${{ steps.pkg.outputs.package }} publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
