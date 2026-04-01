@@ -10,8 +10,9 @@ export { useSession } from './session';
 // Storage
 export { SecureTokenStore } from './secure-token-store';
 
-// Interceptor
-export { createAuthInterceptor } from './interceptor';
+// Interceptor — exported via '@mongrov/auth/interceptor' subpath
+// to avoid leaking axios types into the main entry point.
+// import { createAuthInterceptor } from '@mongrov/auth/interceptor';
 
 // Biometric
 export { useBiometricGate } from './biometric';

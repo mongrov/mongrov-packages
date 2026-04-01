@@ -27,6 +27,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./interceptor": {
+      "types": "./dist/interceptor.d.ts",
+      "import": "./dist/interceptor.js",
+      "default": "./dist/interceptor.js"
     }
   },
   "files": [
@@ -38,7 +43,8 @@
     "prebuild": "pnpm run clean",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "jwt-decode": "^4.0.0"
@@ -46,7 +52,6 @@
   "peerDependencies": {
     "react": ">=18",
     "react-native": ">=0.74",
-    "@mongrov/core": ">=0.2.0",
     "zustand": ">=5",
     "react-native-mmkv": ">=3",
     "expo-secure-store": ">=14",

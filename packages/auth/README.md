@@ -17,9 +17,9 @@ Auth lifecycle, token management, and biometric gate for React Native / Expo app
 ```bash
 pnpm add @mongrov/auth
 # Peer deps
-pnpm add zustand react-native-mmkv @mongrov/core
+pnpm add zustand
 # Optional
-pnpm add expo-secure-store expo-local-authentication axios
+pnpm add expo-secure-store react-native-mmkv expo-local-authentication axios
 ```
 
 ## Quick Start
@@ -82,7 +82,13 @@ Secure token persistence. Uses `expo-secure-store` when available, falls back to
 
 ### `createAuthInterceptor(axiosInstance, authClient): () => void`
 
-Axios interceptor that attaches Bearer token and handles 401 refresh with request queueing. Returns an eject function.
+Axios interceptor that attaches Bearer token and handles 401 refresh with single-flight deduplication. Returns an eject function.
+
+Imported from a separate subpath to avoid leaking `axios` types into the main entry:
+
+```ts
+import { createAuthInterceptor } from '@mongrov/auth/interceptor';
+```
 
 ### `useBiometricGate()`
 
