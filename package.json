@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Structured logging for React Native / Expo — ring buffer, file, and webhook transports with offline queue",
   "license": "MIT",
   "repository": {
@@ -42,7 +42,7 @@
   },
   "peerDependencies": {
     "expo-file-system": ">=17",
-    "expo-network": ">=13",
+    "expo-network": ">=6",
     "react": ">=18",
     "react-native": ">=0.74",
     "react-native-mmkv": ">=3"
