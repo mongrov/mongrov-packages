@@ -73,55 +73,60 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
     error: null,
     isAuthenticated: false,
     isLoading: false,
+    isHydrated: false,
     _accessToken: null,
     _refreshToken: null,
   }));
 
   function setAuthenticated(user: UserInfo, accessToken: string, refreshToken: string | null): void {
-    store.setState({
-      status: 'authenticated',
+    store.setState((prev) => ({
+      status: 'authenticated' as const,
       user,
       error: null,
       isAuthenticated: true,
       isLoading: false,
+      isHydrated: prev.isHydrated,
       _accessToken: accessToken,
       _refreshToken: refreshToken,
-    });
+    }));
   }
 
   function setIdle(): void {
-    store.setState({
-      status: 'idle',
+    store.setState((prev) => ({
+      status: 'idle' as const,
       user: null,
       error: null,
       isAuthenticated: false,
       isLoading: false,
+      isHydrated: prev.isHydrated,
       _accessToken: null,
       _refreshToken: null,
-    });
+    }));
   }
 
   function setAuthenticating(): void {
-    store.setState({
-      status: 'authenticating',
+    store.setState((prev) => ({
+      status: 'authenticating' as const,
       user: null,
       error: null,
       isAuthenticated: false,
       isLoading: true,
+      isHydrated: prev.isHydrated,
       _accessToken: null,
       _refreshToken: null,
-    });
+    }));
   }
 
   function setError(error: AuthError): void {
-    store.setState({
-      status: 'error',
+    store.setState((prev) => ({
+      status: 'error' as const,
       error,
       isAuthenticated: false,
       isLoading: false,
+      isHydrated: prev.isHydrated,
       _accessToken: null,
       _refreshToken: null,
-    });
+    }));
   }
 
   async function resolveUser(accessToken: string): Promise<UserInfo> {
@@ -259,6 +264,8 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         };
         setError(authError);
       }
+    } finally {
+      store.setState({ isHydrated: true });
     }
   }
 
@@ -271,6 +278,7 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
     error: null,
     isAuthenticated: false,
     isLoading: false,
+    isHydrated: false,
   };
 
   function shallowEqual(a: AuthState, b: AuthState): boolean {
@@ -279,7 +287,8 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
       a.user === b.user &&
       a.error === b.error &&
       a.isAuthenticated === b.isAuthenticated &&
-      a.isLoading === b.isLoading
+      a.isLoading === b.isLoading &&
+      a.isHydrated === b.isHydrated
     );
   }
 

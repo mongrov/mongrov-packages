@@ -27,6 +27,8 @@ export interface AuthState {
   error: AuthError | null;
   isAuthenticated: boolean; // derived: status === 'authenticated'
   isLoading: boolean; // derived: status === 'authenticating'
+  /** True once hydrate() has completed (regardless of outcome). False before hydrate finishes. */
+  isHydrated: boolean;
 }
 
 export interface AuthError {

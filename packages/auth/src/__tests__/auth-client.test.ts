@@ -28,18 +28,19 @@ beforeEach(() => {
 });
 
 describe('createAuthClient', () => {
-  it('starts in idle state', () => {
+  it('starts in idle state with isHydrated false', () => {
     const client = createAuthClient({ adapter: createMockAdapter() });
     const state = client.getState();
     expect(state.status).toBe('idle');
     expect(state.isAuthenticated).toBe(false);
     expect(state.isLoading).toBe(false);
+    expect(state.isHydrated).toBe(false);
     expect(state.user).toBeNull();
     expect(state.error).toBeNull();
     client.destroy();
   });
 
-  it('transitions to authenticated after successful signIn', async () => {
+  it('transitions to authenticated after successful signIn (isHydrated unchanged)', async () => {
     const adapter = createMockAdapter();
     const client = createAuthClient({ adapter });
 
@@ -48,6 +49,7 @@ describe('createAuthClient', () => {
     const state = client.getState();
     expect(state.status).toBe('authenticated');
     expect(state.isAuthenticated).toBe(true);
+    expect(state.isHydrated).toBe(false); // signIn does not set isHydrated
     expect(state.user).toMatchObject({ id: 'user-1', email: 'test@example.com' });
     expect(adapter.login).toHaveBeenCalledWith({ username: 'test', password: 'pass' });
     client.destroy();
@@ -79,12 +81,13 @@ describe('createAuthClient', () => {
     client.destroy();
   });
 
-  it('hydrate with no stored tokens sets idle (not error)', async () => {
+  it('hydrate with no stored tokens sets idle (not error) and isHydrated true', async () => {
     const client = createAuthClient({ adapter: createMockAdapter() });
     await client.hydrate();
 
     const state = client.getState();
     expect(state.status).toBe('idle');
+    expect(state.isHydrated).toBe(true);
     expect(state.user).toBeNull();
     client.destroy();
   });
@@ -108,6 +111,7 @@ describe('createAuthClient', () => {
 
     const state = client.getState();
     expect(state.status).toBe('authenticated');
+    expect(state.isHydrated).toBe(true);
     expect(state.user?.id).toBe('user-2');
     client.destroy();
   });

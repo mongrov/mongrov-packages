@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { AuthClient } from './types';
+import { useAuthClient } from './auth-provider';
 
 interface RetryableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
@@ -52,4 +54,22 @@ export function createAuthInterceptor(
     axiosInstance.interceptors.request.eject(requestId);
     axiosInstance.interceptors.response.eject(responseId);
   };
+}
+
+/**
+ * React hook that wires auth interceptors onto an Axios instance.
+ * Automatically ejects on unmount.
+ *
+ * Must be used inside `<AuthProvider>`.
+ *
+ * ```tsx
+ * import { useAuthInterceptor } from '@mongrov/auth/interceptor';
+ * useAuthInterceptor(axiosClient);
+ * ```
+ */
+export function useAuthInterceptor(axiosInstance: AxiosInstance): void {
+  const authClient = useAuthClient();
+  useEffect(() => {
+    return createAuthInterceptor(axiosInstance, authClient);
+  }, [axiosInstance, authClient]);
 }

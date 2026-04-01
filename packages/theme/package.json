@@ -26,6 +26,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./navigation": {
+      "types": "./dist/navigation-theme.d.ts",
+      "import": "./dist/navigation-theme.js",
+      "default": "./dist/navigation-theme.js"
     }
   },
   "files": [

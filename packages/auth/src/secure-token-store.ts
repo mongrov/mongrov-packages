@@ -1,5 +1,5 @@
-const ACCESS_KEY = '@mongrov/auth-access';
-const REFRESH_KEY = '@mongrov/auth-refresh';
+const ACCESS_KEY = 'mongrov.auth-access';
+const REFRESH_KEY = 'mongrov.auth-refresh';
 
 type SecureStoreModule = {
   getItemAsync(key: string): Promise<string | null>;

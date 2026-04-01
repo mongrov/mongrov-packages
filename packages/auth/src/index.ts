@@ -2,7 +2,7 @@
 export { createAuthClient } from './auth-client';
 
 // Context
-export { AuthProvider, useAuth } from './auth-provider';
+export { AuthProvider, useAuth, useAuthClient } from './auth-provider';
 
 // Session
 export { useSession } from './session';
