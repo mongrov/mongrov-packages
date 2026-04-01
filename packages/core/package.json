@@ -1,7 +1,7 @@
 {
   "name": "@mongrov/core",
-  "version": "0.2.0",
-  "description": "Structured logging for React Native / Expo — ring buffer, file, and webhook transports with offline queue",
+  "version": "0.3.0",
+  "description": "Structured logging for React Native / Expo — ring buffer, file, and webhook transports with offline queue. Includes dev-tools UI components.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -15,7 +15,8 @@
     "structured-logging",
     "ring-buffer",
     "webhook",
-    "offline-queue"
+    "offline-queue",
+    "dev-tools"
   ],
   "engines": {
     "node": ">=18"
@@ -27,6 +28,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js",
+      "default": "./dist/ui/index.js"
     }
   },
   "files": [
@@ -47,7 +53,8 @@
     "react": ">=18",
     "react-native": ">=0.74",
     "react-native-mmkv": ">=3",
-    "expo-router": ">=4"
+    "expo-router": ">=4",
+    "uniwind": ">=1"
   },
   "peerDependenciesMeta": {
     "expo-file-system": {
@@ -61,6 +68,9 @@
     },
     "expo-router": {
       "optional": true
+    },
+    "uniwind": {
+      "optional": true
     }
   },
   "devDependencies": {
@@ -72,7 +82,9 @@
     "react": "^18.2.0",
     "react-dom": "^18.3.1",
     "react-native": "^0.74.0",
+    "react-test-renderer": "^18.2.0",
     "ts-jest": "^29.1.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "uniwind": "^1.6.1"
   }
 }

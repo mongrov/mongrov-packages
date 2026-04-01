@@ -6,7 +6,9 @@ module.exports = {
   displayName: 'core',
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.test.ts', '**/__tests__/**/*.test.tsx'],
+  testEnvironment: 'jsdom',
   moduleNameMapper: {
+    '^react-native$': '<rootDir>/__mocks__/react-native.ts',
     '^expo-file-system/legacy$': '<rootDir>/__mocks__/expo-file-system.ts',
     '^expo-file-system$': '<rootDir>/__mocks__/expo-file-system.ts',
     '^expo-network$': '<rootDir>/__mocks__/expo-network.ts',

@@ -40,7 +40,6 @@ function getPlatform(): 'ios' | 'android' {
 
 function isDev(): boolean {
   try {
-    // @ts-expect-error __DEV__ is a React Native global
     return typeof __DEV__ !== 'undefined' ? __DEV__ : false
   } catch {
     return false
