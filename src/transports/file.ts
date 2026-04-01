@@ -17,12 +17,19 @@ let FileSystemModule: FileSystem | null = null
 function getFileSystem(): FileSystem {
   if (!FileSystemModule) {
     try {
+      // Prefer the legacy subpath (expo-file-system v19+) to avoid deprecation warnings.
+      // Falls back to the main entry for older versions.
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      FileSystemModule = require('expo-file-system') as FileSystem
+      FileSystemModule = require('expo-file-system/legacy') as FileSystem
     } catch {
-      throw new Error(
-        '@mongrov/core FileTransport requires expo-file-system as a peer dependency'
-      )
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        FileSystemModule = require('expo-file-system') as FileSystem
+      } catch {
+        throw new Error(
+          '@mongrov/core FileTransport requires expo-file-system as a peer dependency'
+        )
+      }
     }
   }
   return FileSystemModule
