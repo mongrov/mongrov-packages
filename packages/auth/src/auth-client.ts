@@ -1,4 +1,4 @@
-import { createStore } from 'zustand/vanilla';
+import { createActor } from 'xstate';
 import { jwtDecode } from 'jwt-decode';
 import type {
   AuthClient,
@@ -7,6 +7,7 @@ import type {
   AuthErrorCode,
   AuthLogger,
   AuthState,
+  AuthStatus,
   AuthTokens,
   TokenStore,
   UserInfo,
@@ -15,6 +16,8 @@ import type {
 import { SecureTokenStore } from './secure-token-store';
 import { createRefreshManager } from './refresh-manager';
 import type { RefreshManager } from './refresh-manager';
+import { authMachine } from './machines/auth-machine';
+import type { AuthMachineContext } from './machines/auth-machine';
 
 const noopLogger: AuthLogger = {
   debug() {},
@@ -43,17 +46,36 @@ function classifyError(err: unknown): AuthErrorCode {
   return 'ADAPTER_ERROR';
 }
 
-interface InternalState extends AuthState {
-  _accessToken: string | null;
-  _refreshToken: string | null;
-}
-
 function defaultParseUser(decoded: Record<string, unknown>): UserInfo {
   return {
     id: String(decoded.sub ?? decoded.id ?? ''),
     email: decoded.email as string | undefined,
     name: decoded.name as string | undefined,
     roles: decoded.roles as string[] | undefined,
+  };
+}
+
+/** Map XState machine state to public AuthStatus */
+function mapStatus(stateValue: string): AuthStatus {
+  switch (stateValue) {
+    case 'idle': return 'idle';
+    case 'authenticating': return 'authenticating';
+    case 'authenticated': return 'authenticated';
+    case 'error': return 'error';
+    default: return 'idle';
+  }
+}
+
+/** Derive public AuthState from machine context + state value */
+function derivePublicState(stateValue: string, context: AuthMachineContext): AuthState {
+  const status = mapStatus(stateValue);
+  return {
+    status,
+    user: context.user,
+    error: context.error,
+    isAuthenticated: status === 'authenticated',
+    isLoading: status === 'authenticating',
+    isHydrated: context.isHydrated,
   };
 }
 
@@ -67,67 +89,9 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
     logger: log = noopLogger,
   } = config;
 
-  const store = createStore<InternalState>(() => ({
-    status: 'idle',
-    user: null,
-    error: null,
-    isAuthenticated: false,
-    isLoading: false,
-    isHydrated: false,
-    _accessToken: null,
-    _refreshToken: null,
-  }));
-
-  function setAuthenticated(user: UserInfo, accessToken: string, refreshToken: string | null): void {
-    store.setState((prev) => ({
-      status: 'authenticated' as const,
-      user,
-      error: null,
-      isAuthenticated: true,
-      isLoading: false,
-      isHydrated: prev.isHydrated,
-      _accessToken: accessToken,
-      _refreshToken: refreshToken,
-    }));
-  }
-
-  function setIdle(): void {
-    store.setState((prev) => ({
-      status: 'idle' as const,
-      user: null,
-      error: null,
-      isAuthenticated: false,
-      isLoading: false,
-      isHydrated: prev.isHydrated,
-      _accessToken: null,
-      _refreshToken: null,
-    }));
-  }
-
-  function setAuthenticating(): void {
-    store.setState((prev) => ({
-      status: 'authenticating' as const,
-      user: null,
-      error: null,
-      isAuthenticated: false,
-      isLoading: true,
-      isHydrated: prev.isHydrated,
-      _accessToken: null,
-      _refreshToken: null,
-    }));
-  }
-
-  function setError(error: AuthError): void {
-    store.setState((prev) => ({
-      status: 'error' as const,
-      error,
-      isAuthenticated: false,
-      isLoading: false,
-      isHydrated: prev.isHydrated,
-      _accessToken: null,
-      _refreshToken: null,
-    }));
-  }
+  // Create and start the XState actor
+  const actor = createActor(authMachine);
+  actor.start();
 
   async function resolveUser(accessToken: string): Promise<UserInfo> {
     if (adapter.getUser) {
@@ -154,23 +118,27 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
     refreshThreshold,
     onRefreshed: (tokens: AuthTokens) => {
       log.debug('[auth] token refreshed silently');
-      const state = store.getState();
-      store.setState({
-        _accessToken: tokens.accessToken,
-        _refreshToken: tokens.refreshToken ?? state._refreshToken,
+      const snap = actor.getSnapshot();
+      actor.send({
+        type: 'TOKEN_REFRESHED',
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken ?? snap.context.refreshToken,
       });
     },
     onRefreshFailed: (error: AuthError) => {
       log.warn('[auth] token refresh failed, signing out', error.message);
       // clear() is async but callback is sync — chain to ensure tokens
       // are removed before any subsequent hydrate can read stale values.
-      tokenStore.clear().then(() => setIdle(), () => setIdle());
+      tokenStore.clear().then(
+        () => actor.send({ type: 'REFRESH_FAILED' }),
+        () => actor.send({ type: 'REFRESH_FAILED' }),
+      );
     },
   });
 
   async function signIn(credentials: Record<string, unknown>): Promise<void> {
     log.info('[auth] signIn started');
-    setAuthenticating();
+    actor.send({ type: 'SIGN_IN' });
     try {
       const tokens = await adapter.login(credentials);
       await tokenStore.setAccessToken(tokens.accessToken);
@@ -178,7 +146,12 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         await tokenStore.setRefreshToken(tokens.refreshToken);
       }
       const user = await resolveUser(tokens.accessToken);
-      setAuthenticated(user, tokens.accessToken, tokens.refreshToken ?? null);
+      actor.send({
+        type: 'SIGN_IN_SUCCESS',
+        user,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken ?? null,
+      });
       log.info('[auth] signIn succeeded', user.id);
       if (proactiveRefresh && tokens.expiresIn) {
         refreshManager.scheduleRefresh(tokens.expiresIn);
@@ -190,31 +163,31 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         original: err instanceof Error ? err : undefined,
       };
       log.error('[auth] signIn failed', authError.code, authError.message);
-      setError(authError);
+      actor.send({ type: 'SIGN_IN_FAILURE', error: authError });
       throw authError;
     }
   }
 
   async function signOut(): Promise<void> {
     log.info('[auth] signOut');
-    const { _accessToken } = store.getState();
+    const { accessToken } = actor.getSnapshot().context;
     refreshManager.cancelRefresh();
-    if (adapter.logout && _accessToken) {
+    if (adapter.logout && accessToken) {
       // fire-and-forget
-      adapter.logout(_accessToken).catch(() => {});
+      adapter.logout(accessToken).catch(() => {});
     }
     await tokenStore.clear();
-    setIdle();
+    actor.send({ type: 'SIGN_OUT' });
   }
 
   async function hydrate(): Promise<void> {
     log.debug('[auth] hydrate started');
-    setAuthenticating();
+    actor.send({ type: 'HYDRATE_START' }); // transitions to authenticating (hydrate flow)
     try {
       const accessToken = await tokenStore.getAccessToken();
       if (!accessToken) {
         log.debug('[auth] hydrate: no stored tokens, staying idle');
-        setIdle();
+        actor.send({ type: 'HYDRATE_NO_TOKENS' });
         return;
       }
 
@@ -225,20 +198,28 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
           log.debug('[auth] hydrate: token expired, attempting refresh');
           const tokens = await refreshManager.handleUnauthorized();
           const user = await resolveUser(tokens.accessToken);
-          setAuthenticated(user, tokens.accessToken, tokens.refreshToken ?? refreshToken);
+          actor.send({
+            type: 'HYDRATE_SUCCESS',
+            user,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken ?? refreshToken,
+          });
           log.info('[auth] hydrate: refreshed and restored session', user.id);
-          // Note: scheduleRefresh is called inside doRefresh() after successful refresh,
-          // so we don't need to call it again here.
         } else {
           log.debug('[auth] hydrate: token expired, no refresh token');
           await tokenStore.clear();
-          setIdle();
+          actor.send({ type: 'HYDRATE_NO_TOKENS' });
         }
         return;
       }
 
       const user = await resolveUser(accessToken);
-      setAuthenticated(user, accessToken, refreshToken);
+      actor.send({
+        type: 'HYDRATE_SUCCESS',
+        user,
+        accessToken,
+        refreshToken,
+      });
       log.info('[auth] hydrate: restored session', user.id);
 
       // Try to get expiresIn from token for scheduling
@@ -254,32 +235,25 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         // Can't decode exp — no proactive refresh
       }
     } catch (err) {
-      // If refresh failed, onRefreshFailed already set idle
-      // For other errors, set error state
-      if (store.getState().status !== 'idle') {
+      // If refresh failed, onRefreshFailed already handled transition
+      const snap = actor.getSnapshot();
+      if (snap.value !== 'idle') {
         const authError: AuthError = {
           code: 'ADAPTER_ERROR',
           message: err instanceof Error ? err.message : 'Hydration failed',
           original: err instanceof Error ? err : undefined,
         };
-        setError(authError);
+        actor.send({ type: 'HYDRATE_FAILURE', error: authError });
       }
     } finally {
-      store.setState({ isHydrated: true });
+      actor.send({ type: 'SET_HYDRATED' });
     }
   }
 
   // Cache the public state snapshot for useSyncExternalStore compatibility.
   // Must return the same reference when public fields haven't changed
-  // (e.g. silent token refresh only updates _accessToken/_refreshToken).
-  let cachedPublicState: AuthState = {
-    status: 'idle',
-    user: null,
-    error: null,
-    isAuthenticated: false,
-    isLoading: false,
-    isHydrated: false,
-  };
+  // (e.g. silent token refresh only updates tokens in context).
+  let cachedPublicState: AuthState = derivePublicState('idle', authMachine.config.context as AuthMachineContext);
 
   function shallowEqual(a: AuthState, b: AuthState): boolean {
     return (
@@ -293,7 +267,8 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
   }
 
   function getState(): AuthState {
-    const { _accessToken, _refreshToken, ...publicState } = store.getState();
+    const snap = actor.getSnapshot();
+    const publicState = derivePublicState(snap.value as string, snap.context);
     if (shallowEqual(publicState, cachedPublicState)) {
       return cachedPublicState;
     }
@@ -302,22 +277,22 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
   }
 
   function subscribe(listener: (state: AuthState) => void): () => void {
-    return store.subscribe(() => {
+    const sub = actor.subscribe(() => {
       const prev = cachedPublicState;
       const next = getState();
-      // Only notify when public state actually changed
       if (prev !== next) {
         listener(next);
       }
     });
+    return () => sub.unsubscribe();
   }
 
   function getAccessToken(): string | null {
-    return store.getState()._accessToken;
+    return actor.getSnapshot().context.accessToken;
   }
 
   function getRefreshToken(): string | null {
-    return store.getState()._refreshToken;
+    return actor.getSnapshot().context.refreshToken;
   }
 
   function refreshTokenFn(): Promise<AuthTokens> {
@@ -326,6 +301,7 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
 
   function destroy(): void {
     refreshManager.destroy();
+    actor.stop();
   }
 
   return {

@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/auth",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Auth lifecycle, token management, and biometric gate for React Native / Expo apps",
   "license": "MIT",
   "repository": {
@@ -47,22 +47,30 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "jwt-decode": "^4.0.0"
+    "jwt-decode": "^4.0.0",
+    "xstate": "^5.30.0"
   },
   "peerDependencies": {
+    "axios": ">=1",
+    "expo-local-authentication": ">=14",
+    "expo-secure-store": ">=14",
     "react": ">=18",
     "react-native": ">=0.74",
-    "zustand": ">=5",
-    "react-native-mmkv": ">=3",
-    "expo-secure-store": ">=14",
-    "expo-local-authentication": ">=14",
-    "axios": ">=1"
+    "react-native-mmkv": ">=3"
   },
   "peerDependenciesMeta": {
-    "react-native-mmkv": { "optional": true },
-    "expo-secure-store": { "optional": true },
-    "expo-local-authentication": { "optional": true },
-    "axios": { "optional": true }
+    "react-native-mmkv": {
+      "optional": true
+    },
+    "expo-secure-store": {
+      "optional": true
+    },
+    "expo-local-authentication": {
+      "optional": true
+    },
+    "axios": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@mongrov/core": "workspace:*",
@@ -76,7 +84,6 @@
     "react-dom": "^18.3.1",
     "react-native": "^0.74.0",
     "ts-jest": "^29.1.2",
-    "typescript": "^5.9.3",
-    "zustand": "^5.0.10"
+    "typescript": "^5.9.3"
   }
 }
