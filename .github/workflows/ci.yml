@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [core]
+        package: [core, theme]
     steps:
       - uses: actions/checkout@v4
 
