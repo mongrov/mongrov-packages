@@ -20,7 +20,7 @@ export function DevToolsLogPanel({
   return (
     <View className="flex-1" testID={testID}>
       <View className="flex-row items-center justify-between px-4 py-2">
-        <Text className="text-xl font-bold text-foreground">{title}</Text>
+        <Text className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{title}</Text>
         <LogExportButton
           getExportData={exportLogs}
           testID={testID ? `${testID}-export` : undefined}
@@ -36,7 +36,7 @@ export function DevToolsLogPanel({
         testID={testID ? `${testID}-filter` : undefined}
       />
 
-      <Text className="px-4 py-1 text-xs text-muted-foreground">
+      <Text className="px-4 py-1 text-xs text-neutral-500 dark:text-neutral-400">
         {entries.length} entries
       </Text>
 

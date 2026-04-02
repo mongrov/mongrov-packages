@@ -22,10 +22,10 @@ export function LogExportButton({
   return (
     <Pressable
       onPress={handleExport}
-      className="rounded-lg bg-primary px-4 py-2"
+      className="rounded-lg bg-primary-500 dark:bg-primary-600 px-4 py-2 active:bg-primary-600 dark:active:bg-primary-700"
       testID={testID}
     >
-      <Text className="text-sm font-medium text-primary-foreground">
+      <Text className="text-sm font-semibold text-white">
         {label}
       </Text>
     </Pressable>
