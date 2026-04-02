@@ -12,9 +12,11 @@ export function ChatEmptyState({
   subtitle = 'Send a message to begin chatting with AI',
   testID,
 }: ChatEmptyStateProps) {
+  // Counter-rotate to fix inverted list display
   return (
     <View
       className="flex-1 items-center justify-center p-8"
+      style={{ transform: [{ scaleY: -1 }] }}
       testID={testID}
     >
       <Text className="text-center text-lg font-semibold text-foreground">

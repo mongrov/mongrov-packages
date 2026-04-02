@@ -22,9 +22,11 @@ const mockAnimatedTiming = {
 
 export const View = 'View';
 export const Text = 'Text';
+export const TextInput = 'TextInput';
 export const TouchableOpacity = 'TouchableOpacity';
 export const Pressable = 'Pressable';
 export const ScrollView = 'ScrollView';
+export const KeyboardAvoidingView = 'KeyboardAvoidingView';
 export const StyleSheet = {
   create: <T extends Record<string, unknown>>(styles: T): T => styles,
   flatten: jest.fn((style) => style),
@@ -77,9 +79,11 @@ export const useWindowDimensions = jest.fn(() => ({
 export default {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   Pressable,
   ScrollView,
+  KeyboardAvoidingView,
   StyleSheet,
   Animated,
   Platform,
