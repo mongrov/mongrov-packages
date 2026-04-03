@@ -44,7 +44,19 @@ export type AuthErrorCode =
   | 'NETWORK_ERROR'
   | 'BIOMETRIC_FAILED'
   | 'ADAPTER_ERROR'
-  | 'UNKNOWN';
+  | 'UNKNOWN'
+  // Social/SSO errors
+  | 'SOCIAL_AUTH_FAILED'
+  | 'SSO_CONFIG_ERROR'
+  | 'SSO_AUTH_FAILED'
+  // Account errors
+  | 'RATE_LIMITED'
+  | 'ACCOUNT_LOCKED'
+  | 'DUPLICATE_EMAIL'
+  | 'VALIDATION_ERROR'
+  | 'REGISTRATION_DISABLED'
+  | 'NOT_SUPPORTED'
+  | 'STORAGE_ERROR';
 
 // ─── User / Session ────────────────────────────────────
 
@@ -82,6 +94,40 @@ export interface TokenStore {
   getRefreshToken(): Promise<string | null>;
   setRefreshToken(token: string): Promise<void>;
   clear(): Promise<void>;
+}
+
+// ─── Tenant Config ─────────────────────────────────────
+
+export interface TenantConfig {
+  id: string;
+  name: string;
+  /** Logo image source (require() or { uri: string }) */
+  logo?: unknown;
+  auth: AuthMethodConfig;
+  backend: BackendConfig;
+}
+
+export type AuthMethodConfig =
+  | { method: 'email-password' }
+  | { method: 'social'; providers: SocialProvider[] }
+  | { method: 'sso'; provider: string; issuer: string; clientId: string; scopes?: string[] }
+  | { method: 'composite'; primary: AuthMethodConfig; alternatives: AuthMethodConfig[] };
+
+export type SocialProvider = 'apple' | 'google' | 'github';
+
+export type BackendConfig =
+  | { type: 'odoo'; url: string }
+  | { type: 'rocketchat'; url: string }
+  | { type: 'postgres'; url: string };
+
+export interface TenantContext {
+  tenant: TenantConfig | null;
+  tenants: TenantConfig[];
+  setTenant: (tenantId: string | null) => void;
+  /** True when tenants.length > 1 */
+  isMultiTenant: boolean;
+  /** True once tenant config has loaded from storage */
+  isReady: boolean;
 }
 
 // ─── Config ────────────────────────────────────────────

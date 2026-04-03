@@ -34,6 +34,11 @@ export { StatusBadge } from './StatusBadge';
 export { SyncIndicator } from './SyncIndicator';
 export { ConnectionIndicator } from './ConnectionIndicator';
 
+// Auth components
+export { SocialLoginButton } from './SocialLoginButton';
+export { SSOButton } from './SSOButton';
+export { AuthDivider } from './AuthDivider';
+
 // Types
 export type {
   EmptyStateProps,
@@ -47,3 +52,8 @@ export type {
   ConnectionIndicatorProps,
   ConnectionStatus,
 } from './types';
+
+// Auth component types
+export type { SocialLoginButtonProps, SocialProvider } from './SocialLoginButton';
+export type { SSOButtonProps } from './SSOButton';
+export type { AuthDividerProps } from './AuthDivider';

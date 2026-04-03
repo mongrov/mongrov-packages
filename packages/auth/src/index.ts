@@ -31,4 +31,10 @@ export type {
   TokenStore,
   UserInfo,
   Session,
+  // Tenant types
+  TenantConfig,
+  AuthMethodConfig,
+  SocialProvider,
+  BackendConfig,
+  TenantContext,
 } from './types';
