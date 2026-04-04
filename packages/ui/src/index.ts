@@ -57,3 +57,31 @@ export type {
 export type { SocialLoginButtonProps, SocialProvider } from './SocialLoginButton';
 export type { SSOButtonProps } from './SSOButton';
 export type { AuthDividerProps } from './AuthDivider';
+
+// Renderers (headless components)
+export {
+  MessageRenderer,
+  useMessageRenderer,
+  AttachmentRenderer,
+  useAttachmentRenderer,
+  ReactionPicker,
+  useReactionPicker,
+  EMOJI_CATEGORIES,
+} from './renderers';
+
+export type {
+  MessageRendererProps,
+  MessageRenderProps,
+  DeliveryStatusInfo,
+  ContentRenderProps,
+  MessageAttachmentRenderProps,
+  MessageReactionRenderProps,
+  AttachmentRendererProps,
+  AttachmentRenderProps,
+  MimeCategory,
+  ReactionPickerProps,
+  ReactionPickerRenderProps,
+  QuickReactionItem,
+  CurrentReactionItem,
+  UseReactionPickerOptions,
+} from './renderers';

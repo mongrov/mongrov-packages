@@ -1,5 +1,5 @@
 import React from 'react';
-import { create } from 'react-test-renderer';
+import { create, ReactTestInstance } from 'react-test-renderer';
 import { StreamingText } from '../ui/StreamingText';
 import { QuickReplyBar } from '../ui/QuickReplyBar';
 import { ChatEmptyState } from '../ui/ChatEmptyState';
@@ -8,7 +8,7 @@ describe('StreamingText', () => {
   it('renders text content', () => {
     const tree = create(<StreamingText text="Hello world" />);
     const texts = tree.root.findAllByType('Text' as any);
-    expect(texts.some((t) => t.children.includes('Hello world'))).toBe(true);
+    expect(texts.some((t: ReactTestInstance) => t.children.includes('Hello world'))).toBe(true);
   });
 
   it('renders cursor when streaming', () => {
@@ -28,7 +28,7 @@ describe('StreamingText', () => {
       <StreamingText text="Hello" isStreaming={true} cursorChar="|" />
     );
     const animatedTexts = tree.root.findAllByType('Animated.Text' as any);
-    expect(animatedTexts.some((t) => t.children.includes('|'))).toBe(true);
+    expect(animatedTexts.some((t: ReactTestInstance) => t.children.includes('|'))).toBe(true);
   });
 
   it('accepts testID', () => {
@@ -48,9 +48,9 @@ describe('QuickReplyBar', () => {
       />
     );
     const texts = tree.root.findAllByType('Text' as any);
-    expect(texts.some((t) => t.children.includes('Hello'))).toBe(true);
-    expect(texts.some((t) => t.children.includes('Help'))).toBe(true);
-    expect(texts.some((t) => t.children.includes('Info'))).toBe(true);
+    expect(texts.some((t: ReactTestInstance) => t.children.includes('Hello'))).toBe(true);
+    expect(texts.some((t: ReactTestInstance) => t.children.includes('Help'))).toBe(true);
+    expect(texts.some((t: ReactTestInstance) => t.children.includes('Info'))).toBe(true);
   });
 
   it('calls onSelect when reply is pressed', () => {
@@ -87,10 +87,10 @@ describe('ChatEmptyState', () => {
     const tree = create(<ChatEmptyState />);
     const texts = tree.root.findAllByType('Text' as any);
     expect(
-      texts.some((t) => t.children.includes('Start a conversation'))
+      texts.some((t: ReactTestInstance) => t.children.includes('Start a conversation'))
     ).toBe(true);
     expect(
-      texts.some((t) =>
+      texts.some((t: ReactTestInstance) =>
         t.children.includes('Send a message to begin chatting with AI')
       )
     ).toBe(true);
@@ -101,8 +101,8 @@ describe('ChatEmptyState', () => {
       <ChatEmptyState title="Welcome" subtitle="Ask me anything" />
     );
     const texts = tree.root.findAllByType('Text' as any);
-    expect(texts.some((t) => t.children.includes('Welcome'))).toBe(true);
-    expect(texts.some((t) => t.children.includes('Ask me anything'))).toBe(
+    expect(texts.some((t: ReactTestInstance) => t.children.includes('Welcome'))).toBe(true);
+    expect(texts.some((t: ReactTestInstance) => t.children.includes('Ask me anything'))).toBe(
       true
     );
   });

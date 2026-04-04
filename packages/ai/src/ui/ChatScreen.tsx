@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, useColorScheme, Text, TextInput, TouchableOpacity } from 'react-native';
-import { GiftedChat, Bubble } from 'react-native-gifted-chat';
+import { GiftedChat, Bubble, type BubbleProps } from 'react-native-gifted-chat';
 import { useAIChat } from '../use-ai-chat';
 import type { ChatScreenProps } from '../types';
 import { toGiftedMessages, type AdapterConfig, type GiftedMessage } from './message-adapter';
@@ -121,7 +121,7 @@ export function ChatScreen({
   );
 
   const renderBubble = useCallback(
-    (props: any) => (
+    (props: BubbleProps<GiftedMessage>) => (
       <Bubble
         {...props}
         wrapperStyle={{

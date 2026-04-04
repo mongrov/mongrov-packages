@@ -1,0 +1,60 @@
+{
+  "name": "@mongrov/db",
+  "version": "0.2.0",
+  "description": "Database utilities for @mongrov apps: KVStore + RxDB",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mongrov/mongrov-packages.git",
+    "directory": "packages/db"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "prebuild": "pnpm run clean",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-native": ">=0.74",
+    "react-native-mmkv": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "expo-secure-store": {
+      "optional": true
+    },
+    "rxdb": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^14.0.0",
+    "@types/jest": "^29.5.12",
+    "@types/react": "^18.2.0",
+    "expo-secure-store": "^55.0.11",
+    "jest": "^29.7.0",
+    "react": "^18.2.0",
+    "react-native": "^0.74.0",
+    "react-native-mmkv": "^3.0.0",
+    "rxdb": "^15.0.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.9.3"
+  }
+}

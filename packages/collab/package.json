@@ -1,0 +1,57 @@
+{
+  "name": "@mongrov/collab",
+  "version": "0.2.0",
+  "description": "Collaboration adapter for real-time messaging — supports RocketChat DDP and custom backends",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mongrov/mongrov-packages.git",
+    "directory": "packages/collab"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./adapters/rocketchat": {
+      "types": "./dist/adapters/rocketchat/index.d.ts",
+      "import": "./dist/adapters/rocketchat/index.js",
+      "default": "./dist/adapters/rocketchat/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "prebuild": "pnpm run clean",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@mongrov/types": "workspace:*",
+    "xstate": "^5.18.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^14.0.0",
+    "@types/jest": "^29.5.12",
+    "@types/react": "^18.2.0",
+    "@xstate/react": "^4.1.0",
+    "jest": "^29.7.0",
+    "react": "^18.2.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.9.3"
+  }
+}

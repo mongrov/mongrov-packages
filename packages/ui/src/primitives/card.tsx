@@ -1,12 +1,12 @@
 import * as React from 'react';
 import type { ViewProps } from 'react-native';
+import type { ReactNode } from 'react';
 import { Text as RNText, View } from 'react-native';
 
 import { Text, TextClassContext } from './text';
 import { cn } from './utils';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type CardProps = Omit<ViewProps, 'children'> & { className?: string; children?: any };
+type CardProps = Omit<ViewProps, 'children'> & { className?: string; children?: ReactNode };
 type TextWithClassName = React.ComponentProps<typeof RNText> & { className?: string };
 
 function Card({ className, children, ...props }: CardProps) {
