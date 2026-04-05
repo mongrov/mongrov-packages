@@ -73,7 +73,7 @@
     }
   },
   "devDependencies": {
-    "@mongrov/core": "workspace:*",
+    "@mongrov/core": "^0.4.0",
     "@testing-library/react": "^14.3.1",
     "@types/jest": "^29.5.12",
     "@types/react": "^18.2.0",

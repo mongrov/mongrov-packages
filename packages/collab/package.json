@@ -38,7 +38,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@mongrov/types": "workspace:*",
+    "@mongrov/types": "^0.2.0",
     "xstate": "^5.18.0"
   },
   "peerDependencies": {
