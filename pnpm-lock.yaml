@@ -86,8 +86,8 @@ importers:
         version: 5.30.0
     devDependencies:
       '@mongrov/core':
-        specifier: workspace:*
-        version: link:../core
+        specifier: ^0.4.0
+        version: 0.4.0(expo-file-system@55.0.12(expo@55.0.9)(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1)))(expo-network@55.0.9(expo@55.0.9)(react@18.3.1))(expo-router@55.0.8)(react-native-mmkv@4.3.0(react-native-nitro-modules@0.35.2(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1))(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1))(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)(uniwind@1.6.1(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)(tailwindcss@4.2.1))
       '@testing-library/react':
         specifier: ^14.3.1
         version: 14.3.1(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -125,8 +125,8 @@ importers:
   packages/collab:
     dependencies:
       '@mongrov/types':
-        specifier: workspace:*
-        version: link:../types
+        specifier: ^0.2.0
+        version: 0.2.0
       xstate:
         specifier: ^5.18.0
         version: 5.30.0
@@ -302,8 +302,8 @@ importers:
   packages/ui:
     dependencies:
       '@mongrov/types':
-        specifier: workspace:*
-        version: link:../types
+        specifier: ^0.2.0
+        version: 0.2.0
       '@rn-primitives/separator':
         specifier: '>=1'
         version: 1.4.0(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
@@ -1676,6 +1676,33 @@ packages:
 
   '@mongodb-js/saslprep@1.4.6':
     resolution: {integrity: sha512-y+x3H1xBZd38n10NZF/rEBlvDOOMQ6LKUTHqr8R9VkJ+mmQOYtJFxIlkkK8fZrtOiL6VixbOBWMbZGBdal3Z1g==}
+
+  '@mongrov/core@0.4.0':
+    resolution: {integrity: sha512-7RvB5wVoJjUdw30Helc59A6zbmqF3vlZggwMwdEJ5zC5qJdZJuhozo3J2yzer6Sv4EF/EfrW7KrXTNHjvo0ytw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      expo-file-system: '>=17'
+      expo-network: '>=6'
+      expo-router: '>=4'
+      react: '>=18'
+      react-native: '>=0.74'
+      react-native-mmkv: '>=3'
+      uniwind: '>=1'
+    peerDependenciesMeta:
+      expo-file-system:
+        optional: true
+      expo-network:
+        optional: true
+      expo-router:
+        optional: true
+      react-native-mmkv:
+        optional: true
+      uniwind:
+        optional: true
+
+  '@mongrov/types@0.2.0':
+    resolution: {integrity: sha512-xIPAtZcYyxHkVmusCvWUD6h02IE2S5mr8T/qWvGrva3maf+Aa1HrU1uqm+sb/Hvm9oa07OMUhqOP4I7VPWtjMQ==}
+    engines: {node: '>=18'}
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -8121,6 +8148,19 @@ snapshots:
   '@mongodb-js/saslprep@1.4.6':
     dependencies:
       sparse-bitfield: 3.0.3
+
+  '@mongrov/core@0.4.0(expo-file-system@55.0.12(expo@55.0.9)(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1)))(expo-network@55.0.9(expo@55.0.9)(react@18.3.1))(expo-router@55.0.8)(react-native-mmkv@4.3.0(react-native-nitro-modules@0.35.2(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1))(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1))(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)(uniwind@1.6.1(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)(tailwindcss@4.2.1))':
+    dependencies:
+      react: 18.3.1
+      react-native: 0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1)
+    optionalDependencies:
+      expo-file-system: 55.0.12(expo@55.0.9)(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))
+      expo-network: 55.0.9(expo@55.0.9)(react@18.3.1)
+      expo-router: 55.0.8(5bd9e02a1772e2c074e80c5e3a0cfe5d)
+      react-native-mmkv: 4.3.0(react-native-nitro-modules@0.35.2(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1))(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
+      uniwind: 1.6.1(react-native@0.74.7(@babel/core@7.29.0)(@babel/preset-env@7.29.2(@babel/core@7.29.0))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)(tailwindcss@4.2.1)
+
+  '@mongrov/types@0.2.0': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
