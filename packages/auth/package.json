@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/auth",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Auth lifecycle, token management, and biometric gate for React Native / Expo apps",
   "license": "MIT",
   "repository": {
