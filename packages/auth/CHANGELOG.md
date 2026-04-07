@@ -5,6 +5,22 @@ All notable changes to `@mongrov/auth` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-04-06
+
+### Added
+
+- **Social Authentication Hooks**:
+  - `useAppleAuth()`: Apple Sign In for iOS using expo-apple-authentication
+  - `useGoogleAuth()`: Google Sign In using expo-auth-session
+  - `useSocialAuth()`: Combined hook for all social providers
+- New types: `AppleAuthResult`, `GoogleAuthResult`, `SocialAuthResult`, `SocialAuthError`
+- Optional peer dependencies for social auth: expo-apple-authentication, expo-auth-session, expo-web-browser
+- 15 new tests for social auth hooks
+
+### Changed
+
+- Updated peer dependencies to include social auth packages as optional
+
 ## [0.5.0] - 2026-04-03
 
 ### Added

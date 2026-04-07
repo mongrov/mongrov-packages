@@ -21,7 +21,7 @@ npm install react react-native uniwind
 - **Primitives**: Base components (Button, Text, Card, Skeleton, Separator)
 - **State Components**: EmptyState, ErrorState, LoadingState
 - **Status Components**: StatusBadge, SyncIndicator, ConnectionIndicator, NetworkBanner
-- **Auth Components**: SocialLoginButton, SSOButton, AuthDivider
+- **Auth Components**: SocialLoginButton, SSOButton, AuthDivider, TenantPicker
 - **Renderers**: Headless components for messages, attachments, and reactions
 
 ## Usage
@@ -138,6 +138,48 @@ import { SocialLoginButton, SSOButton, AuthDivider } from '@mongrov/ui';
 <AuthDivider text="or continue with" />
 ```
 
+### Tenant Picker
+
+For multi-tenant applications, use `TenantPicker` and `TenantSelector`:
+
+```tsx
+import { TenantPicker, TenantSelector } from '@mongrov/ui';
+
+const tenants = [
+  { id: 'tenant-1', name: 'Acme Corp', description: 'Main organization' },
+  { id: 'tenant-2', name: 'Beta Inc', description: 'Secondary org' },
+];
+
+function TenantSettings() {
+  const [showPicker, setShowPicker] = useState(false);
+  const [selectedTenant, setSelectedTenant] = useState(tenants[0]);
+
+  return (
+    <>
+      {/* Inline selector button */}
+      <TenantSelector
+        tenant={selectedTenant}
+        onPress={() => setShowPicker(true)}
+        placeholder="Select organization"
+      />
+
+      {/* Modal picker */}
+      <TenantPicker
+        visible={showPicker}
+        tenants={tenants}
+        selectedId={selectedTenant?.id}
+        onSelect={(id) => {
+          setSelectedTenant(tenants.find(t => t.id === id) || null);
+          setShowPicker(false);
+        }}
+        onClose={() => setShowPicker(false)}
+        title="Select Organization"
+      />
+    </>
+  );
+}
+```
+
 ### Message Renderer
 
 Headless component for rendering chat messages:
@@ -226,6 +268,8 @@ import { ReactionPicker, EMOJI_CATEGORIES } from '@mongrov/ui';
 | `SocialLoginButton` | `provider`, `onPress`, `loading`, `disabled` | Social login button |
 | `SSOButton` | `onPress`, `providerName`, `label`, `loading`, `disabled` | Enterprise SSO button |
 | `AuthDivider` | `text` | Divider with text |
+| `TenantPicker` | `visible`, `tenants`, `selectedId`, `onSelect`, `onClose`, `title` | Modal tenant picker |
+| `TenantSelector` | `tenant`, `onPress`, `placeholder` | Inline tenant selector |
 
 ## License
 

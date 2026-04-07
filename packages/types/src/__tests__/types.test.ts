@@ -166,6 +166,18 @@ describe('Message types', () => {
       mimeType: 'audio/ogg',
       duration: 5,
     }
+    // v0.3.0 additions
+    const locationContent: MessageContent = {
+      type: 'location',
+      text: 'Meeting point',
+      latitude: 37.7749,
+      longitude: -122.4194,
+    }
+    const stickerContent: MessageContent = {
+      type: 'sticker',
+      uri: 'https://example.com/sticker.webp',
+      mimeType: 'image/webp',
+    }
 
     expect(textContent.type).toBe('text')
     expect(imageContent.type).toBe('image')
@@ -173,6 +185,40 @@ describe('Message types', () => {
     expect(videoContent.type).toBe('video')
     expect(fileContent.type).toBe('file')
     expect(voiceContent.type).toBe('voice')
+    expect(locationContent.type).toBe('location')
+    expect(locationContent.latitude).toBe(37.7749)
+    expect(stickerContent.type).toBe('sticker')
+  })
+
+  it('should create Message with v0.3.0 fields (updatedAt, editedBy, systemType)', () => {
+    const editor: Participant = { id: 'user-2', name: 'Editor', type: 'human' }
+    const sender: Participant = { id: 'user-1', name: 'John', type: 'human' }
+
+    const editedMessage: Message = {
+      id: 'msg-edited',
+      conversationId: 'conv-1',
+      sender,
+      content: { type: 'text', text: 'Edited content' },
+      deliveryStatus: 'delivered',
+      editedAt: '2026-04-05T12:00:00Z',
+      editedBy: editor,
+      updatedAt: '2026-04-05T12:00:00Z',
+      createdAt: '2026-04-05T10:00:00Z',
+    }
+
+    const systemMessage: Message = {
+      id: 'msg-system',
+      conversationId: 'conv-1',
+      sender: { id: 'system', name: 'System', type: 'system' },
+      content: { type: 'text', text: 'User joined the room' },
+      deliveryStatus: 'delivered',
+      systemType: 'user_joined',
+      createdAt: '2026-04-05T10:00:00Z',
+    }
+
+    expect(editedMessage.editedBy?.id).toBe('user-2')
+    expect(editedMessage.updatedAt).toBe('2026-04-05T12:00:00Z')
+    expect(systemMessage.systemType).toBe('user_joined')
   })
 
   it('should have correct DeliveryStatus values', () => {
@@ -288,6 +334,33 @@ describe('Conversation types', () => {
     }
 
     expect(member.role).toBe('admin')
+  })
+
+  it('should create Conversation with v0.3.0 fields (topic, description, metadata)', () => {
+    const conversation: Conversation = {
+      id: 'conv-3',
+      type: 'channel',
+      groupState: 'open',
+      name: 'Engineering',
+      members: [],
+      unreadCount: 0,
+      muted: false,
+      pinned: false,
+      topic: 'Engineering team discussions',
+      description: 'A channel for the engineering team to collaborate',
+      metadata: {
+        encrypted: true,
+        teamId: 'team-123',
+        broadcast: false,
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+
+    expect(conversation.topic).toBe('Engineering team discussions')
+    expect(conversation.description).toContain('engineering team')
+    expect(conversation.metadata?.encrypted).toBe(true)
+    expect(conversation.metadata?.teamId).toBe('team-123')
   })
 })
 

@@ -5,6 +5,27 @@ All notable changes to `@mongrov/types` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-06
+
+### Added
+
+- **Message v0.3.0 fields** (based on 5-platform schema validation: RC, Mattermost, Matrix, WhatsApp, Messenger):
+  - `editedBy?: Participant` — Who edited the message
+  - `updatedAt?: string` — Sync high-water mark (ISO 8601)
+  - `systemType?: string` — System events like `'user_joined'`, `'room_renamed'`
+- **MessageContent v0.3.0 additions**:
+  - Added `'location'` and `'sticker'` to content type union
+  - `latitude?: number` — For location content
+  - `longitude?: number` — For location content
+- **Conversation v0.3.0 fields**:
+  - `topic?: string` — Room topic
+  - `description?: string` — Room description
+  - `metadata?: Record<string, unknown>` — Backend-specific fields bag
+
+### Changed
+
+- Updated type-level compile tests for all v0.3.0 additions
+
 ## [0.2.0] - 2026-04-03
 
 ### Added

@@ -34,7 +34,9 @@ const message: Message = {
 ### Message Types
 
 - `Message` — Full message with sender, content, attachments, reactions
-- `MessageContent` — Content payload (text, image, audio, video, file, voice)
+  - v0.3.0: Added `editedBy`, `updatedAt`, `systemType` fields
+- `MessageContent` — Content payload (text, image, audio, video, file, voice, location, sticker)
+  - v0.3.0: Added `location` and `sticker` types with `latitude`/`longitude` support
 - `Attachment` — File attachment with metadata
 - `Reaction` — Emoji reaction with user list
 - `DeliveryStatus` — `'sending' | 'sent' | 'delivered' | 'read' | 'failed'`
@@ -42,6 +44,7 @@ const message: Message = {
 ### Conversation Types
 
 - `Conversation` — Chat room with members, state, unread count
+  - v0.3.0: Added `topic`, `description`, `metadata` fields
 - `Member` — Participant with role in a conversation
 - `CreateConversationConfig` — Config for creating new conversations
 - `ConversationType` — `'1:1' | 'group' | 'channel'`

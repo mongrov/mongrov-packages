@@ -16,6 +16,9 @@ export interface Conversation {
   unreadCount: number
   muted: boolean
   pinned: boolean
+  topic?: string // room topic (v0.3.0)
+  description?: string // room description (v0.3.0)
+  metadata?: Record<string, unknown> // backend-specific fields bag (v0.3.0)
   createdAt: string
   updatedAt: string
 }

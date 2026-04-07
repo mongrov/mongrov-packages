@@ -6,13 +6,13 @@ Shared npm packages for Mongrov React Native / Expo apps.
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@mongrov/types`](./packages/types) | 0.2.0 | Shared TypeScript type definitions |
+| [`@mongrov/types`](./packages/types) | 0.3.0 | Shared TypeScript type definitions |
 | [`@mongrov/core`](./packages/core) | 0.4.0 | Structured logging framework |
 | [`@mongrov/theme`](./packages/theme) | 0.3.0 | Theme contract and color scheme management |
-| [`@mongrov/auth`](./packages/auth) | 0.5.0 | Auth lifecycle, token management, biometric |
-| [`@mongrov/db`](./packages/db) | 0.2.0 | Database utilities (KVStore + RxDB) |
-| [`@mongrov/collab`](./packages/collab) | 0.2.0 | Collaboration adapter for messaging |
-| [`@mongrov/ui`](./packages/ui) | 0.4.0 | Shared UI primitives for React Native |
+| [`@mongrov/auth`](./packages/auth) | 0.5.1 | Auth lifecycle, token management, biometric, social auth |
+| [`@mongrov/db`](./packages/db) | 0.2.3 | Database utilities (KVStore + RxDB) |
+| [`@mongrov/collab`](./packages/collab) | 0.2.1 | Collaboration adapter for messaging |
+| [`@mongrov/ui`](./packages/ui) | 0.4.1 | Shared UI primitives for React Native |
 | [`@mongrov/ai`](./packages/ai) | 0.2.0 | AI chat hooks with XState integration |
 
 ## Installation

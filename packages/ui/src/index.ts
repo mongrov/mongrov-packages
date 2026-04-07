@@ -38,6 +38,7 @@ export { ConnectionIndicator } from './ConnectionIndicator';
 export { SocialLoginButton } from './SocialLoginButton';
 export { SSOButton } from './SSOButton';
 export { AuthDivider } from './AuthDivider';
+export { TenantPicker, TenantSelector } from './TenantPicker';
 
 // Types
 export type {
@@ -57,6 +58,7 @@ export type {
 export type { SocialLoginButtonProps, SocialProvider } from './SocialLoginButton';
 export type { SSOButtonProps } from './SSOButton';
 export type { AuthDividerProps } from './AuthDivider';
+export type { TenantPickerProps, TenantPickerItem, TenantSelectorProps } from './TenantPicker';
 
 // Renderers (headless components)
 export {

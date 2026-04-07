@@ -17,6 +17,22 @@ export { SecureTokenStore } from './secure-token-store';
 // Biometric
 export { useBiometricGate } from './biometric';
 
+// Social Auth
+export {
+  useAppleAuth,
+  useGoogleAuth,
+  useSocialAuth,
+} from './social-auth';
+export type {
+  AppleAuthResult,
+  GoogleAuthResult,
+  SocialAuthResult,
+  SocialAuthError,
+  SocialAuthHookResult,
+  GoogleAuthConfig,
+  SocialAuthConfig,
+} from './social-auth';
+
 // Types
 export type {
   AuthAdapter,

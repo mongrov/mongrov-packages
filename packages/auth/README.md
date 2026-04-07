@@ -9,6 +9,7 @@ Auth lifecycle, token management, and biometric gate for React Native / Expo app
 - **Proactive token refresh** — timer-based refresh before expiry
 - **401 interceptor** — Axios interceptor with single-flight refresh and request queueing
 - **Biometric gate** — optional biometric authentication via expo-local-authentication
+- **Social auth hooks** — Apple Sign In, Google Sign In with native OAuth
 - **React context** — `AuthProvider`, `useAuth()`, `useSession()` hooks
 - **Zustand state machine** — `idle → authenticating → authenticated → error`
 
@@ -93,6 +94,79 @@ import { createAuthInterceptor } from '@mongrov/auth/interceptor';
 ### `useBiometricGate()`
 
 Returns `{ isAvailable, isAuthenticated, authenticate, error }`. Falls back gracefully when expo-local-authentication is unavailable.
+
+### Social Auth Hooks
+
+Native social authentication hooks for Apple and Google sign-in.
+
+#### `useAppleAuth()`
+
+Apple Sign In for iOS using expo-apple-authentication.
+
+```tsx
+import { useAppleAuth } from '@mongrov/auth';
+
+function AppleButton() {
+  const { signIn, loading, error, isAvailable } = useAppleAuth();
+
+  if (!isAvailable) return null; // Only available on iOS
+
+  const handlePress = async () => {
+    const result = await signIn();
+    if (result) {
+      // Pass result.identityToken to your backend
+      await authClient.signIn({ provider: 'apple', token: result.identityToken });
+    }
+  };
+
+  return <Button onPress={handlePress} loading={loading} title="Sign in with Apple" />;
+}
+```
+
+#### `useGoogleAuth(config)`
+
+Google Sign In using expo-auth-session.
+
+```tsx
+import { useGoogleAuth } from '@mongrov/auth';
+
+function GoogleButton() {
+  const { signIn, loading, error } = useGoogleAuth({
+    iosClientId: 'xxx.apps.googleusercontent.com',
+    androidClientId: 'yyy.apps.googleusercontent.com',
+    webClientId: 'zzz.apps.googleusercontent.com', // For Expo Go
+  });
+
+  const handlePress = async () => {
+    const result = await signIn();
+    if (result) {
+      // Pass result.idToken to your backend
+      await authClient.signIn({ provider: 'google', token: result.idToken });
+    }
+  };
+
+  return <Button onPress={handlePress} loading={loading} title="Sign in with Google" />;
+}
+```
+
+#### `useSocialAuth(config)`
+
+Combined hook for all social providers.
+
+```tsx
+import { useSocialAuth } from '@mongrov/auth';
+
+const { apple, google, signInWith, loading } = useSocialAuth({
+  google: { webClientId: 'xxx.apps.googleusercontent.com' },
+});
+
+// Use specific provider hooks
+await apple.signIn();
+await google.signIn();
+
+// Or use generic signInWith
+const result = await signInWith('apple');
+```
 
 ## License
 
