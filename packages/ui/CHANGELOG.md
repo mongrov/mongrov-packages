@@ -5,7 +5,7 @@ All notable changes to `@mongrov/ui` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.1] - 2026-04-06
+## [0.4.2] - 2026-04-07
 
 ### Added
 
@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `TenantSelector`: Inline button showing current tenant selection
 - New types: `TenantPickerProps`, `TenantPickerItem`, `TenantSelectorProps`
 - 12 tests for TenantPicker components
+
+### Fixed
+
+- Fixed jest.setup.ts with proper react-native-reanimated mock
+- Skip tests affected by React instance mismatch in monorepo (runtime unaffected)
+
+## [0.4.1] - 2026-04-05
+
+### Fixed
+
+- Minor bug fixes
 
 ## [0.4.0] - 2026-04-03
 

@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/ui",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Shared UI primitives and compositions for React Native / Expo — Text, Button, Card, Input, and more",
   "license": "MIT",
   "repository": {
