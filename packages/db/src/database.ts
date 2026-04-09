@@ -6,7 +6,7 @@
  */
 
 import { createRxDatabase, addRxPlugin } from 'rxdb'
-import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema'
+import { RxDBMigrationPlugin } from 'rxdb/plugins/migration-schema'
 
 import type {
   DatabaseConfig,
@@ -15,7 +15,7 @@ import type {
 } from './types'
 
 // Add migration plugin for schema upgrades
-addRxPlugin(RxDBMigrationSchemaPlugin)
+addRxPlugin(RxDBMigrationPlugin)
 
 /**
  * Default no-op logger for when none is provided.
