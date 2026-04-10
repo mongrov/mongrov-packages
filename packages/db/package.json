@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/db",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Database utilities for @mongrov apps: KVStore + RxDB",
   "license": "MIT",
   "repository": {
