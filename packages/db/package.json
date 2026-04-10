@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/db",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Database utilities for @mongrov apps: KVStore + RxDB",
   "license": "MIT",
   "repository": {
@@ -36,10 +36,10 @@
     "prepublishOnly": "pnpm run build"
   },
   "peerDependencies": {
+    "expo-secure-store": ">=14",
     "react": ">=18",
     "react-native": ">=0.74",
     "react-native-mmkv": ">=3",
-    "expo-secure-store": ">=14",
     "rxdb": ">=15"
   },
   "peerDependenciesMeta": {
@@ -53,6 +53,7 @@
   "devDependencies": {
     "@testing-library/react": "^14.0.0",
     "@types/jest": "^29.5.12",
+    "@types/node": "^25.6.0",
     "@types/react": "^18.2.0",
     "expo-secure-store": "^55.0.11",
     "jest": "^29.7.0",
