@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [core, auth, ui, ai]
+        package: [types, core, auth, ui, ai, db, theme, collab]
     steps:
       - uses: actions/checkout@v4
 
