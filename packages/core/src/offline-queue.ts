@@ -103,7 +103,7 @@ export class OfflineQueue {
       } catch (error) {
         if (attempt < this.maxRetries - 1) {
           const delay = BASE_DELAY_MS * Math.pow(2, attempt)
-          await new Promise((resolve) => setTimeout(resolve, delay))
+          await new Promise<void>((resolve) => setTimeout(resolve, delay))
         } else {
           // All retries exhausted — throw so caller knows entries were NOT sent
           throw error
