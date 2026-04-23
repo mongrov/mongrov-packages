@@ -32,30 +32,21 @@ jest.mock('expo-apple-authentication', () => ({
   },
 }));
 
-// Mock expo-auth-session
-const mockPromptAsync = jest.fn();
-const mockMakeAuthUrlAsync = jest.fn();
+// Mock @react-native-google-signin/google-signin
+const mockGoogleSigninConfigure = jest.fn();
+const mockGoogleSigninSignIn = jest.fn();
+const mockGoogleSigninGetTokens = jest.fn();
+const mockGoogleSigninHasPlayServices = jest.fn();
 
-jest.mock('expo-auth-session', () => ({
-  makeRedirectUri: jest.fn(() => 'exp://redirect'),
-  ResponseType: {
-    Token: 'token',
+jest.mock('@react-native-google-signin/google-signin', () => ({
+  GoogleSignin: {
+    configure: mockGoogleSigninConfigure,
+    signIn: mockGoogleSigninSignIn,
+    getTokens: mockGoogleSigninGetTokens,
+    hasPlayServices: mockGoogleSigninHasPlayServices,
   },
-  AuthRequest: jest.fn().mockImplementation(() => ({
-    makeAuthUrlAsync: mockMakeAuthUrlAsync,
-    promptAsync: mockPromptAsync,
-  })),
-}));
-
-jest.mock('expo-auth-session/providers/google', () => ({
-  discovery: {
-    authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-    tokenEndpoint: 'https://oauth2.googleapis.com/token',
-  },
-}));
-
-jest.mock('expo-web-browser', () => ({
-  maybeCompleteAuthSession: jest.fn(),
+  isSuccessResponse: (response) => response.data !== undefined,
+  isCancelledResponse: (response) => response.cancelled === true,
 }));
 
 describe('useAppleAuth', () => {
@@ -189,11 +180,15 @@ describe('useAppleAuth', () => {
 describe('useGoogleAuth', () => {
   const config = {
     webClientId: 'test-web-client-id.apps.googleusercontent.com',
+    iosClientId: 'test-ios-client-id.apps.googleusercontent.com',
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockMakeAuthUrlAsync.mockResolvedValue(undefined);
+    (Platform.OS as string) = 'ios';
+    mockGoogleSigninGetTokens.mockResolvedValue({
+      accessToken: 'mock-access-token',
+    });
   });
 
   it('should return initial state', () => {
@@ -205,11 +200,9 @@ describe('useGoogleAuth', () => {
   });
 
   it('should handle successful Google sign-in', async () => {
-    mockPromptAsync.mockResolvedValue({
-      type: 'success',
-      params: {
+    mockGoogleSigninSignIn.mockResolvedValue({
+      data: {
         idToken: 'mock-id-token',
-        accessToken: 'mock-access-token',
       },
     });
 
@@ -225,11 +218,16 @@ describe('useGoogleAuth', () => {
       idToken: 'mock-id-token',
       accessToken: 'mock-access-token',
     });
+    expect(mockGoogleSigninConfigure).toHaveBeenCalledWith({
+      webClientId: config.webClientId,
+      iosClientId: config.iosClientId,
+      offlineAccess: true,
+    });
   });
 
   it('should handle user cancellation', async () => {
-    mockPromptAsync.mockResolvedValue({
-      type: 'cancel',
+    mockGoogleSigninSignIn.mockResolvedValue({
+      cancelled: true,
     });
 
     const { result } = renderHook(() => useGoogleAuth(config));
@@ -244,7 +242,44 @@ describe('useGoogleAuth', () => {
   });
 
   it('should handle sign-in failure', async () => {
-    mockPromptAsync.mockRejectedValue(new Error('Network error'));
+    mockGoogleSigninSignIn.mockRejectedValue(new Error('Network error'));
+
+    const { result } = renderHook(() => useGoogleAuth(config));
+
+    let signInResult: any;
+    await act(async () => {
+      signInResult = await result.current.signIn();
+    });
+
+    expect(signInResult).toBeNull();
+    expect(result.current.error?.code).toBe('SOCIAL_AUTH_FAILED');
+  });
+
+  it('should check Play Services on Android', async () => {
+    (Platform.OS as string) = 'android';
+    mockGoogleSigninSignIn.mockResolvedValue({
+      data: {
+        idToken: 'mock-id-token',
+      },
+    });
+
+    const { result } = renderHook(() => useGoogleAuth(config));
+
+    await act(async () => {
+      await result.current.signIn();
+    });
+
+    expect(mockGoogleSigninHasPlayServices).toHaveBeenCalledWith({
+      showPlayServicesUpdateDialog: true,
+    });
+  });
+
+  it('should handle missing idToken', async () => {
+    mockGoogleSigninSignIn.mockResolvedValue({
+      data: {
+        // No idToken
+      },
+    });
 
     const { result } = renderHook(() => useGoogleAuth(config));
 
@@ -269,7 +304,9 @@ describe('useSocialAuth', () => {
     jest.clearAllMocks();
     (Platform.OS as string) = 'ios';
     mockAppleIsAvailable.mockResolvedValue(true);
-    mockMakeAuthUrlAsync.mockResolvedValue(undefined);
+    mockGoogleSigninGetTokens.mockResolvedValue({
+      accessToken: 'mock-access-token',
+    });
   });
 
   it('should provide access to all social auth providers', () => {
