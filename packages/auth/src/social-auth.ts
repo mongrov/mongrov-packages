@@ -46,8 +46,8 @@ export interface GoogleAuthResult {
   provider: 'google';
   /** Google ID token (JWT) */
   idToken: string;
-  /** Access token for Google APIs */
-  accessToken: string;
+  /** Access token for Google APIs (may be null) */
+  accessToken: string | null;
 }
 
 export type SocialAuthResult = AppleAuthResult | GoogleAuthResult;
@@ -194,17 +194,17 @@ export interface GoogleAuthConfig {
 }
 
 /**
- * Hook for Google Sign In using expo-auth-session.
+ * Hook for Google Sign In using @react-native-google-signin/google-signin v16.
  *
  * Requirements:
- * - expo-auth-session and expo-web-browser must be installed
- * - Google OAuth client IDs configured for each platform
+ * - @react-native-google-signin/google-signin v16+ installed
+ * - On Android: clientId auto-detected from google-services.json
+ * - On iOS: iosClientId and webClientId required
  *
  * @example
  * ```tsx
  * const { signIn, loading, error } = useGoogleAuth({
  *   iosClientId: 'xxx.apps.googleusercontent.com',
- *   androidClientId: 'yyy.apps.googleusercontent.com',
  *   webClientId: 'zzz.apps.googleusercontent.com',
  * });
  *
@@ -232,57 +232,40 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
     setError(null);
 
     try {
-      // Dynamically import to keep dependencies optional
-      const AuthSession = await import('expo-auth-session');
-      const Google = await import('expo-auth-session/providers/google');
-      const WebBrowser = await import('expo-web-browser');
+      const { GoogleSignin, isSuccessResponse, isCancelledResponse } =
+        await import('@react-native-google-signin/google-signin');
 
-      // Warm up the browser for faster auth
-      WebBrowser.maybeCompleteAuthSession();
-
-      // Get the redirect URI
-      const redirectUri = AuthSession.makeRedirectUri({
-        scheme: undefined, // Uses app scheme from app.json
+      GoogleSignin.configure({
+        webClientId: config.webClientId,
+        iosClientId: config.iosClientId,
+        offlineAccess: true,
       });
 
-      // Build the auth request
-      const discovery = Google.discovery;
-      const request = new AuthSession.AuthRequest({
-        clientId: Platform.select({
-          ios: config.iosClientId,
-          android: config.androidClientId,
-          default: config.webClientId,
-        }) || config.webClientId || '',
-        scopes: ['openid', 'profile', 'email', ...(config.scopes || [])],
-        redirectUri,
-        responseType: AuthSession.ResponseType.Token,
-        extraParams: {
-          access_type: 'offline',
-        },
-      });
+      if (Platform.OS === 'android') {
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      }
 
-      await request.makeAuthUrlAsync(discovery);
-      const result = await request.promptAsync(discovery);
+      const response = await GoogleSignin.signIn();
 
-      if (result.type === 'cancel' || result.type === 'dismiss') {
-        // User cancelled - not an error
+      if (isCancelledResponse(response)) {
         return null;
       }
 
-      if (result.type !== 'success') {
-        throw new Error(`Google Sign In failed: ${result.type}`);
+      if (!isSuccessResponse(response)) {
+        throw new Error('Google Sign In did not return a success response');
       }
 
-      const { accessToken, idToken } = result.params;
-
-      if (!idToken || !accessToken) {
-        throw new Error('Google Sign In did not return required tokens');
+      const idToken = response.data?.idToken;
+      if (!idToken) {
+        throw new Error('Google Sign In did not return an idToken');
       }
+
+      const tokens = await GoogleSignin.getTokens();
 
       return {
         provider: 'google',
         idToken,
-        accessToken,
+        accessToken: tokens.accessToken ?? null,
       };
     } catch (err) {
       const error = err as Error;
@@ -295,7 +278,7 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
     } finally {
       setLoading(false);
     }
-  }, [config]);
+  }, [config.webClientId, config.iosClientId]);
 
   return {
     signIn,

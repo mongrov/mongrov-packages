@@ -75,10 +75,13 @@ describe('AuthProvider', () => {
   });
 
   it('useAuth throws outside AuthProvider', () => {
-    expect(() => {
-      renderHook(() => useAuth());
-    }).toThrow('useAuth must be used within an AuthProvider');
-  });
+  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  expect(() => {
+    renderHook(() => useAuth());
+  }).toThrow('useAuth must be used within an AuthProvider');
+  
+  consoleSpy.mockRestore();
+});
 
   it('signIn updates state to authenticated', async () => {
     const adapter = createMockAdapter();
@@ -114,8 +117,12 @@ describe('AuthProvider', () => {
   });
 
   it('useAuthClient throws outside AuthProvider', () => {
-    expect(() => {
-      renderHook(() => useAuthClient());
-    }).toThrow('useAuthClient must be used within an AuthProvider');
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+  expect(() => {
+    renderHook(() => useAuthClient());
+  }).toThrow('useAuthClient must be used within an AuthProvider');
+
+  consoleSpy.mockRestore();
   });
 });
