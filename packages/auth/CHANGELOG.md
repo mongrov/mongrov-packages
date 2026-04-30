@@ -5,6 +5,18 @@ All notable changes to `@mongrov/auth` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-30
+
+### Fixed
+- **`scopes` config now honored**: `GoogleAuthConfig.scopes` is passed through to `GoogleSignin.configure()`. This restores parity with 0.5.2, where custom scopes were respected (regression introduced in 0.6.0).
+- **Resilient access token fetch**: `GoogleSignin.getTokens()` failures no longer fail the entire sign-in. The user is signed in to the SDK regardless; the hook returns `accessToken: null` and the caller can refetch later.
+
+### Deprecated
+- `GoogleAuthConfig.androidClientId` is now marked `@deprecated`. It has had no effect since 0.6.0 (Android client ID is auto-detected from `google-services.json`). Will be removed in a future major release.
+
+### Internal
+- Test indentation cleanup in `auth-provider.test.tsx`.
+
 ## [0.6.0] - 2026-04-23
 
 ### BREAKING CHANGES

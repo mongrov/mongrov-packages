@@ -185,9 +185,12 @@ export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
 export interface GoogleAuthConfig {
   /** Google OAuth client ID for iOS */
   iosClientId?: string;
-  /** Google OAuth client ID for Android */
+  /**
+   * Google OAuth client ID for Android.
+   * @deprecated Auto-detected from `google-services.json` on Android. This field has no effect and will be removed in a future major release.
+   */
   androidClientId?: string;
-  /** Google OAuth client ID for web (Expo Go uses this) */
+  /** Google OAuth client ID for web (used as the server client ID) */
   webClientId?: string;
   /** Additional OAuth scopes beyond openid/email/profile */
   scopes?: string[];
@@ -238,6 +241,7 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
       GoogleSignin.configure({
         webClientId: config.webClientId,
         iosClientId: config.iosClientId,
+        scopes: config.scopes,
         offlineAccess: true,
       });
 
@@ -260,12 +264,18 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
         throw new Error('Google Sign In did not return an idToken');
       }
 
-      const tokens = await GoogleSignin.getTokens();
+      let accessToken: string | null = null;
+      try {
+        const tokens = await GoogleSignin.getTokens();
+        accessToken = tokens.accessToken ?? null;
+      } catch {
+        // Sign-in succeeded; access token can be fetched later via GoogleSignin.getTokens()
+      }
 
       return {
         provider: 'google',
         idToken,
-        accessToken: tokens.accessToken ?? null,
+        accessToken,
       };
     } catch (err) {
       const error = err as Error;
@@ -278,7 +288,7 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
     } finally {
       setLoading(false);
     }
-  }, [config.webClientId, config.iosClientId]);
+  }, [config.webClientId, config.iosClientId, config.scopes]);
 
   return {
     signIn,
