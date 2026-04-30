@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.6.0] - 2026-04-23
 
+### BREAKING CHANGES
+
+- **Google Sign-In backend swapped from `expo-auth-session` to `@react-native-google-signin/google-signin` (v16+).** This is a native module — **does not work in Expo Go**; consumers must use a dev client and rebuild the app.
+- **Peer dependencies changed**:
+  - Removed: `expo-auth-session`, `expo-web-browser`
+  - Added: `@react-native-google-signin/google-signin >=16` (optional)
+- **`GoogleAuthResult.accessToken` type changed** from `string` to `string | null`. The token is fetched separately after sign-in and may be `null` if that fetch fails.
+
+#### Migration
+
+```diff
+- pnpm remove expo-auth-session expo-web-browser
++ pnpm add @react-native-google-signin/google-signin
+```
+
+Then rebuild the native app (or `eas build`). The hook API is unchanged for the common case:
+
+```tsx
+const { signIn } = useGoogleAuth({
+  iosClientId: '...',
+  webClientId: '...',
+});
+```
+
+If you read `result.accessToken`, narrow for `null`:
+
+```ts
+if (result?.accessToken) { /* ... */ }
+```
+
 ### Added
 - **Native Google Sign-in**: Integrated `@react-native-google-signin/google-signin` for a robust, native authentication experience.
 - **Unit Tests**: Added comprehensive test coverage for native authentication logic and hooks.

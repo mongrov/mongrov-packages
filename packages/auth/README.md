@@ -125,7 +125,7 @@ function AppleButton() {
 
 #### `useGoogleAuth(config)`
 
-Google Sign In using expo-auth-session.
+Google Sign In using `@react-native-google-signin/google-signin` (v16+). Requires a native rebuild — does **not** work in Expo Go (use a dev client).
 
 ```tsx
 import { useGoogleAuth } from '@mongrov/auth';
@@ -133,8 +133,7 @@ import { useGoogleAuth } from '@mongrov/auth';
 function GoogleButton() {
   const { signIn, loading, error } = useGoogleAuth({
     iosClientId: 'xxx.apps.googleusercontent.com',
-    androidClientId: 'yyy.apps.googleusercontent.com',
-    webClientId: 'zzz.apps.googleusercontent.com', // For Expo Go
+    webClientId: 'zzz.apps.googleusercontent.com',
   });
 
   const handlePress = async () => {
@@ -148,6 +147,8 @@ function GoogleButton() {
   return <Button onPress={handlePress} loading={loading} title="Sign in with Google" />;
 }
 ```
+
+On Android, the client ID is auto-detected from `google-services.json`; pass `webClientId` (and `iosClientId` on iOS). The returned `accessToken` may be `null` if the token fetch fails after a successful sign-in.
 
 #### `useSocialAuth(config)`
 
