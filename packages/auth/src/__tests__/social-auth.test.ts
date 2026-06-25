@@ -24,8 +24,10 @@ const mockAppleSignIn = jest.fn();
 const mockAppleIsAvailable = jest.fn();
 
 jest.mock('expo-apple-authentication', () => ({
-  signInAsync: mockAppleSignIn,
-  isAvailableAsync: mockAppleIsAvailable,
+  // Lazy refs so the mock factory (called at module-load time, before the
+  // const initializers below run) doesn't trip TDZ on mockApple*.
+  signInAsync: (...args: any[]) => mockAppleSignIn(...args),
+  isAvailableAsync: (...args: any[]) => mockAppleIsAvailable(...args),
   AppleAuthenticationScope: {
     FULL_NAME: 0,
     EMAIL: 1,
@@ -39,14 +41,15 @@ const mockGoogleSigninGetTokens = jest.fn();
 const mockGoogleSigninHasPlayServices = jest.fn();
 
 jest.mock('@react-native-google-signin/google-signin', () => ({
+  // Lazy refs — see Apple mock above for rationale.
   GoogleSignin: {
-    configure: mockGoogleSigninConfigure,
-    signIn: mockGoogleSigninSignIn,
-    getTokens: mockGoogleSigninGetTokens,
-    hasPlayServices: mockGoogleSigninHasPlayServices,
+    configure: (...args: any[]) => mockGoogleSigninConfigure(...args),
+    signIn: (...args: any[]) => mockGoogleSigninSignIn(...args),
+    getTokens: (...args: any[]) => mockGoogleSigninGetTokens(...args),
+    hasPlayServices: (...args: any[]) => mockGoogleSigninHasPlayServices(...args),
   },
-  isSuccessResponse: (response) => response.data !== undefined,
-  isCancelledResponse: (response) => response.cancelled === true,
+  isSuccessResponse: (response: any) => response.data !== undefined,
+  isCancelledResponse: (response: any) => response.cancelled === true,
 }));
 
 describe('useAppleAuth', () => {

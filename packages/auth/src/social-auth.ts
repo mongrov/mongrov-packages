@@ -13,6 +13,12 @@
  * ```
  */
 
+import * as AppleAuthentication from 'expo-apple-authentication';
+import {
+  GoogleSignin,
+  isCancelledResponse,
+  isSuccessResponse,
+} from '@react-native-google-signin/google-signin';
 import { useCallback, useState } from 'react';
 import { Platform } from 'react-native';
 
@@ -113,9 +119,6 @@ export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
     setError(null);
 
     try {
-      // Dynamically import to avoid bundling issues on non-iOS platforms
-      const AppleAuthentication = await import('expo-apple-authentication');
-
       // Check if available at runtime (iOS 13+)
       const available = await AppleAuthentication.isAvailableAsync();
       if (!available) {
@@ -235,9 +238,6 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
     setError(null);
 
     try {
-      const { GoogleSignin, isSuccessResponse, isCancelledResponse } =
-        await import('@react-native-google-signin/google-signin');
-
       GoogleSignin.configure({
         webClientId: config.webClientId,
         iosClientId: config.iosClientId,

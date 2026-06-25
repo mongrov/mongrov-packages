@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/auth",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Auth lifecycle, token management, and biometric gate for React Native / Expo apps",
   "license": "MIT",
   "repository": {
@@ -32,6 +32,11 @@
       "types": "./dist/interceptor.d.ts",
       "import": "./dist/interceptor.js",
       "default": "./dist/interceptor.js"
+    },
+    "./social-auth": {
+      "types": "./dist/social-auth.d.ts",
+      "import": "./dist/social-auth.js",
+      "default": "./dist/social-auth.js"
     }
   },
   "files": [
