@@ -1,46 +1,24 @@
 /**
- * @mongrov/db
+ * @mongrov/db — root entry (zero-runtime types barrel)
  *
- * Database utilities for @mongrov apps:
- * - KVStore: Unified async key-value storage (MMKV + SecureStore)
- * - TokenStore: Auth token persistence backed by KVStore
- * - RxDB: Document database with reactive queries
+ * Engine code lives in the subpaths:
+ *   @mongrov/db/kv          — KVStore (MMKV + SecureStore). Shipped.
+ *   @mongrov/db/docs        — RxDB document database. Used by @mongrov/collab.
+ *   @mongrov/db/timeseries  — Append-only device-reading engine. D3.
+ *
+ * This entry exports **only types** so apps (and other @mongrov/* packages)
+ * can declare ports against the contract without pulling any engine runtime.
+ * See `features/db/design.md` §1.
  */
 
-// KVStore
-export { createKVStore } from './kv-store'
-
-// TokenStore (for @mongrov/auth integration)
-export { createTokenStore } from './token-store'
-export type { TokenStore } from './token-store'
-
-// RxDB Database
-export { createDatabase, destroyDatabase } from './database'
-export {
-  DatabaseProvider,
-  useDatabase,
-  useCollection,
-  useQuery,
-  useDocument,
-} from './hooks'
+// Cross-engine types (no runtime)
 export type {
-  DatabaseProviderProps,
-  QueryResult,
-  DocumentResult,
-} from './hooks'
-
-// Replication
-export {
-  createReplicationState,
-  cancelReplication,
-  resyncReplication,
-} from './replication'
-
-// Types
-export type {
+  // KV
   KVStore,
   KVStoreConfig,
+  // Logging
   DBLogger,
+  // Docs engine
   DatabaseConfig,
   CollectionConfig,
   MigrationStrategies,
@@ -56,4 +34,12 @@ export type {
   ReplicationPushHandler,
   ReplicationPullHandler,
   ReplicationConfig,
+  // Timeseries engine (D3 stub)
+  TimeseriesHWM,
+  ReadingSink,
+  RemoteTarget,
+  TimeseriesEngine,
 } from './types'
+
+// TokenStore type re-exported for @mongrov/auth integration.
+export type { TokenStore } from './token-store'

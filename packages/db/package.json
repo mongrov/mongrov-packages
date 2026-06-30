@@ -1,7 +1,7 @@
 {
   "name": "@mongrov/db",
-  "version": "0.2.5",
-  "description": "Database utilities for @mongrov apps: KVStore + RxDB",
+  "version": "0.3.0",
+  "description": "Database utilities for @mongrov apps: KVStore + RxDB docs + timeseries (two-engine)",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,6 +21,14 @@
     "./kv": {
       "types": "./dist/kv.d.ts",
       "import": "./dist/kv.js"
+    },
+    "./docs": {
+      "types": "./dist/docs.d.ts",
+      "import": "./dist/docs.js"
+    },
+    "./timeseries": {
+      "types": "./dist/timeseries.d.ts",
+      "import": "./dist/timeseries.js"
     }
   },
   "files": [

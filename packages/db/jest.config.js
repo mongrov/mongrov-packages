@@ -13,6 +13,16 @@ module.exports = {
     '^rxdb/plugins/migration-schema$': '<rootDir>/__mocks__/rxdb/plugins/migration-schema.ts',
     '^rxdb/plugins/replication$': '<rootDir>/__mocks__/rxdb/plugins/replication.ts',
   },
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    // Pure barrel files — re-exports only, nothing to test directly.
+    '!src/index.ts',
+    '!src/kv.ts',
+    '!src/docs.ts',
+    '!src/timeseries.ts',
+    '!src/types.ts',
+    '!src/kv-backends/index.ts',
+  ],
   coverageThreshold: {
     global: {
       branches: 70,

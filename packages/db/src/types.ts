@@ -180,6 +180,71 @@ export type ReplicationPullHandler<T = RxDocumentType> = (
   checkpoint: ReplicationCheckpoint | null
 }>
 
+// ─── Timeseries (D3 stub) ──────────────────────────────────────────────────
+// Port shapes for the timeseries engine. Implementation lands in D3
+// (`@mongrov/db/timeseries`); these types ship in D1 so device + app code can
+// type against the contract today. See `features/db/design.md` §4.
+
+/**
+ * Opaque high-water mark used by timeseries replication to track flush
+ * progress. Engine implementations choose the concrete shape (timestamp,
+ * monotonic counter, vendor cursor object).
+ */
+export type TimeseriesHWM = unknown
+
+/**
+ * Append-only sink for device readings. Idempotent: implementations dedup on
+ * `(deviceId, metric, ts)` so live + backlog overlap collapses to one row.
+ * Satisfies `@mongrov/device`'s `ReadingSink` port (see device-design §3).
+ */
+export interface ReadingSink<TReading = unknown> {
+  write(batch: TReading[]): Promise<void>
+}
+
+/**
+ * Pluggable remote target for either replication direction. The replication
+ * machine is engine-agnostic — only the target differs (Postgres/REST for
+ * docs; S3-parquet/InfluxDB/HTTP-batch for timeseries).
+ */
+export interface RemoteTarget<TBatch, THWM = TimeseriesHWM> {
+  pull?(since: THWM | null): AsyncIterable<TBatch>
+  push?(batch: TBatch): Promise<{ ack: THWM }>
+}
+
+/**
+ * Pluggable timeseries engine. v1 ships a `TimonEngine` adapter wrapping the
+ * native S3-parquet bridge; v2 adds an RxDB-backed fallback. Apps inject one
+ * via `<TimeseriesProvider engine={...}>`.
+ */
+export interface TimeseriesEngine<TReading = unknown> {
+  /** Engine identifier for diagnostics (e.g. 'timon', 'rxdb-fallback'). */
+  readonly id: string
+
+  /** Append batch to local storage. Idempotent on (deviceId, metric, ts). */
+  write(batch: TReading[]): Promise<void>
+
+  /**
+   * Range query against local storage. `kind`-aware: engines pick column
+   * layout based on the reading kind, but query results are opaque to db.
+   */
+  query<T = TReading>(args: {
+    deviceId?: string
+    metric?: string
+    from?: number
+    to?: number
+    limit?: number
+  }): Promise<T[]>
+
+  /**
+   * Drain a batch of un-flushed readings for replication. Returns the batch
+   * + the HWM to record after a successful remote ack.
+   */
+  drain?(maxBatchSize?: number): Promise<{ batch: TReading[], nextHwm: TimeseriesHWM } | null>
+
+  /** Record the HWM after a successful remote push. */
+  advanceHwm?(hwm: TimeseriesHWM): Promise<void>
+}
+
 /**
  * Configuration for createReplicationState.
  */
