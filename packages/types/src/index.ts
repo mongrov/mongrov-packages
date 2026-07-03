@@ -39,3 +39,19 @@ export type {
   FileUpload,
   SearchOpts,
 } from './common'
+
+// Device types (v0.4.0)
+export type {
+  JsonValue,
+  ScanCandidate,
+  ConnectionState,
+  DeviceErrorCategory,
+  ErrorDetail,
+  Device,
+  DeviceStatus,
+  DeviceCapability,
+  ReadingKind,
+  DeviceReading,
+  SyncStatus,
+  DeviceDiagnosticEvent,
+} from './device'
