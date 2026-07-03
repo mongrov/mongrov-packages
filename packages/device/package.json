@@ -1,0 +1,65 @@
+{
+  "name": "@mongrov/device",
+  "version": "0.1.0",
+  "description": "Headless BLE transport for @mongrov apps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mongrov/mongrov-packages.git",
+    "directory": "packages/device"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "bluetooth",
+    "ble",
+    "device"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "prebuild": "pnpm run clean",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "xstate": "^5.30.0"
+  },
+  "peerDependencies": {
+    "@mongrov/types": "^0.4.0",
+    "react": ">=18",
+    "react-native": ">=0.74"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@mongrov/types": "workspace:*",
+    "@types/jest": "^29.5.12",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.9.3"
+  }
+}
