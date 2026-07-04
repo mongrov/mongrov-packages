@@ -14,7 +14,9 @@
  *                                        8 attempt cap)
  *   - Global interrupts (BT_OFF / PERMISSION_REVOKED / BACKGROUNDED) →
  *     suspended (capturing priorPhase for RESUMED re-entry)
- *   - `rssi` and `elapsedMs` are CONTEXT, never states
+ *   - `rssi` and `phaseEnteredAt` are CONTEXT, never states
+ *     (ux derives `elapsedMs = now - phaseEnteredAt` on its own render clock)
+ *   - `suspendedReason` captured on entry to `suspended`; cleared on RESUMED
  *
  * Zero React, zero db, zero vendor SDK; the machine takes a `DeviceAdapter`
  * only for its `ownership` shape (guards read the flag).
@@ -42,17 +44,30 @@ export type ActivePhase =
   | 'connected'
   | 'reconnecting'
 
+/** Trigger tag stamped on entry to `suspended`; cleared on `RESUMED`. */
+export type SuspendedReason = 'bt-off' | 'permission-revoked' | 'backgrounded'
+
 export interface ConnectionContext {
   deviceId: string
   adapter: DeviceAdapter
   candidate: ScanCandidate | undefined
   rssi: number | undefined
-  elapsedMs: number | undefined
+  /**
+   * Monotonic-ish timestamp captured on entry to every active state.
+   * Ux derives `elapsedMs = now - phaseEnteredAt` on its own render clock;
+   * the machine never ticks itself.
+   */
+  phaseEnteredAt: number | undefined
   lastError: ErrorDetail | undefined
   /** Full-driver reconnect attempts (thin reflector never touches this). */
   attemptsCount: number
   /** Phase captured on entry to `suspended`; consumed by `RESUMED`. */
   priorPhase: ActivePhase | undefined
+  /**
+   * Which interrupt drove the last `suspended` entry. Most-recent-wins if
+   * multiple interrupts stack while suspended (no deep stacking).
+   */
+  suspendedReason: SuspendedReason | undefined
 }
 
 export interface ConnectionInput {
@@ -175,6 +190,24 @@ export function createConnectionMachine(
         priorPhase: 'reconnecting' as ActivePhase,
       }),
       clearPriorPhase: assign({ priorPhase: undefined }),
+      setPhaseEnteredAt: assign({ phaseEnteredAt: () => Date.now() }),
+      recordSuspendedReason: assign({
+        suspendedReason: ({ event }) => {
+          switch (event.type) {
+            case 'BT_OFF':
+              return 'bt-off' as const
+            case 'PERMISSION_REVOKED':
+              return 'permission-revoked' as const
+            case 'BACKGROUNDED':
+              return 'backgrounded' as const
+            default:
+              // Shouldn't reach here — `suspended` is only entered via one of
+              // the three global interrupts. Preserve previous value.
+              return undefined
+          }
+        },
+      }),
+      clearSuspendedReason: assign({ suspendedReason: undefined }),
       recordCandidate: assign({
         candidate: ({ event }) =>
           event.type === 'SCAN_FOUND' ? event.candidate : undefined,
@@ -219,10 +252,11 @@ export function createConnectionMachine(
       adapter: input.adapter,
       candidate: input.candidate,
       rssi: undefined,
-      elapsedMs: undefined,
+      phaseEnteredAt: undefined,
       lastError: undefined,
       attemptsCount: 0,
       priorPhase: undefined,
+      suspendedReason: undefined,
     }),
 
     // Global interrupts — apply from every state.
@@ -245,7 +279,7 @@ export function createConnectionMachine(
       },
 
       scanning: {
-        entry: 'setPriorPhaseScanning',
+        entry: ['setPriorPhaseScanning', 'setPhaseEnteredAt'],
         after: {
           scan: {
             target: 'failed',
@@ -268,7 +302,7 @@ export function createConnectionMachine(
       },
 
       connecting: {
-        entry: 'setPriorPhaseConnecting',
+        entry: ['setPriorPhaseConnecting', 'setPhaseEnteredAt'],
         after: {
           connect: {
             target: 'failed',
@@ -296,7 +330,7 @@ export function createConnectionMachine(
       },
 
       discovering: {
-        entry: 'setPriorPhaseDiscovering',
+        entry: ['setPriorPhaseDiscovering', 'setPhaseEnteredAt'],
         after: {
           discover: {
             target: 'failed',
@@ -324,7 +358,7 @@ export function createConnectionMachine(
       },
 
       enabling: {
-        entry: 'setPriorPhaseEnabling',
+        entry: ['setPriorPhaseEnabling', 'setPhaseEnteredAt'],
         after: {
           enable: {
             target: 'failed',
@@ -366,7 +400,7 @@ export function createConnectionMachine(
       },
 
       connected: {
-        entry: 'setPriorPhaseConnected',
+        entry: ['setPriorPhaseConnected', 'setPhaseEnteredAt'],
         on: {
           // User-initiated: only valid on established link (see spec lock).
           DISCONNECT: {
@@ -399,7 +433,7 @@ export function createConnectionMachine(
       },
 
       reconnecting: {
-        entry: 'setPriorPhaseReconnecting',
+        entry: ['setPriorPhaseReconnecting', 'setPhaseEnteredAt'],
         initial: 'branching',
         states: {
           branching: {
@@ -463,6 +497,11 @@ export function createConnectionMachine(
       },
 
       suspended: {
+        // BT_OFF / PERMISSION_REVOKED / BACKGROUNDED all target `.suspended`
+        // from the root `on:` block; the entry action stamps which one. If
+        // another interrupt fires while already suspended, `recordSuspendedReason`
+        // runs again (most-recent-wins) — machine coalesces, does not stack.
+        entry: 'recordSuspendedReason',
         on: {
           RESUMED: [
             // Thin reflector coming back from a live link → re-enter reconnecting,
@@ -470,32 +509,32 @@ export function createConnectionMachine(
             {
               guard: 'priorPhaseIsConnected',
               target: 'reconnecting',
-              actions: 'clearPriorPhase',
+              actions: ['clearPriorPhase', 'clearSuspendedReason'],
             },
             {
               guard: 'priorPhaseIsScanning',
               target: 'scanning',
-              actions: 'clearPriorPhase',
+              actions: ['clearPriorPhase', 'clearSuspendedReason'],
             },
             {
               guard: 'priorPhaseIsConnecting',
               target: 'connecting',
-              actions: 'clearPriorPhase',
+              actions: ['clearPriorPhase', 'clearSuspendedReason'],
             },
             {
               guard: 'priorPhaseIsDiscovering',
               target: 'discovering',
-              actions: 'clearPriorPhase',
+              actions: ['clearPriorPhase', 'clearSuspendedReason'],
             },
             {
               guard: 'priorPhaseIsEnabling',
               target: 'enabling',
-              actions: 'clearPriorPhase',
+              actions: ['clearPriorPhase', 'clearSuspendedReason'],
             },
             {
               // Fallback: nothing to resume; return to idle.
               target: 'idle',
-              actions: 'clearPriorPhase',
+              actions: ['clearPriorPhase', 'clearSuspendedReason'],
             },
           ],
         },

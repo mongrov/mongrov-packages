@@ -47,6 +47,12 @@ export interface RegistryContext {
   activeConnections: number
   scanState: ScanState
   scanCandidates: Map<string, ScanCandidate>
+  /**
+   * Set on SCAN_STOP. Lets ux distinguish "scanned and got 0" (→ `none`)
+   * from "never scanned" (→ initial idle). scanCandidates.size alone is
+   * insufficient. Cleared by SCAN_START.
+   */
+  lastScanFinishedAt: number | undefined
   lastRejection: ErrorDetail | undefined
 }
 
@@ -139,6 +145,8 @@ export function createRegistryMachine(
 
       setScanning: assign({ scanState: 'scanning' as ScanState }),
       setIdle: assign({ scanState: 'idle' as ScanState }),
+      stampScanFinished: assign({ lastScanFinishedAt: () => Date.now() }),
+      clearScanFinished: assign({ lastScanFinishedAt: undefined }),
       clearScanCandidates: assign({
         scanCandidates: () => new Map<string, ScanCandidate>(),
       }),
@@ -266,14 +274,20 @@ export function createRegistryMachine(
       activeConnections: 0,
       scanState: 'idle' as ScanState,
       scanCandidates: new Map(),
+      lastScanFinishedAt: undefined,
       lastRejection: undefined,
     }),
     on: {
       SCAN_START: {
-        actions: ['setScanning', 'clearScanCandidates', 'startScanFanout'],
+        actions: [
+          'setScanning',
+          'clearScanCandidates',
+          'clearScanFinished',
+          'startScanFanout',
+        ],
       },
       SCAN_STOP: {
-        actions: ['setIdle', 'stopScanFanout'],
+        actions: ['setIdle', 'stopScanFanout', 'stampScanFinished'],
       },
       SCAN_HIT: {
         actions: 'routeScanHit',

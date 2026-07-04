@@ -305,6 +305,39 @@ describe('connection-machine — global interrupts', () => {
     expect(value(actor)).toBe('scanning')
   })
 
+  it('suspendedReason is stamped on entry (BT_OFF → bt-off) and cleared on RESUMED', () => {
+    const { actor } = build()
+    actor.send({ type: 'CONNECT' })
+    expect(actor.getSnapshot().context.suspendedReason).toBeUndefined()
+
+    actor.send({ type: 'BT_OFF' })
+    expect(value(actor)).toBe('suspended')
+    expect(actor.getSnapshot().context.suspendedReason).toBe('bt-off')
+
+    // Most-recent-wins: a stacked interrupt overwrites the tag.
+    actor.send({ type: 'BACKGROUNDED' })
+    expect(actor.getSnapshot().context.suspendedReason).toBe('backgrounded')
+
+    actor.send({ type: 'RESUMED' })
+    expect(actor.getSnapshot().context.suspendedReason).toBeUndefined()
+  })
+
+  it('phaseEnteredAt is stamped on entry to each active state', () => {
+    // Use real timers so Date.now() advances between events.
+    jest.useRealTimers()
+    const { actor } = build()
+
+    expect(actor.getSnapshot().context.phaseEnteredAt).toBeUndefined()
+
+    const beforeConnecting = Date.now()
+    actor.send({ type: 'CONNECT' })
+    const inConnecting = actor.getSnapshot().context.phaseEnteredAt
+    expect(inConnecting).toBeGreaterThanOrEqual(beforeConnecting)
+
+    // Restore fake timers so the surrounding `afterEach` cleanup stays consistent.
+    jest.useFakeTimers()
+  })
+
   it('BT_OFF from reconnecting → suspended; RESUMED returns to reconnecting via priorPhase capture', () => {
     // Full-driver path so we can prove no timers fire during suspended.
     const { actor } = build({
