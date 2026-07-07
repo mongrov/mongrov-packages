@@ -1,0 +1,252 @@
+import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
+
+import { defineQuery } from '../define'
+import { executeQuery, runAuthorize, type EngineAdapters } from '../dispatcher'
+import { AuthorizationError, DataAccessError } from '../errors'
+import { mergeTenantParams } from '../tenant'
+import type { RequestContext } from '../types'
+
+const ctx: RequestContext = {
+  requesterUserId: 'u1',
+  brand: 'zivaone',
+  familyId: 'f1',
+  now: () => new Date(1704067200000), // 2024-01-01T00:00Z
+}
+
+describe('T-08 · mergeTenantParams', () => {
+  it('appends brand + familyId to object input', () => {
+    const merged = mergeTenantParams({ userId: 'u1' }, ctx)
+    expect(merged).toEqual({ userId: 'u1', brand: 'zivaone', familyId: 'f1' })
+  })
+
+  it('supplies tenant pair even when input is undefined', () => {
+    expect(mergeTenantParams(undefined, ctx)).toEqual({
+      brand: 'zivaone',
+      familyId: 'f1',
+    })
+  })
+
+  it('tenant fields win on collision (screens cannot forge brand/familyId)', () => {
+    const merged = mergeTenantParams(
+      { userId: 'u1', brand: 'malicious', familyId: 'other' },
+      ctx
+    )
+    expect(merged.brand).toBe('zivaone')
+    expect(merged.familyId).toBe('f1')
+  })
+
+  it('handles primitive input by dropping it (SQL author uses positional binds)', () => {
+    expect(mergeTenantParams('raw', ctx)).toEqual({
+      brand: 'zivaone',
+      familyId: 'f1',
+    })
+  })
+})
+
+describe('T-07 · runAuthorize', () => {
+  it('no-op when authorize is undefined', async () => {
+    await expect(runAuthorize(undefined, {}, ctx)).resolves.toBeUndefined()
+  })
+
+  it('allows execution when authorize returns true', async () => {
+    await expect(
+      runAuthorize(() => true, { userId: 'u1' }, ctx)
+    ).resolves.toBeUndefined()
+  })
+
+  it('awaits an async authorize', async () => {
+    await expect(
+      runAuthorize(async () => true, { userId: 'u1' }, ctx)
+    ).resolves.toBeUndefined()
+  })
+
+  it('throws AuthorizationError when authorize returns false', async () => {
+    await expect(
+      runAuthorize(() => false, { userId: 'u1' }, ctx)
+    ).rejects.toBeInstanceOf(AuthorizationError)
+  })
+
+  it('threads input + ctx into the authorize hook', async () => {
+    const authorize = vi.fn(() => true)
+    await runAuthorize(authorize, { userId: 'u1' }, ctx)
+    expect(authorize).toHaveBeenCalledWith({ userId: 'u1' }, ctx)
+  })
+})
+
+describe('T-06 · executeQuery — duckdb path', () => {
+  const duckdbDef = defineQuery({
+    engine: 'duckdb',
+    input: z.object({ userId: z.string() }),
+    output: z.object({ hrv: z.number() }),
+    sql: 'SELECT hrv FROM hrv WHERE user_id = $userId',
+  })
+
+  it('dispatches to duckdb.execute with tenant-merged params', async () => {
+    const execute = vi.fn(async () => ({ hrv: 45 }))
+    const engines: EngineAdapters = { duckdb: { execute } }
+    const out = await executeQuery(duckdbDef, { userId: 'u1' }, ctx, engines)
+    expect(out).toEqual({ hrv: 45 })
+    expect(execute).toHaveBeenCalledWith(
+      'SELECT hrv FROM hrv WHERE user_id = $userId',
+      { userId: 'u1', brand: 'zivaone', familyId: 'f1' }
+    )
+  })
+
+  it('surfaces zod input parse failures', async () => {
+    const execute = vi.fn()
+    const engines: EngineAdapters = { duckdb: { execute } }
+    await expect(
+      // @ts-expect-error — bad shape
+      executeQuery(duckdbDef, { userId: 42 }, ctx, engines)
+    ).rejects.toMatchObject({ code: 'zod_parse_failed' })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('surfaces zod output parse failures', async () => {
+    const execute = vi.fn(async () => ({ hrv: 'not-a-number' }))
+    const engines: EngineAdapters = { duckdb: { execute } }
+    await expect(
+      executeQuery(duckdbDef, { userId: 'u1' }, ctx, engines)
+    ).rejects.toMatchObject({ code: 'zod_parse_failed' })
+  })
+
+  it('throws engine_missing when duckdb engine absent', async () => {
+    await expect(
+      executeQuery(duckdbDef, { userId: 'u1' }, ctx, {})
+    ).rejects.toMatchObject({ code: 'engine_missing' })
+  })
+})
+
+describe('T-06 · executeQuery — rxdb path', () => {
+  const rxdbDef = defineQuery({
+    engine: 'rxdb',
+    input: z.object({ userId: z.string() }),
+    output: z.number(),
+    query: (_db, _input) => 0,
+  })
+
+  it('delegates first-value extraction to the adapter', async () => {
+    const execute = vi.fn(async () => 7)
+    const engines: EngineAdapters = {
+      rxdb: { db: 'db-handle', execute },
+    }
+    const out = await executeQuery(rxdbDef, { userId: 'u1' }, ctx, engines)
+    expect(out).toBe(7)
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute.mock.calls[0][1]).toEqual({ userId: 'u1' })
+  })
+
+  it('throws engine_missing when rxdb engine absent', async () => {
+    await expect(
+      executeQuery(rxdbDef, { userId: 'u1' }, ctx, {})
+    ).rejects.toMatchObject({ code: 'engine_missing' })
+  })
+})
+
+describe('T-06 · executeQuery — kv path', () => {
+  const kvDef = defineQuery({
+    engine: 'kv',
+    input: z.object({ userId: z.string() }),
+    output: z.object({ theme: z.enum(['light', 'dark']) }),
+    keyBuilder: (input) => `user:${input.userId}:prefs`,
+  })
+
+  it('reads via keyBuilder(input)', async () => {
+    const get = vi.fn(async (key: string) => {
+      expect(key).toBe('user:u1:prefs')
+      return { theme: 'dark' }
+    })
+    const engines: EngineAdapters = { kv: { get } }
+    const out = await executeQuery(kvDef, { userId: 'u1' }, ctx, engines)
+    expect(out).toEqual({ theme: 'dark' })
+  })
+
+  it('accepts a sync kv get() return', async () => {
+    const engines: EngineAdapters = {
+      kv: { get: () => ({ theme: 'light' }) },
+    }
+    const out = await executeQuery(kvDef, { userId: 'u1' }, ctx, engines)
+    expect(out).toEqual({ theme: 'light' })
+  })
+
+  it('throws engine_missing when kv engine absent', async () => {
+    await expect(
+      executeQuery(kvDef, { userId: 'u1' }, ctx, {})
+    ).rejects.toMatchObject({ code: 'engine_missing' })
+  })
+})
+
+describe('T-07 · executeQuery — authorize gate at dispatch', () => {
+  const def = defineQuery({
+    engine: 'duckdb',
+    input: z.object({ userId: z.string() }),
+    output: z.object({ hrv: z.number() }),
+    sql: 'SELECT hrv FROM hrv',
+    authorize: (input, c) => input.userId === c.requesterUserId,
+  })
+
+  it('runs authorize before executing engine', async () => {
+    const order: string[] = []
+    const engines: EngineAdapters = {
+      duckdb: {
+        execute: async () => {
+          order.push('execute')
+          return { hrv: 45 }
+        },
+      },
+    }
+    const withAuditedAuthorize = defineQuery({
+      engine: 'duckdb',
+      input: z.object({ userId: z.string() }),
+      output: z.object({ hrv: z.number() }),
+      sql: 'SELECT hrv FROM hrv',
+      authorize: (_input, _c) => {
+        order.push('authorize')
+        return true
+      },
+    })
+    await executeQuery(withAuditedAuthorize, { userId: 'u1' }, ctx, engines)
+    expect(order).toEqual(['authorize', 'execute'])
+  })
+
+  it('denies dispatch when authorize resolves false', async () => {
+    const execute = vi.fn(async () => ({ hrv: 45 }))
+    const engines: EngineAdapters = { duckdb: { execute } }
+    await expect(
+      executeQuery(def, { userId: 'attacker' }, ctx, engines)
+    ).rejects.toBeInstanceOf(AuthorizationError)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('allows dispatch when authorize resolves true', async () => {
+    const execute = vi.fn(async () => ({ hrv: 45 }))
+    const engines: EngineAdapters = { duckdb: { execute } }
+    const out = await executeQuery(def, { userId: 'u1' }, ctx, engines)
+    expect(out).toEqual({ hrv: 45 })
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('unknown engine (compile-time exhaustive fallthrough)', () => {
+  it('surfaces engine_missing when the config is forged', async () => {
+    // Craft a definition that bypasses TS's exhaustiveness at runtime.
+    const forged = {
+      __kind: 'query' as const,
+      config: {
+        engine: 'graphql' as unknown as 'duckdb',
+        output: z.any(),
+        sql: 'ignored',
+      },
+    }
+    await expect(
+      executeQuery(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        forged as any,
+        undefined,
+        ctx,
+        {}
+      )
+    ).rejects.toBeInstanceOf(DataAccessError)
+  })
+})

@@ -1,0 +1,92 @@
+{
+  "name": "@mongrov/data-access",
+  "version": "0.1.0-alpha.1",
+  "description": "Named query/mutation/event registry with engine dispatch for @mongrov apps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mongrov/mongrov-packages.git",
+    "directory": "packages/data-access"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "data-access",
+    "tanstack-query",
+    "rxdb",
+    "duckdb",
+    "mmkv"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./eslint": {
+      "types": "./dist/eslint/index.d.ts",
+      "import": "./dist/eslint/index.js",
+      "default": "./dist/eslint/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "prebuild": "pnpm run clean",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "mitt": "^3.0.1",
+    "xstate": "^5.30.0",
+    "zod": "^3.23.8"
+  },
+  "peerDependencies": {
+    "@mongrov/analytics": "workspace:*",
+    "@mongrov/db": "workspace:*",
+    "@mongrov/types": "^0.4.0",
+    "@tanstack/react-query": ">=5",
+    "eslint": ">=8",
+    "react": ">=19",
+    "react-native": ">=0.81"
+  },
+  "peerDependenciesMeta": {
+    "@mongrov/analytics": {
+      "optional": true
+    },
+    "eslint": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@mongrov/analytics": "workspace:*",
+    "@mongrov/db": "workspace:*",
+    "@mongrov/types": "workspace:*",
+    "@tanstack/react-query": "^5.62.0",
+    "@testing-library/react": "^14.3.1",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "eslint": "^8.57.1",
+    "jsdom": "^25.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9"
+  }
+}
