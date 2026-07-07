@@ -1,0 +1,90 @@
+{
+  "name": "@mongrov/analytics",
+  "version": "0.1.0-alpha.1",
+  "description": "DuckDB + R2 Iceberg local analytics for @mongrov apps",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mongrov/mongrov-packages.git",
+    "directory": "packages/analytics"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "duckdb",
+    "iceberg",
+    "analytics",
+    "r2",
+    "cloudflare"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./rules": {
+      "types": "./dist/rules/index.d.ts",
+      "import": "./dist/rules/index.js",
+      "default": "./dist/rules/index.js"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./dist/tools/index.js",
+      "default": "./dist/tools/index.js"
+    },
+    "./sync": {
+      "types": "./dist/sync/index.d.ts",
+      "import": "./dist/sync/index.js",
+      "default": "./dist/sync/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js",
+      "default": "./dist/ui/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "prebuild": "pnpm run clean",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "peerDependencies": {
+    "@mongrov/db": "workspace:*",
+    "@mongrov/types": "^0.4.0",
+    "react": ">=19",
+    "react-native": ">=0.81",
+    "react-native-duckdb": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    },
+    "react-native-duckdb": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@mongrov/db": "workspace:*",
+    "@mongrov/types": "workspace:*",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.9",
+    "xstate": "^5.30.0",
+    "zod": "^3.23.8"
+  }
+}
