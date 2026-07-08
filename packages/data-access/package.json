@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/data-access",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.3",
   "description": "Named query/mutation/event registry with engine dispatch for @mongrov apps",
   "license": "MIT",
   "repository": {
@@ -25,12 +25,12 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
+      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./eslint": {
       "types": "./dist/eslint/index.d.ts",
-      "import": "./dist/eslint/index.js",
+      "require": "./dist/eslint/index.js",
       "default": "./dist/eslint/index.js"
     }
   },
@@ -48,8 +48,7 @@
   },
   "dependencies": {
     "mitt": "^3.0.1",
-    "xstate": "^5.30.0",
-    "zod": "^3.23.8"
+    "xstate": "^5.30.0"
   },
   "peerDependencies": {
     "@mongrov/analytics": "workspace:*",
@@ -58,7 +57,8 @@
     "@tanstack/react-query": ">=5",
     "eslint": ">=8",
     "react": ">=19",
-    "react-native": ">=0.81"
+    "react-native": ">=0.81",
+    "zod": "^3.23.8 || ^4.0.0"
   },
   "peerDependenciesMeta": {
     "@mongrov/analytics": {
@@ -87,6 +87,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.9.3",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "zod": "^3.23.8"
   }
 }
