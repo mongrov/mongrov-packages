@@ -132,8 +132,18 @@ export interface AnalyticsEngine {
   stream<T = unknown>(sql: string, params?: Record<string, unknown>): AsyncIterable<T[]>
   createAppender(table: string): AnalyticsAppender
   readonly state: AnalyticsState
+  /** Last machine error surfaced; cleared on successful recovery. */
+  readonly lastError: Error | null
+  /** Catalog / warehouse secret name for the current attach; undefined when not attached. */
+  readonly catalog: string | undefined
   subscribe(listener: (s: AnalyticsState) => void): Unsubscribe
   setRetention(days: number): Promise<void>
+  /**
+   * Return the last successfully-attached ctx (persisted via KVStore) if it
+   * was written within the freshness window (24h). Apps may pass the result
+   * to `attach()` to auto-restore after a cold start.
+   */
+  getLastAttach(brand: string): Promise<AttachContext | null>
   close(): Promise<void>
 }
 

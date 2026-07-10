@@ -58,35 +58,27 @@ type _TypeSurface = {
 }
 
 describe('@mongrov/analytics public API surface', () => {
-  it('createAnalytics is exported and throws NotImplementedError', () => {
-    // Minimal config to satisfy the type — stubs throw before touching config.
-    const config = {} as unknown as AnalyticsConfig
-    expect(() => createAnalytics(config)).toThrow(NotImplementedError)
+  it('createAnalytics is exported as a function', () => {
+    // T-10: `createAnalytics` now returns a real engine wired to the state
+    // machine. Runtime behaviour is asserted in `core/__tests__/factory.test.ts`;
+    // here we only assert the export lives on the barrel.
+    expect(typeof createAnalytics).toBe('function')
   })
 
-  it('createAnalytics error surfaces the stubbed symbol name', () => {
-    try {
-      createAnalytics({} as unknown as AnalyticsConfig)
-    } catch (err) {
-      expect(err).toBeInstanceOf(NotImplementedError)
-      expect(err).toBeInstanceOf(AnalyticsError)
-      expect((err as AnalyticsError).code).toBe('not_implemented')
-      expect((err as Error).message).toContain('createAnalytics')
-    }
+  it('useAnalytics is exported as a function', () => {
+    // T-11: real implementation. Runtime behaviour asserted in
+    // `core/__tests__/hooks.test.tsx`; here we only verify the barrel.
+    expect(typeof useAnalytics).toBe('function')
   })
 
-  it('useAnalytics stub throws NotImplementedError', () => {
-    expect(() => useAnalytics()).toThrow(NotImplementedError)
+  it('useTimeseries is exported as a function', () => {
+    // T-12: real implementation. See `core/__tests__/hooks.test.tsx`.
+    expect(typeof useTimeseries).toBe('function')
   })
 
-  it('useTimeseries stub throws NotImplementedError', () => {
-    expect(() => useTimeseries<{ v: number }>(undefined, 'SELECT 1')).toThrow(
-      NotImplementedError
-    )
-  })
-
-  it('useInsight stub throws NotImplementedError', () => {
-    expect(() => useInsight('insight-id')).toThrow(NotImplementedError)
+  it('useInsight is exported as a function', () => {
+    // T-13: real implementation. See `core/__tests__/hooks.test.tsx`.
+    expect(typeof useInsight).toBe('function')
   })
 })
 
@@ -107,5 +99,25 @@ describe('AnalyticsError taxonomy', () => {
     expect(err.code).toBe('not_implemented')
     expect(err.name).toBe('NotImplementedError')
     expect(err.message).toContain('someFn')
+  })
+
+  it('accepts the full Phase 7 code taxonomy', () => {
+    const codes: AnalyticsErrorCode[] = [
+      'engine_open_failed',
+      'extension_load_failed',
+      'attach_failed',
+      'detach_failed',
+      'token_vendor_failed',
+      'migration_failed',
+      'retention_failed',
+      'query_failed',
+      'not_attached',
+      'not_ready',
+      'not_implemented',
+    ]
+    for (const code of codes) {
+      const err = new AnalyticsError(code, `${code} test`)
+      expect(err.code).toBe(code)
+    }
   })
 })

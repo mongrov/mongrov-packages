@@ -1,0 +1,260 @@
+/**
+ * R2 fetcher (T-19 + T-20 + T-21).
+ *
+ * Reads-back path from the attached R2 Iceberg zone into the local DuckDB
+ * warehouse.
+ *
+ * Three modes:
+ *   - `prefetchOnAttach(ctx, policy)` — one-shot bulk pull immediately after
+ *     `analytics.attach()`, driven by a policy:
+ *       * `all-family-on-attach` — every family row within `windowDays`
+ *       * `recent-active-only`   — active users first (CTE)
+ *       * `lazy`                 — no-op
+ *   - `fetchIncremental(ctx)`  — pulls only rows newer than the fetch
+ *     watermark; `ON CONFLICT DO NOTHING` keeps re-runs idempotent.
+ *   - `fetchOnDemand(ctx, params)` — bypasses watermark; caller-supplied
+ *     bounds (`since`, optional `until`, optional `limit`).
+ *
+ * Every path advances the fetch watermark on success so subsequent
+ * incremental pulls stay bounded.
+ */
+
+import type { HybridDuckDB } from '../core/engine'
+import type { AttachContext } from '../core/types'
+import { SyncError } from './errors'
+import type { WatermarkStore } from './watermark'
+
+export type PrefetchPolicy
+  = | { kind: 'all-family-on-attach', windowDays: number }
+    | { kind: 'recent-active-only', activeDays: number, windowDays: number }
+    | { kind: 'lazy' }
+
+export interface FetchResult {
+  table: string
+  rowsFetched: number
+  ok: boolean
+  error?: SyncError
+}
+
+export interface FetchParams {
+  table: string
+  since: Date
+  until?: Date
+  limit?: number
+}
+
+export interface R2FetcherConfig {
+  engine: HybridDuckDB
+  watermark: WatermarkStore
+  /** Tables that participate in prefetch / incremental fetch. */
+  tables: readonly string[]
+  now?: () => Date
+  localTable?: (ctx: AttachContext, table: string) => string
+  remoteTable?: (ctx: AttachContext, table: string) => string
+}
+
+const DEFAULT_LOCAL = (_c: AttachContext, table: string) => `main.${table}`
+const DEFAULT_REMOTE = (c: AttachContext, table: string) =>
+  `zone_${c.tenantId}.${table}`
+
+export class R2Fetcher {
+  readonly #engine: HybridDuckDB
+  readonly #watermark: WatermarkStore
+  readonly #tables: readonly string[]
+  readonly #now: () => Date
+  readonly #localTable: (ctx: AttachContext, table: string) => string
+  readonly #remoteTable: (ctx: AttachContext, table: string) => string
+
+  constructor(config: R2FetcherConfig) {
+    this.#engine = config.engine
+    this.#watermark = config.watermark
+    this.#tables = config.tables
+    this.#now = config.now ?? (() => new Date())
+    this.#localTable = config.localTable ?? DEFAULT_LOCAL
+    this.#remoteTable = config.remoteTable ?? DEFAULT_REMOTE
+  }
+
+  /**
+   * T-19: one-shot bulk fetch keyed by policy. Returns per-table results so
+   * partial failure is observable.
+   */
+  async prefetchOnAttach(
+    ctx: AttachContext,
+    policy: PrefetchPolicy,
+  ): Promise<FetchResult[]> {
+    if (policy.kind === 'lazy') {
+      return this.#tables.map(t => ({ table: t, rowsFetched: 0, ok: true }))
+    }
+
+    const cutoffMs = this.#now().getTime() - policy.windowDays * 24 * 60 * 60 * 1000
+    const cutoff = new Date(cutoffMs).toISOString()
+
+    const settled = await Promise.allSettled(
+      this.#tables.map(table =>
+        this.#prefetchOne(ctx, table, policy, cutoff),
+      ),
+    )
+    return settled.map((r, i) => {
+      const table = this.#tables[i]!
+      if (r.status === 'fulfilled') return r.value
+      return this.#toFailure(table, r.reason)
+    })
+  }
+
+  /**
+   * T-20: pulls only rows newer than the fetch watermark; idempotent.
+   */
+  async fetchIncremental(ctx: AttachContext): Promise<FetchResult[]> {
+    const settled = await Promise.allSettled(
+      this.#tables.map(table => this.#fetchIncrementalOne(ctx, table)),
+    )
+    return settled.map((r, i) => {
+      const table = this.#tables[i]!
+      if (r.status === 'fulfilled') return r.value
+      return this.#toFailure(table, r.reason)
+    })
+  }
+
+  /**
+   * T-21: caller-driven fetch that bypasses the watermark. Advances the
+   * fetch watermark only if the pulled range extends past the current one.
+   */
+  async fetchOnDemand(
+    ctx: AttachContext,
+    params: FetchParams,
+  ): Promise<FetchResult> {
+    try {
+      const local = this.#localTable(ctx, params.table)
+      const remote = this.#remoteTable(ctx, params.table)
+      const bindings: Record<string, unknown> = {
+        since: params.since.toISOString(),
+        familyId: ctx.tenantId,
+      }
+      let where = 'ts >= $since AND family_id = $familyId'
+      if (params.until) {
+        where += ' AND ts <= $until'
+        bindings.until = params.until.toISOString()
+      }
+      const limitClause = params.limit ? ` LIMIT ${Math.max(1, Math.floor(params.limit))}` : ''
+      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${where}${limitClause} ON CONFLICT DO NOTHING`
+      await this.#engine.execute(sql, bindings)
+
+      const countRows = await this.#engine.execute(
+        `SELECT COUNT(*) AS c FROM ${remote} WHERE ${where}${limitClause}`,
+        bindings,
+      ) as Array<{ c?: number }>
+      const rowsFetched = Number(countRows[0]?.c ?? 0)
+
+      const upperBound = params.until ?? this.#now()
+      await this.#watermark.advance(
+        ctx.brand,
+        ctx.tenantId,
+        params.table,
+        'fetch',
+        upperBound,
+      )
+      return { table: params.table, rowsFetched, ok: true }
+    }
+    catch (err) {
+      return this.#toFailure(params.table, err)
+    }
+  }
+
+  async #prefetchOne(
+    ctx: AttachContext,
+    table: string,
+    policy: PrefetchPolicy,
+    cutoff: string,
+  ): Promise<FetchResult> {
+    const local = this.#localTable(ctx, table)
+    const remote = this.#remoteTable(ctx, table)
+
+    if (policy.kind === 'all-family-on-attach') {
+      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE family_id = $familyId AND ts >= $cutoff ON CONFLICT DO NOTHING`
+      await this.#engine.execute(sql, {
+        familyId: ctx.tenantId,
+        cutoff,
+      })
+    }
+    else if (policy.kind === 'recent-active-only') {
+      const activeCutoffMs = this.#now().getTime() - policy.activeDays * 24 * 60 * 60 * 1000
+      const activeCutoff = new Date(activeCutoffMs).toISOString()
+      // CTE picks user_ids seen in the recent window, then filters the window
+      // pull down to those users.
+      const sql = `WITH active AS (SELECT DISTINCT user_id FROM ${remote} WHERE family_id = $familyId AND ts >= $activeCutoff) INSERT INTO ${local} SELECT r.* FROM ${remote} r JOIN active a ON r.user_id = a.user_id WHERE r.family_id = $familyId AND r.ts >= $cutoff ON CONFLICT DO NOTHING`
+      await this.#engine.execute(sql, {
+        familyId: ctx.tenantId,
+        cutoff,
+        activeCutoff,
+      })
+    }
+
+    const rowsFetched = await this.#countFetched(remote, ctx, cutoff)
+    await this.#watermark.advance(
+      ctx.brand,
+      ctx.tenantId,
+      table,
+      'fetch',
+      this.#now(),
+    )
+    return { table, rowsFetched, ok: true }
+  }
+
+  async #fetchIncrementalOne(
+    ctx: AttachContext,
+    table: string,
+  ): Promise<FetchResult> {
+    const watermark = await this.#watermark.get(
+      ctx.brand,
+      ctx.tenantId,
+      table,
+      'fetch',
+    )
+    const local = this.#localTable(ctx, table)
+    const remote = this.#remoteTable(ctx, table)
+    const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ts > $watermark AND family_id = $familyId ON CONFLICT DO NOTHING`
+    await this.#engine.execute(sql, {
+      watermark: watermark.toISOString(),
+      familyId: ctx.tenantId,
+    })
+
+    const maxRows = await this.#engine.execute(
+      `SELECT MAX(ts) AS max_ts, COUNT(*) AS row_count FROM ${remote} WHERE ts > $watermark AND family_id = $familyId`,
+      { watermark: watermark.toISOString(), familyId: ctx.tenantId },
+    ) as Array<{ max_ts?: string | null, row_count?: number }>
+    const first = maxRows[0]
+    const rowsFetched = Number(first?.row_count ?? 0)
+    if (first?.max_ts) {
+      const nextWatermark = new Date(first.max_ts)
+      if (!Number.isNaN(nextWatermark.getTime())) {
+        await this.#watermark.advance(
+          ctx.brand,
+          ctx.tenantId,
+          table,
+          'fetch',
+          nextWatermark,
+        )
+      }
+    }
+    return { table, rowsFetched, ok: true }
+  }
+
+  async #countFetched(
+    remote: string,
+    ctx: AttachContext,
+    cutoff: string,
+  ): Promise<number> {
+    const rows = await this.#engine.execute(
+      `SELECT COUNT(*) AS c FROM ${remote} WHERE family_id = $familyId AND ts >= $cutoff`,
+      { familyId: ctx.tenantId, cutoff },
+    ) as Array<{ c?: number }>
+    return Number(rows[0]?.c ?? 0)
+  }
+
+  #toFailure(table: string, cause: unknown): FetchResult {
+    const err = cause instanceof SyncError
+      ? cause
+      : new SyncError('fetch_failed', `fetch failed for ${table}`, cause)
+    return { table, rowsFetched: 0, ok: false, error: err }
+  }
+}
