@@ -40,12 +40,12 @@ export type {
 export type {
   Clock,
   CompiledRule,
+  FlushSummary,
   RuleSeverity,
   RuleViolation,
   RulesEngine,
   RulesEngineConfig,
   RulesLogger,
-  SensorBatch,
   Unsubscribe,
 } from './types'
 

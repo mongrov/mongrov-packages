@@ -24,8 +24,11 @@ export type RuleSeverity = 'info' | 'warn' | 'critical'
 /**
  * Subset of a flushed batch that the rules engine reads to gate work.
  * Sync produces this shape after a successful flush.
+ *
+ * Named `FlushSummary` to avoid collision with sync's own `SensorBatch`
+ * (which is the pre-flush push envelope, not the post-flush summary).
  */
-export interface SensorBatch {
+export interface FlushSummary {
   affectedUserIds: string[]
   affectedTables: TableName[]
 }
@@ -88,7 +91,7 @@ export interface RulesEngine {
   disable(ruleId: string): Promise<void>
   list(): Rule[]
   getActive(): Rule[]
-  evaluateOnBatch(batch: SensorBatch): Promise<RuleViolation[]>
+  evaluateOnBatch(batch: FlushSummary): Promise<RuleViolation[]>
   evaluateScheduled(): Promise<RuleViolation[]>
   on(event: 'violation', handler: (v: RuleViolation) => void): Unsubscribe
   /**

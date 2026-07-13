@@ -159,6 +159,95 @@ describe('event bus + progress', () => {
   })
 })
 
+describe('rules-engine integration', () => {
+  it('calls rulesEngine.evaluateOnBatch after a successful flush', async () => {
+    const evaluateOnBatch = vi.fn().mockResolvedValue([])
+    const rulesEngine = {
+      register: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+      list: vi.fn(() => []),
+      getActive: vi.fn(() => []),
+      evaluateOnBatch,
+      evaluateScheduled: vi.fn(),
+      on: vi.fn(() => () => {}),
+      subscribeRegistry: vi.fn(() => () => {}),
+    }
+    const mgr = createSyncManager({ ...baseConfig(), rulesEngine })
+    await mgr.sink.push({
+      table: 'hrv',
+      brand: 'ziva',
+      familyId: 'fam_A',
+      userId: 'u1',
+      deviceId: 'ring',
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+    })
+    await mgr.sink.flush()
+    // Flush drains both configured tables. Only hrv had rows, so evaluate is
+    // called exactly once with the hrv summary.
+    expect(evaluateOnBatch).toHaveBeenCalledTimes(1)
+    expect(evaluateOnBatch).toHaveBeenCalledWith({
+      affectedUserIds: ['u1'],
+      affectedTables: ['hrv'],
+    })
+  })
+
+  it('skips rulesEngine when no userIds were affected (empty drain)', async () => {
+    const evaluateOnBatch = vi.fn().mockResolvedValue([])
+    const rulesEngine = {
+      register: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+      list: vi.fn(() => []),
+      getActive: vi.fn(() => []),
+      evaluateOnBatch,
+      evaluateScheduled: vi.fn(),
+      on: vi.fn(() => () => {}),
+      subscribeRegistry: vi.fn(() => () => {}),
+    }
+    const mgr = createSyncManager({ ...baseConfig(), rulesEngine })
+    // Nothing pushed — flush drains empty buffers, no affectedUserIds.
+    await mgr.sink.flush()
+    expect(evaluateOnBatch).not.toHaveBeenCalled()
+  })
+
+  it('does not stall sync when rulesEngine throws', async () => {
+    const evaluateOnBatch = vi.fn().mockRejectedValue(new Error('rules blew up'))
+    const rulesEngine = {
+      register: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+      list: vi.fn(() => []),
+      getActive: vi.fn(() => []),
+      evaluateOnBatch,
+      evaluateScheduled: vi.fn(),
+      on: vi.fn(() => () => {}),
+      subscribeRegistry: vi.fn(() => () => {}),
+    }
+    const warn = vi.fn()
+    const mgr = createSyncManager({
+      ...baseConfig(),
+      rulesEngine,
+      logger: { debug: () => {}, info: () => {}, warn },
+    })
+    await mgr.sink.push({
+      table: 'hrv',
+      brand: 'ziva',
+      familyId: 'fam_A',
+      userId: 'u1',
+      deviceId: 'ring',
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+    })
+    const results = await mgr.sink.flush()
+    // Give the fire-and-forget catch a tick to run.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(results.every(r => r.ok)).toBe(true)
+    expect(evaluateOnBatch).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalled()
+  })
+})
+
 describe('scheduler wiring', () => {
   it('subscribe fires on scheduler transitions', async () => {
     const mgr = createSyncManager(baseConfig())

@@ -78,6 +78,7 @@ describe('BatchFlusher.flush (happy path)', () => {
       table: 'hrv',
       rowsFlushed: 2,
       reason: 'manual',
+      affectedUserIds: ['u'],
     })
   })
 

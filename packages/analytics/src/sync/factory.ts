@@ -44,6 +44,9 @@ import { FlushTriggers } from './triggers'
 import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
 import { WatermarkStore } from './watermark'
 
+import type { TableName } from '../core/schemas'
+import type { RulesEngine } from '../rules/types'
+
 const overflowPolicyEnum = z.enum(['drop-oldest', 'drop-newest', 'block'])
 
 const prefetchPolicySchema: z.ZodType<PrefetchPolicy> = z.discriminatedUnion('kind', [
@@ -101,6 +104,13 @@ export interface CreateSyncManagerConfig {
     requiresWifi?: boolean
     taskName?: string
   }
+  /**
+   * Optional rules engine wired into the flush pipeline. After a successful
+   * flush the manager calls `rulesEngine.evaluateOnBatch({ affectedUserIds,
+   * affectedTables: [table] })`. Fire-and-forget: the evaluator swallows its
+   * own errors, so we never block a sync cycle on rules.
+   */
+  rulesEngine?: RulesEngine
   logger?: SchedulerLogger
 }
 
@@ -129,11 +139,26 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   const busFlushEmit = config.eventBus ? bindFlushEvents(config.eventBus) : undefined
 
   // Compose the flusher emitter with local progress tracking so hooks + the
-  // event bus both see every event.
+  // event bus both see every event. When a rules engine is provided, `flushed`
+  // events also drive `evaluateOnBatch` — fire-and-forget so a slow evaluator
+  // never stalls sync.
+  const rulesEngine = config.rulesEngine
+  const rulesLogger = config.logger
   const flushEmitter: SyncEmitter = (event) => {
     if (event.type === 'flushed') {
       progress.pendingByTable[event.payload.table] = 0
       progress.lastFlushAt = Date.now()
+      if (rulesEngine && event.payload.affectedUserIds.length > 0) {
+        rulesEngine.evaluateOnBatch({
+          affectedUserIds: event.payload.affectedUserIds,
+          affectedTables: [event.payload.table as TableName],
+        }).catch((err: unknown) => {
+          rulesLogger?.warn('sync.factory: rulesEngine.evaluateOnBatch threw', {
+            table: event.payload.table,
+            err: err instanceof Error ? err.message : String(err),
+          })
+        })
+      }
     }
     busFlushEmit?.(event)
   }

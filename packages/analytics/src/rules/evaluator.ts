@@ -27,7 +27,7 @@ import type {
   Clock,
   RuleViolation,
   RulesLogger,
-  SensorBatch,
+  FlushSummary,
 } from './types'
 
 export interface EvaluatorConfig {
@@ -52,7 +52,7 @@ interface EvaluationRow {
 }
 
 export interface Evaluator {
-  evaluateOnBatch(batch: SensorBatch): Promise<RuleViolation[]>
+  evaluateOnBatch(batch: FlushSummary): Promise<RuleViolation[]>
   evaluateScheduled(): Promise<RuleViolation[]>
 }
 
@@ -134,7 +134,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
 
   function rulesForTables(
     rules: Rule[],
-    affectedTables: SensorBatch['affectedTables'],
+    affectedTables: FlushSummary['affectedTables'],
   ): Rule[] {
     const tableSet = new Set<string>(affectedTables)
     return rules.filter((r) => {

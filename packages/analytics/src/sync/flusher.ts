@@ -69,6 +69,12 @@ export interface FlushedEvent {
   table: string
   rowsFlushed: number
   reason: FlushReason
+  /**
+   * Distinct userIds observed across drained buffer entries. Empty when the
+   * flush drained zero rows. Consumed by the rules engine to gate
+   * `evaluateOnBatch`.
+   */
+  affectedUserIds: string[]
 }
 
 export type SyncEmitter = (event:
@@ -156,7 +162,11 @@ export class BatchFlusher {
       state.failureCount = 0
       state.lastError = undefined
       state.state = 'idle'
-      this.#emit?.({ type: 'flushed', payload: { table, rowsFlushed, reason } })
+      const affectedUserIds = distinctUserIds(drained)
+      this.#emit?.({
+        type: 'flushed',
+        payload: { table, rowsFlushed, reason, affectedUserIds },
+      })
       return { table, rowsFlushed, ok: true }
     }
     catch (cause) {
@@ -306,4 +316,12 @@ export class BatchFlusher {
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function distinctUserIds(entries: BufferEntry[]): string[] {
+  const seen = new Set<string>()
+  for (const entry of entries) {
+    if (entry.userId) seen.add(entry.userId)
+  }
+  return Array.from(seen)
 }

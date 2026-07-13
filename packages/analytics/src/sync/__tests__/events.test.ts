@@ -41,7 +41,7 @@ describe('bindFlushEvents', () => {
     const emit = bindFlushEvents(bus)
     emit({
       type: 'flushed',
-      payload: { table: 'hrv', rowsFlushed: 5, reason: 'row-count' },
+      payload: { table: 'hrv', rowsFlushed: 5, reason: 'row-count', affectedUserIds: ['u1'] },
     })
     expect(bus.calls).toEqual([{
       name: 'hrv:insert',
