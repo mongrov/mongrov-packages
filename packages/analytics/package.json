@@ -80,6 +80,7 @@
     }
   },
   "dependencies": {
+    "@iarna/toml": "^2.2.5",
     "date-fns-tz": "^3.2.0",
     "p-queue": "^8.0.1",
     "xstate": "^5.30.0"
@@ -90,6 +91,7 @@
     "@testing-library/react": "^14.3.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "fast-check": "^4.9.0",
     "jsdom": "^25.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
