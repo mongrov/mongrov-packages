@@ -91,4 +91,9 @@ export interface RulesEngine {
   evaluateOnBatch(batch: SensorBatch): Promise<RuleViolation[]>
   evaluateScheduled(): Promise<RuleViolation[]>
   on(event: 'violation', handler: (v: RuleViolation) => void): Unsubscribe
+  /**
+   * Subscribe to registry mutations (register / enable / disable). Backs the
+   * `useRuleRegistry` hook via `useSyncExternalStore`.
+   */
+  subscribeRegistry(listener: () => void): Unsubscribe
 }
