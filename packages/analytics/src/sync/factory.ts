@@ -210,6 +210,21 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       },
       pushAll: async (tables, ctx) => pusher.pushAll(tables, ctx),
       fetchIncremental: async ctx => fetcher.fetchIncremental(ctx),
+      // Scheduled rules pass runs after the cycle's flush/push/fetch. Fire-
+      // and-forget — a throw here would surface as a cycle error, but the
+      // catch keeps the scheduler idle.
+      onCycleComplete: rulesEngine
+        ? async () => {
+            try {
+              await rulesEngine.evaluateScheduled()
+            }
+            catch (err) {
+              rulesLogger?.warn('sync.factory: rulesEngine.evaluateScheduled threw', {
+                err: err instanceof Error ? err.message : String(err),
+              })
+            }
+          }
+        : undefined,
     },
     tables: [...config.tables],
     ctx: config.ctx,

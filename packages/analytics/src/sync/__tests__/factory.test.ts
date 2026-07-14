@@ -211,6 +211,50 @@ describe('rules-engine integration', () => {
     expect(evaluateOnBatch).not.toHaveBeenCalled()
   })
 
+  it('calls rulesEngine.evaluateScheduled after triggerNow completes', async () => {
+    const evaluateScheduled = vi.fn().mockResolvedValue([])
+    const rulesEngine = {
+      register: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+      list: vi.fn(() => []),
+      getActive: vi.fn(() => []),
+      evaluateOnBatch: vi.fn().mockResolvedValue([]),
+      evaluateScheduled,
+      on: vi.fn(() => () => {}),
+      subscribeRegistry: vi.fn(() => () => {}),
+    }
+    const mgr = createSyncManager({ ...baseConfig(), rulesEngine })
+    const result = await mgr.triggerNow()
+    expect(result.ok).toBe(true)
+    expect(evaluateScheduled).toHaveBeenCalledTimes(1)
+  })
+
+  it('swallows evaluateScheduled throws — cycle still reports ok', async () => {
+    const evaluateScheduled = vi.fn().mockRejectedValue(new Error('scheduled blew up'))
+    const rulesEngine = {
+      register: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+      list: vi.fn(() => []),
+      getActive: vi.fn(() => []),
+      evaluateOnBatch: vi.fn().mockResolvedValue([]),
+      evaluateScheduled,
+      on: vi.fn(() => () => {}),
+      subscribeRegistry: vi.fn(() => () => {}),
+    }
+    const warn = vi.fn()
+    const mgr = createSyncManager({
+      ...baseConfig(),
+      rulesEngine,
+      logger: { debug: () => {}, info: () => {}, warn },
+    })
+    const result = await mgr.triggerNow()
+    expect(result.ok).toBe(true)
+    expect(evaluateScheduled).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalled()
+  })
+
   it('does not stall sync when rulesEngine throws', async () => {
     const evaluateOnBatch = vi.fn().mockRejectedValue(new Error('rules blew up'))
     const rulesEngine = {
