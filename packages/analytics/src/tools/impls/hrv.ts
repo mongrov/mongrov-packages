@@ -1,0 +1,54 @@
+import { z } from 'zod'
+import { deltaPct, formatBytes } from '../formatters'
+import type { ToolImpl, ToolResult } from '../types'
+
+export const getHRVInputSchema = z.object({
+  userId: z.string(),
+  days: z.number().int().min(1).max(90),
+})
+
+export type GetHRVInput = z.infer<typeof getHRVInputSchema>
+
+interface Row {
+  day: string
+  avg_hrv: number
+}
+
+export const getHRV: ToolImpl<GetHRVInput> = async (input, ctx) => {
+  const rows = await ctx.analytics.execute<Row>(
+    `SELECT date_trunc('day', ts)::VARCHAR AS day, AVG(hrv_ms)::DOUBLE AS avg_hrv
+     FROM hrv
+     WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+       AND ts >= now() - INTERVAL ($days) DAY
+       AND hrv_ms IS NOT NULL
+     GROUP BY 1 ORDER BY 1`,
+    {
+      userId: input.userId,
+      brand: ctx.brand,
+      familyId: ctx.familyId,
+      days: input.days,
+    },
+  )
+
+  if (rows.length === 0) {
+    return finalize('No HRV data for the requested window.', 0)
+  }
+
+  const values = rows.map(r => r.avg_hrv)
+  const baseline = values.reduce((a, v) => a + v, 0) / values.length
+  const latest = values[values.length - 1]
+  const daily = rows
+    .map(r => `  ${r.day}: ${r.avg_hrv.toFixed(1)}ms`)
+    .join('\n')
+
+  const text
+    = `HRV, last ${input.days} days:\n${daily}\n`
+    + `  ${input.days}-day avg: ${baseline.toFixed(1)}ms `
+    + `(latest ${latest.toFixed(1)}ms, ${deltaPct(latest, baseline)} vs avg)`
+
+  return finalize(text, rows.length)
+}
+
+function finalize(text: string, rowCount: number): ToolResult {
+  return { text, rowCount, bytes: formatBytes(text) }
+}
