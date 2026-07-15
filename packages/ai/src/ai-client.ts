@@ -19,7 +19,7 @@ const noopLogger: AILogger = {
 };
 
 export function createAIClient(config: AIConfig): AIClient {
-  const { model, logger = noopLogger, systemPrompt } = config;
+  const { model, logger = noopLogger, systemPrompt, tools } = config;
   let currentAbortController: AbortController | null = null;
 
   // Warn if expo/fetch not available
@@ -49,6 +49,7 @@ export function createAIClient(config: AIConfig): AIClient {
         messages: aiMessages,
         abortSignal: currentAbortController.signal,
         experimental_telemetry: { isEnabled: false },
+        ...(tools ? { tools } : {}),
       });
 
       for await (const chunk of textStream) {
@@ -86,6 +87,7 @@ export function createAIClient(config: AIConfig): AIClient {
         messages,
         abortSignal: currentAbortController.signal,
         experimental_telemetry: { isEnabled: false },
+        ...(tools ? { tools } : {}),
       });
 
       logger.debug('Completion finished', { resultLength: text.length });

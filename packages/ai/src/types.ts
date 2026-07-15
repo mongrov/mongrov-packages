@@ -1,4 +1,4 @@
-import type { LanguageModelV1 } from 'ai';
+import type { CoreTool, LanguageModelV1 } from 'ai';
 
 // Logger interface (injectable, same pattern as auth)
 export interface AILogger {
@@ -13,6 +13,13 @@ export interface AIConfig {
   model: LanguageModelV1;
   logger?: AILogger;
   systemPrompt?: string;
+  /**
+   * Optional tool map (AI SDK v4 `CoreTool`) threaded to both
+   * `streamText` and `generateText`. Consumers hand a map from
+   * `@mongrov/analytics/tools`'s `createAnalyticsTools` or any other
+   * AI SDK-compatible tool factory.
+   */
+  tools?: Record<string, CoreTool>;
 }
 
 // Message types (AI SDK compatible)
