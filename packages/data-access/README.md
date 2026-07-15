@@ -206,6 +206,48 @@ Standalone factory for tests or non-React callers. Exposes `emit`, `subscribe`, 
 - `AuthorizationError` extends `DataAccessError` (`code: 'authorization_denied'`).
 - `NotImplementedError` extends `DataAccessError` (`code: 'not_implemented'`); reserved for stubs.
 
+## Registry variance workaround
+
+The exported `Registry` type keys onto
+`QueryDefinition<unknown, unknown>` / `MutationDefinition<unknown, unknown>`
+as its map value type. Concrete queries authored with `defineQuery` have
+narrow input types, which are **contravariant** in function positions
+(`authorize`, `keyBuilder`, `handler`). TypeScript's strict mode rejects
+a direct assignment even though the runtime dispatcher only reads the
+shape.
+
+The standard resolution is a **variance-erased map** — author your
+registry as a narrow `as const satisfies` map, then bridge to the loose
+`Registry` contract with a single double-cast at the boundary:
+
+```ts
+// src/data/registry.ts
+import type { Registry } from '@mongrov/data-access';
+
+import { setTenant } from './mutations';
+import { heartRateRecent, hrvLast24h } from './queries';
+
+export const registry = {
+  queries: {
+    'health.heartRateRecent': heartRateRecent,
+    'health.hrvLast24h': hrvLast24h,
+  },
+  mutations: {
+    'tenant.set': setTenant,
+  },
+  events: {},
+} as const satisfies { queries: unknown; mutations: unknown; events: unknown };
+
+// Boundary cast — narrow keys stay authored types; only the map value
+// widens to the dispatcher's contract.
+export const appRegistry = registry as unknown as Registry;
+```
+
+Keep this cast confined to the single file that assembles the registry.
+Consumers pass `appRegistry` to `DataAccessProvider`; nothing else in the
+app touches the loose `Registry` type, so the narrow authored types still
+drive `defineQuery`, `useAppQuery`, and codegen downstream.
+
 ## ESLint plugin
 
 Blocks direct storage-engine imports outside the registry directory.
@@ -253,7 +295,11 @@ See `src/__tests__/integration.test.tsx` for a full smoke test wiring registry +
 
 ## Version
 
-`0.1.0-alpha.0` — first cut. Follow-ups tracked in [`.specifica/features/data-access/tasks.md`](../../../.specifica/features/data-access/tasks.md):
+`0.1.0` — first stable cut of the query/mutation/event registry with
+engine dispatch. Alpha train (`0.1.0-alpha.0` → `0.1.0-alpha.3`) shipped
+under the `alpha` dist-tag while the zod peer-widening and CJS emit for
+the ESLint subpath were stabilized. Follow-ups tracked in
+[`.specifica/features/data-access/tasks.md`](../../../.specifica/features/data-access/tasks.md):
 
 - Row-level invalidation
 - Streaming query results
