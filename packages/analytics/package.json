@@ -64,6 +64,7 @@
   "peerDependencies": {
     "@mongrov/db": "workspace:*",
     "@mongrov/types": "^0.4.0",
+    "ai": ">=4",
     "react": ">=19",
     "react-native": ">=0.81",
     "react-native-duckdb": ">=1.0.0"
@@ -91,6 +92,7 @@
     "@testing-library/react": "^14.3.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "ai": "^4.3.0",
     "fast-check": "^4.9.0",
     "jsdom": "^25.0.1",
     "react": "^18.3.1",

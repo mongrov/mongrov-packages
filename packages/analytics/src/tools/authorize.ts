@@ -3,24 +3,31 @@
  *
  * `familyScopeAuthorize` — grants access iff `args.userId` is either
  * the requester themselves or another member of the requester's
- * family. Family membership is looked up via a `family_member` table
- * that the app is expected to expose in the DuckDB catalog.
+ * family. When `config.familyMembersProvider` is supplied (the
+ * factory path since T-11), membership resolves via that provider;
+ * otherwise the legacy SQL path against a `family_member` table is
+ * used (kept for standalone hook usage and backwards compat).
  *
- * TODO(T-11): once `createAnalyticsTools` factory lands, switch the
- * family-membership lookup to read the engine's `familyMembersProvider`
- * directly (see `AnalyticsConfig.familyMembersProvider`) rather than
- * requiring a SQL-visible `family_member` table. The current SQL path
- * lets us unit-test the hook without pulling the full factory into
- * scope.
- *
- * Both hooks fail closed on engine errors — a query throw returns
- * `false` rather than surfacing the error to the LLM.
+ * Both hooks fail closed on any error — provider throws, engine
+ * throws, missing/malformed args — return `false` rather than
+ * surfacing the error to the LLM.
  */
 
-import type { AnalyticsEngine } from '../core/types'
+import type { AnalyticsEngine, FamilyMembersProvider } from '../core/types'
 import type { AuthorizeFn } from './types'
 
-export function familyScopeAuthorize(analytics: AnalyticsEngine): AuthorizeFn {
+export interface AuthorizeConfig {
+  /**
+   * When present, membership is resolved via the provider instead of
+   * SQL. This is the path wired by `createAnalyticsTools`.
+   */
+  familyMembersProvider?: FamilyMembersProvider
+}
+
+export function familyScopeAuthorize(
+  analytics: AnalyticsEngine,
+  config: AuthorizeConfig = {},
+): AuthorizeFn {
   return async (_toolName, args, ctx) => {
     const targetUserId = args.userId
     if (typeof targetUserId !== 'string' || targetUserId.length === 0) {
@@ -29,6 +36,20 @@ export function familyScopeAuthorize(analytics: AnalyticsEngine): AuthorizeFn {
     if (targetUserId === ctx.requesterUserId) {
       return true
     }
+
+    if (config.familyMembersProvider) {
+      try {
+        const members = await config.familyMembersProvider({
+          brand: ctx.brand,
+          familyId: ctx.familyId,
+        })
+        return members.includes(targetUserId)
+      }
+      catch {
+        return false
+      }
+    }
+
     try {
       const rows = await analytics.execute<{ one: number }>(
         'SELECT 1 AS one FROM family_member '
@@ -49,10 +70,14 @@ export function familyScopeAuthorize(analytics: AnalyticsEngine): AuthorizeFn {
  * `familyId` is treated as the org id until org membership is wired
  * through `RequestContext`.
  *
- * TODO(T-11): once orgs land, extend `ToolContext` with an `orgId`
- * field and switch the parameter binding here.
+ * When `familyMembersProvider` is supplied, the same provider is
+ * consulted (v0.1.0 shim — a dedicated `orgMembersProvider` will
+ * split out once orgs land).
  */
-export function orgScopeAuthorize(analytics: AnalyticsEngine): AuthorizeFn {
+export function orgScopeAuthorize(
+  analytics: AnalyticsEngine,
+  config: AuthorizeConfig = {},
+): AuthorizeFn {
   return async (_toolName, args, ctx) => {
     const targetUserId = args.userId
     if (typeof targetUserId !== 'string' || targetUserId.length === 0) {
@@ -61,6 +86,20 @@ export function orgScopeAuthorize(analytics: AnalyticsEngine): AuthorizeFn {
     if (targetUserId === ctx.requesterUserId) {
       return true
     }
+
+    if (config.familyMembersProvider) {
+      try {
+        const members = await config.familyMembersProvider({
+          brand: ctx.brand,
+          familyId: ctx.familyId,
+        })
+        return members.includes(targetUserId)
+      }
+      catch {
+        return false
+      }
+    }
+
     try {
       const rows = await analytics.execute<{ one: number }>(
         'SELECT 1 AS one FROM org_member '

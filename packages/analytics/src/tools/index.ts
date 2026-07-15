@@ -1,13 +1,19 @@
 // @mongrov/analytics/tools — typed AI SDK tools + MCP.
 //
-// v0.1.0-alpha (T-01..T-08 landed): tool impls, formatters, rate
-// limiter, authorize hooks. AI SDK `tool()` handles + `makeTool`
-// wrapper + `createAnalyticsTools` factory + `tool_call_audit`
-// writer + MCP subpath still pending (T-09..T-14).
+// v0.1.0-alpha (T-01..T-12 landed): tool impls, formatters, rate
+// limiter, authorize hooks (with optional familyMembersProvider),
+// batched `tool_call_audit` writer, output-budget helper, `makeTool`
+// wrapper composing rate → auth → execute → budget → audit, and the
+// `createAnalyticsTools` factory returning an AI SDK tool map.
+// MCP subpath (T-13/T-14) still pending.
 
+export * from './audit'
 export * from './authorize'
+export * from './budget'
+export * from './factory'
 export * from './rate-limit'
 export * from './types'
+export * from './wrap'
 
 export {
   getHRV,
