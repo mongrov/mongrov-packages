@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/analytics",
-  "version": "0.1.0-beta.0",
+  "version": "0.1.0",
   "sideEffects": false,
   "description": "DuckDB + R2 Iceberg local analytics for @mongrov apps",
   "license": "MIT",
