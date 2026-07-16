@@ -2,7 +2,11 @@
  * T-09 — Firmware composition mapper.
  *
  * Coverage:
- *   1. Full fixture at `.specifica/fixtures/firmware-8047-17-06-2026.json`
+ *   1. Full fixture at `./fixtures/firmware-8047-17-06-2026.json`
+ *      (originally sourced from the workspace-level
+ *      `.specifica/fixtures/`; co-located here so the package is
+ *      self-contained on CI checkouts that don't include the sibling
+ *      `.specifica/` tree).
  *      → MappedBatch with expected row counts per table.
  *   2. Empty firmware (every array absent) → MappedBatch with empty arrays,
  *      no throws, `device_config_closes` empty.
@@ -26,7 +30,7 @@ const ctx: MapperContext = {
 
 const FIXTURE_PATH = join(
   __dirname,
-  '../../../../../../../.specifica/fixtures/firmware-8047-17-06-2026.json',
+  'fixtures/firmware-8047-17-06-2026.json',
 )
 const NOW = new Date('2026-06-17T12:00:00.000Z')
 

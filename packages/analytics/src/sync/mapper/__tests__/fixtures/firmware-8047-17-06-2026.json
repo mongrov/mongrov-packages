@@ -1,0 +1,84 @@
+{
+  "$comment": "Hand-authored minimal firmware fixture (v0.1.0-alpha.7). Covers sentinel zeros, midnight-crossing sleep, activity unnest, battery, and ring config. Replace with a captured real-device sample once available.",
+  "heartrate": [
+    { "timestamp": "2026.06.17 03:15:00", "singleHR": 68 },
+    { "timestamp": "2026.06.17 03:16:00", "singleHR": 71 }
+  ],
+  "hrv_table": [
+    {
+      "timestamp": "2026.06.17 03:15:00",
+      "hrv": 42,
+      "stress": 30,
+      "heartRate": 68,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 33
+    },
+    {
+      "timestamp": "2026.06.17 04:15:00",
+      "hrv": 45,
+      "stress": 25,
+      "heartRate": 0,
+      "systolicBP": 0,
+      "diastolicBP": 0,
+      "vascularAging": 0
+    }
+  ],
+  "spo2": [
+    { "timestamp": "2026.06.17 03:15:00", "automaticSpo2Data": 97 },
+    { "timestamp": "2026.06.17 04:15:00", "automaticSpo2Data": 98 }
+  ],
+  "temperature_table": [
+    { "timestamp": "2026.06.17 03:15:00", "temperature": 37 },
+    { "timestamp": "2026.06.17 04:15:00", "temperature": 36 }
+  ],
+  "activitydetails": [
+    {
+      "timestamp": "2026.06.17 10:00:00",
+      "step": 45,
+      "calories": 5,
+      "distance": 0.03,
+      "arraySteps": [4, 5, 4, 5, 4, 5, 4, 5, 4, 5]
+    },
+    {
+      "timestamp": "2026.06.17 10:10:00",
+      "step": 60,
+      "calories": 7,
+      "distance": 0.05,
+      "arraySteps": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
+    }
+  ],
+  "sleep_processed": [
+    {
+      "start": "2026.06.18 05:00:00",
+      "end": "2026.06.18 12:00:00",
+      "block_type": "primary",
+      "confidence": 0.9,
+      "timestamp": "2026.06.18 05:00:00"
+    },
+    {
+      "start": "2026.06.18 05:00:00",
+      "end": "2026.06.18 12:00:00",
+      "block_type": "deep",
+      "confidence": 0.85,
+      "timestamp": "2026.06.18 06:00:00"
+    },
+    {
+      "start": "2026.06.18 14:00:00",
+      "end": "2026.06.18 14:30:00",
+      "block_type": "primary",
+      "confidence": 0.5,
+      "timestamp": "2026.06.18 14:00:00"
+    }
+  ],
+  "battery_table": [
+    { "timestamp": "2026.06.17 03:15:00", "battery": 82 },
+    { "timestamp": "2026.06.17 15:15:00", "battery": 71 }
+  ],
+  "ring": {
+    "automaticMonitoringData": [
+      { "metric": "hrv", "interval_minutes": 5, "start_hour": 22, "end_hour": 8 },
+      { "metric": "spo2", "interval_minutes": 30, "start_hour": 0, "end_hour": 23 }
+    ]
+  }
+}
