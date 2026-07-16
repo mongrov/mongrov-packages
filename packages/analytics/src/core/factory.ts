@@ -205,8 +205,34 @@ export function createAnalytics(
     await runRetentionSweep(db, catalog, { effectiveDays })
   }
 
+  /**
+   * Await a state that permits an ATTACH transition. `createAnalytics` starts
+   * the actor + sends OPEN synchronously; consumers that call `attach()`
+   * immediately race the `opening → ready` transition. xstate drops events
+   * from disallowed states, so without this guard the pending
+   * `waitForNextState('attached'|'error')` would never resolve.
+   *
+   * Polls instead of `waitForNextState` to sidestep the race between reading
+   * `currentState()` and installing the subscription: xstate can transition
+   * between the two calls, at which point `waitForNextState`'s skip-first
+   * logic swallows the transition we care about and blocks forever.
+   */
+  async function ensureReadyForAttach(): Promise<void> {
+    for (let i = 0; i < 1000; i++) { // ~10s cap
+      const s = currentState(actor)
+      if (s === 'ready' || s === 'attached') return
+      if (s === 'error') {
+        throw actor.getSnapshot().context.lastError
+          ?? new AnalyticsError('engine_open_failed', 'engine transitioned to error before ready')
+      }
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+    throw new AnalyticsError('engine_open_failed', 'engine never reached ready state within timeout')
+  }
+
   const engine: AnalyticsEngine = {
     async attach(ctx: AttachContext) {
+      await ensureReadyForAttach()
       const pending = waitForNextState(actor, ['attached', 'error'] as const)
       actor.send({ type: 'ATTACH', ctx })
       const final = await pending

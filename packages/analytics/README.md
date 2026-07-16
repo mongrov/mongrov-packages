@@ -289,20 +289,40 @@ fake.failExecuteMatching(/^DELETE FROM /, new Error('retention sad'))
 **Fake KV** — in-memory `KVStore` implementation with the backing map
 exposed for direct assertions.
 
-## Integration testing (T-18 — pending)
+## Integration testing (live MinIO + Iceberg REST)
 
-Full end-to-end coverage against a real MinIO + Iceberg REST catalog is
-planned for T-18 in Phase 8. The intended shape:
+The `test:integration` script drives the shipped `createAnalytics()`
+factory against a real docker-compose stack (MinIO + Tabular's
+`iceberg-rest`). Six scenarios cover the T-18 (analytics-core) and
+T-28 (analytics-sync) acceptance criteria:
 
-1. Boot MinIO + Iceberg REST via testcontainers.
-2. `createAnalytics` with a real `duckdbFactory` and pointing at the test
-   endpoint.
-3. `attach → INSERT (via appender) → SELECT → detach → reattach` — assert
-   no leakage.
-4. Brand-switch scenario: attach `brandA`, detach, attach `brandB`, confirm
-   no cross-brand catalog visibility.
+| Suite | Cases |
+|---|---|
+| `src/core/__tests__/minio.integration.test.ts` | attach round-trip, reattach preserves rows, catalog-alias isolation, retention sweep respects watermark, token refresh at 75 % TTL |
+| `src/sync/__tests__/push-fetch.integration.test.ts` | push local → fetch back into fresh engine, byte-equal round trip |
 
-This suite is deferred until testcontainers infra lands.
+```bash
+# One-shot (boots + tears down docker):
+pnpm test:integration
+
+# Iterative loop (keep the stack up between runs):
+cd infra/analytics-minio && docker compose up -d --wait && cd ../..
+INTEGRATION_STACK_EXTERNAL=1 pnpm test:integration
+```
+
+Details in
+[`infra/analytics-minio/README.md`](./infra/analytics-minio/README.md)
+(compose recipe, credentials, port map, image pins) and
+[`src/__integration__/README.md`](./src/__integration__/README.md)
+(harness architecture, divergences from prod, how to add a case).
+
+**CI**: the top-level workflow runs the fast unit matrix and a
+dedicated `analytics-integration` job that boots the compose stack in
+docker. See `.github/workflows/ci.yml`.
+
+`@duckdb/node-api` is a **devDependency** — it never enters the
+shipped bundle. React Native consumers still ship
+`react-native-duckdb` via the app-level `duckdbFactory`.
 
 ## Boundaries
 

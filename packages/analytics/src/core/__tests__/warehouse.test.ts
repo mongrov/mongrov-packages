@@ -51,6 +51,7 @@ describe('attachWarehouse', () => {
     expect(fake.calls.map(c => c.sql)).toEqual([
       'CREATE OR REPLACE SECRET zone_fam123 (TYPE ICEBERG, TOKEN $token, ENDPOINT $endpoint);',
       `ATTACH 's3://mongrov-analytics/brandA/fam123/warehouse' AS zone_fam123 (TYPE ICEBERG);`,
+      'USE zone_fam123.default;',
     ])
     expect(fake.calls[0].params).toEqual({
       token: 'fake-bearer-token',
@@ -143,6 +144,7 @@ describe('detachWarehouse', () => {
     await detachWarehouse(db, 'fam123')
 
     expect(fake.calls.map(c => c.sql)).toEqual([
+      'USE memory.main;',
       'DETACH zone_fam123;',
       'DROP SECRET zone_fam123;',
     ])

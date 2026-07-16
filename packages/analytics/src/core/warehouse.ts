@@ -130,11 +130,19 @@ export async function attachWarehouse(
     )
   }
 
-  // Step 4: ATTACH
+  // Step 4: ATTACH + pin the current schema to the `default` namespace.
+  //
+  // DuckDB's Iceberg attach does not select a namespace, so unqualified
+  // `<catalog>.<table>` DDL (see `schemas.ts` / `qualifyDdl`) would resolve
+  // against schema `""` and fail with `Schema with name "" not found`.
+  // Iceberg mandates 3-part names; picking `default` here lets the rest of
+  // the codebase keep the 2-part `<catalog>.<table>` shape it was written
+  // against. Callers that need a different namespace should attach directly.
   try {
     await db.execute(
       `ATTACH '${uri}' AS ${secretName} (TYPE ICEBERG);`,
     )
+    await db.execute(`USE ${secretName}.default;`)
   }
   catch (cause) {
     throw new AnalyticsError(
@@ -181,6 +189,10 @@ export async function detachWarehouse(
 ): Promise<void> {
   const secretName = warehouseSecretName(tenantId)
   try {
+    // DuckDB refuses to detach the current default database, and `attach`
+    // above pinned it to `${secretName}.default`. Reset to the in-memory
+    // catalog before detaching so DETACH succeeds.
+    await db.execute(`USE memory.main;`)
     await db.execute(`DETACH ${secretName};`)
     await db.execute(`DROP SECRET ${secretName};`)
   }

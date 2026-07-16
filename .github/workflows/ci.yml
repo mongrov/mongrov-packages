@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [types, core, auth, ui, ai, db, theme, collab]
+        package: [types, core, auth, ui, ai, db, theme, collab, analytics]
     steps:
       - uses: actions/checkout@v4
 
@@ -33,3 +33,40 @@ jobs:
 
       - name: Build
         run: pnpm --filter @mongrov/${{ matrix.package }} run build
+
+  # Live-warehouse integration suite for @mongrov/analytics — boots a
+  # MinIO + Iceberg REST stack via docker-compose and exercises the real
+  # attach/push/fetch flow against it. Isolated from the fast unit matrix
+  # so a docker outage doesn't sink every other package.
+  analytics-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Boot analytics stack
+        working-directory: packages/analytics/infra/analytics-minio
+        run: docker compose up -d --wait
+
+      - name: Integration tests
+        env:
+          INTEGRATION_STACK_EXTERNAL: '1'
+        run: pnpm --filter @mongrov/analytics run test:integration
+
+      - name: Dump compose logs on failure
+        if: failure()
+        working-directory: packages/analytics/infra/analytics-minio
+        run: docker compose logs
+
+      - name: Teardown
+        if: always()
+        working-directory: packages/analytics/infra/analytics-minio
+        run: docker compose down -v

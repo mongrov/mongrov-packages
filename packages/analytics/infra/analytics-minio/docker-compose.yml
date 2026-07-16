@@ -1,0 +1,71 @@
+# Local + CI stack for `@mongrov/analytics` integration tests.
+#
+# Boots MinIO (S3-compatible object storage), an mc-based init container
+# that creates the `warehouse` bucket, and Tabular's `iceberg-rest`
+# catalog pointed at that bucket. Used by
+# `pnpm --filter @mongrov/analytics run test:integration` (T-18 + T-28).
+#
+# Local usage:
+#   docker compose -f docker-compose.yml up -d --wait
+#   INTEGRATION_STACK_EXTERNAL=1 pnpm test:integration
+#   docker compose -f docker-compose.yml down -v
+#
+# See README.md for port map + credentials.
+
+name: mongrov-analytics-minio
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2025-04-08T15-41-24Z
+    container_name: mongrov-analytics-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio-testing-password
+      MINIO_DOMAIN: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-08T15-39-49Z
+    container_name: mongrov-analytics-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minio minio-testing-password;
+      mc mb --ignore-existing local/warehouse;
+      exit 0"
+
+  iceberg-rest:
+    image: tabulario/iceberg-rest:1.6.0
+    container_name: mongrov-analytics-iceberg-rest
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio-testing-password
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+    ports:
+      - "8181:8181"
+    healthcheck:
+      # tabulario/iceberg-rest 1.6.0 ships only the JDK image — no wget/curl/nc.
+      # Use bash's /dev/tcp pseudo-file to probe the port.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8181"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s

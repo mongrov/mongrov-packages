@@ -64,6 +64,7 @@
     "prebuild": "pnpm run clean",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm run build"
   },
@@ -98,6 +99,8 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
+    "@duckdb/node-api": "1.5.4-r.1",
+    "@duckdb/node-bindings": "1.5.4-r.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mongrov/db": "workspace:*",
     "@mongrov/types": "workspace:*",

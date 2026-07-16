@@ -7,6 +7,9 @@ export default defineConfig({
     // at the top of the file.
     environment: 'node',
     include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
+    // Integration suite runs under vitest.integration.config.ts against
+    // a docker-compose stack; unit runs must stay fast + Docker-free.
+    exclude: ['src/**/__tests__/**/*.integration.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

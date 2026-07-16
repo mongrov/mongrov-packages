@@ -46,7 +46,7 @@ describe('qualifyDdl', () => {
 
   it('preserves the column definitions and PARTITIONED BY clause', () => {
     const rewritten = qualifyDdl(SCHEMAS.hrv, 'hrv', 'zone_fam123')
-    expect(rewritten).toContain('hrv_ms SMALLINT')
+    expect(rewritten).toContain('hrv_ms INTEGER')
     expect(rewritten).toContain('PARTITIONED BY (day(ts), user_id)')
   })
 })

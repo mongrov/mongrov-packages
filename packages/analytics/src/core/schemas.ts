@@ -45,11 +45,11 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
-  hrv_ms SMALLINT,
-  stress SMALLINT,
-  systolic_bp SMALLINT,
-  diastolic_bp SMALLINT,
-  vascular_aging SMALLINT
+  hrv_ms INTEGER,
+  stress INTEGER,
+  systolic_bp INTEGER,
+  diastolic_bp INTEGER,
+  vascular_aging INTEGER
 ) PARTITIONED BY (day(ts), user_id);`,
 
   heart_rate: `CREATE TABLE heart_rate (
@@ -58,7 +58,7 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
-  bpm SMALLINT NOT NULL
+  bpm INTEGER NOT NULL
 ) PARTITIONED BY (day(ts), user_id);`,
 
   spo2: `CREATE TABLE spo2 (
@@ -67,7 +67,7 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
-  spo2 SMALLINT NOT NULL
+  spo2 INTEGER NOT NULL
 ) PARTITIONED BY (day(ts), user_id);`,
 
   temperature: `CREATE TABLE temperature (
@@ -76,7 +76,7 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
-  temp_c SMALLINT NOT NULL
+  temp_c INTEGER NOT NULL
 ) PARTITIONED BY (day(ts), user_id);`,
 
   activity: `CREATE TABLE activity (
@@ -122,7 +122,7 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
-  stage SMALLINT NOT NULL,
+  stage INTEGER NOT NULL,
   confidence DOUBLE
 ) PARTITIONED BY (day(ts), user_id);`,
 
@@ -133,8 +133,8 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
-  quality SMALLINT NOT NULL,
-  unit_length SMALLINT
+  quality INTEGER NOT NULL,
+  unit_length INTEGER
 ) PARTITIONED BY (day(ts_session_start), user_id);`,
 
   device_event: `CREATE TABLE device_event (
@@ -144,7 +144,7 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
   event_type VARCHAR NOT NULL,
-  payload JSON
+  payload VARCHAR
 ) PARTITIONED BY (day(ts));`,
 
   device_config: `CREATE TABLE device_config (
@@ -152,11 +152,11 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   brand VARCHAR NOT NULL,
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
-  data_type SMALLINT NOT NULL,
-  interval_minutes SMALLINT NOT NULL,
+  data_type INTEGER NOT NULL,
+  interval_minutes INTEGER NOT NULL,
   start_time VARCHAR,
   end_time VARCHAR,
-  weeks SMALLINT,
+  weeks INTEGER,
   valid_from TIMESTAMP NOT NULL,
   valid_to TIMESTAMP,
   PRIMARY KEY (device_id, data_type, valid_from)
@@ -172,7 +172,7 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   severity VARCHAR NOT NULL,
   title VARCHAR NOT NULL,
   body TEXT,
-  evidence JSON,
+  evidence VARCHAR,
   acknowledged_at TIMESTAMP
 ) PARTITIONED BY (day(ts));`,
 
@@ -187,12 +187,12 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
 );`,
 
   tool_call_audit: `CREATE TABLE tool_call_audit (
-  ts TIMESTAMP NOT NULL DEFAULT now(),
+  ts TIMESTAMP NOT NULL,
   brand VARCHAR NOT NULL,
   family_id VARCHAR NOT NULL,
   requester_user_id VARCHAR NOT NULL,
   tool_name VARCHAR NOT NULL,
-  args JSON NOT NULL,
+  args VARCHAR NOT NULL,
   result_bytes INTEGER,
   result_row_count INTEGER,
   latency_ms INTEGER,
