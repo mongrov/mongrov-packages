@@ -9,8 +9,8 @@ Every tool runs through the same chain: **rate limit → authorize →
 execute → output budget → audit**. Every call — success, rejected,
 rate-limited, errored — is persisted to the `tool_call_audit` table.
 
-Status: shipped in `@mongrov/analytics@0.1.0-alpha.9`. MCP subpath
-(T-13/T-14) still deferred.
+Status: shipped in `@mongrov/analytics@0.1.0-alpha.10`. MCP subpath
+lives at `./mcp/` — see [`./mcp/README.md`](./mcp/README.md).
 
 ## Install
 
@@ -225,14 +225,33 @@ The `getHRV` tool (`impls/hrv.ts` + `__tests__/hrv.test.ts`) is the
 smallest reference — one query, one narrative — copy that shape for
 new sensor-window tools.
 
-## MCP subpath (planned)
+## MCP dev server
 
-An MCP server wrapper at `tools/mcp/server.ts` — exposing the same
-tool set over stdio + HTTP with the same auth / rate / audit chain
-— is planned but not landed (T-13 / T-14). The intent is a
-dev-guarded entry (`if (!__DEV__ && !process.env.ENABLE_MCP_SERVER)`)
-so production bundles strip it via tree-shaking. Track progress in
-`.specifica/features/analytics-ai-tools/tasks.md`.
+The same six tools are reachable over Model Context Protocol via
+the `./mcp/` subpath — stdio for Claude Desktop, HTTP (bearer-gated)
+for MCP Inspector or curl. Every MCP call reuses the same
+`AnalyticsToolsHandle`, so the rate → auth → execute → budget →
+audit chain and `tool_call_audit` writes are identical to AI SDK
+usage. The subpath is dev-guarded (`shouldStartMcpServer()` reads
+`__DEV__` or `ENABLE_MCP_SERVER=1`) and lives behind
+`sideEffects: false` so prod RN bundles drop the SDK entirely.
+
+See [`./mcp/README.md`](./mcp/README.md) for wiring, Claude Desktop
+config, curl round-trip, and design notes.
+
+```ts
+import { createAnalyticsTools } from '@mongrov/analytics/tools'
+import {
+  createMcpServer,
+  createStdioTransport,
+  shouldStartMcpServer,
+} from '@mongrov/analytics/tools/mcp'
+
+if (shouldStartMcpServer()) {
+  const mcp = createMcpServer({ toolsHandle })
+  await mcp.connect(createStdioTransport())
+}
+```
 
 ## Public exports
 

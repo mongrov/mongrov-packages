@@ -451,6 +451,22 @@ Fixture exports used across mapper + firmware tests live at
 Consumers writing their own regression tests can import them via a relative
 path inside this workspace; they are excluded from the published `dist/`.
 
+## AI tools (`@mongrov/analytics/tools`)
+
+Six read-only AI SDK v4 tools (`getHRV`, `getSleepSummary`,
+`getActivityTotal`, `compareTrend`, `detectAnomaly`, `getInsights`)
+sit on top of the warehouse, wired through a
+`rate → auth → execute → budget → audit` chain. See
+[`src/tools/README.md`](./src/tools/README.md).
+
+### MCP dev server (`@mongrov/analytics/tools/mcp`)
+
+Same six tools, exposed over Model Context Protocol via stdio
+(Claude Desktop) or HTTP with bearer auth (MCP Inspector, curl).
+Dev-guarded (`shouldStartMcpServer()`) + `sideEffects: false` so
+prod RN bundles drop the SDK. See
+[`src/tools/mcp/README.md`](./src/tools/mcp/README.md).
+
 ## License
 
 MIT

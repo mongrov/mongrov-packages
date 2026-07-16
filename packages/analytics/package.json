@@ -1,6 +1,7 @@
 {
   "name": "@mongrov/analytics",
-  "version": "0.1.0-alpha.9",
+  "version": "0.1.0-alpha.10",
+  "sideEffects": false,
   "description": "DuckDB + R2 Iceberg local analytics for @mongrov apps",
   "license": "MIT",
   "repository": {
@@ -38,6 +39,11 @@
       "import": "./dist/tools/index.js",
       "default": "./dist/tools/index.js"
     },
+    "./tools/mcp": {
+      "types": "./dist/tools/mcp/index.d.ts",
+      "import": "./dist/tools/mcp/index.js",
+      "default": "./dist/tools/mcp/index.js"
+    },
     "./sync": {
       "types": "./dist/sync/index.d.ts",
       "import": "./dist/sync/index.js",
@@ -62,6 +68,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "peerDependencies": {
+    "@modelcontextprotocol/sdk": ">=1.20.0",
     "@mongrov/db": "workspace:*",
     "@mongrov/types": "^0.4.0",
     "ai": ">=4",
@@ -70,6 +77,9 @@
     "react-native-duckdb": ">=1.0.0"
   },
   "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },
@@ -84,9 +94,11 @@
     "@iarna/toml": "^2.2.5",
     "date-fns-tz": "^3.2.0",
     "p-queue": "^8.0.1",
-    "xstate": "^5.30.0"
+    "xstate": "^5.30.0",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@mongrov/db": "workspace:*",
     "@mongrov/types": "workspace:*",
     "@testing-library/react": "^14.3.1",
