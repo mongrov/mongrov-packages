@@ -24,6 +24,12 @@ export type { AnalyticsProviderProps } from './context'
 export { AnalyticsError, NotImplementedError } from './errors'
 export type { AnalyticsErrorCode } from './errors'
 
+// Table sync metadata registry (v0.2.0 — public surface for consumers
+// who need to know a table's sync watermark column or syncability flag,
+// e.g. when composing custom pushAll/fetch loops).
+export { isSyncable, TABLE_METADATA, timeColumnFor } from './table_metadata'
+export type { TableSyncMetadata } from './table_metadata'
+
 // Types
 export type {
   AnalyticsAppender,

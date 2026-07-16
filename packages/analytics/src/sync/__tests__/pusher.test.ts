@@ -89,6 +89,28 @@ describe('R2Pusher.push', () => {
   })
 })
 
+describe('R2Pusher time column resolution', () => {
+  it('uses ts_start for sleep_session (non-ts time column)', async () => {
+    const { pusher, fake } = newPusher()
+    fake.mockNext([{ max_ts: '2026-06-01T00:00:00.000Z', row_count: 1 }])
+    fake.mockNext([])
+    await pusher.push('sleep_session', ctx)
+    expect(fake.calls[0]!.sql).toMatch(/SELECT MAX\(ts_start\)/)
+    expect(fake.calls[0]!.sql).toMatch(/WHERE ts_start > \$watermark/)
+    expect(fake.calls[1]!.sql).toMatch(/WHERE ts_start > \$watermark/)
+  })
+
+  it('uses valid_from for device_config (SCD-2 time column)', async () => {
+    const { pusher, fake } = newPusher()
+    fake.mockNext([{ max_ts: '2026-06-01T00:00:00.000Z', row_count: 1 }])
+    fake.mockNext([])
+    await pusher.push('device_config', ctx)
+    expect(fake.calls[0]!.sql).toMatch(/SELECT MAX\(valid_from\)/)
+    expect(fake.calls[0]!.sql).toMatch(/WHERE valid_from > \$watermark/)
+    expect(fake.calls[1]!.sql).toMatch(/WHERE valid_from > \$watermark/)
+  })
+})
+
 describe('R2Pusher.pushAll', () => {
   it('returns per-table results with mixed success/failure', async () => {
     const { pusher, fake } = newPusher()

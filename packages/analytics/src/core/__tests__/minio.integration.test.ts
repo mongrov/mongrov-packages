@@ -333,6 +333,308 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
     }
   })
 
+  it('case #6: sleep_session attach → INSERT → SELECT (non-ts time column, DATE round-trip)', async () => {
+    const engine = bootEngine()
+    try {
+      await engine.attach(attachCtx(TENANT_A))
+      expect(engine.state).toBe('attached')
+
+      // Clean slate for the test's user_id.
+      await engine.execute(
+        `DELETE FROM ${qualify(CATALOG_A, 'sleep_session')} WHERE user_id = $u`,
+        { u: 'u6' },
+      )
+
+      // Iceberg forbids the appender path — seed via INSERT so DDL clauses
+      // (PARTITIONED BY day(ts_start), single PK session_id) exercise
+      // end-to-end. Five sessions on consecutive days.
+      for (let i = 0; i < 5; i++) {
+        const start = `2025-06-0${i + 1} 22:00:00`
+        const end = `2025-06-0${i + 2} 05:00:00`
+        const nightOf = `2025-06-0${i + 1}`
+        await engine.execute(
+          `INSERT INTO ${qualify(CATALOG_A, 'sleep_session')}
+             (session_id, ts_start, ts_end, brand, family_id, user_id, device_id,
+              total_minutes, deep_minutes, rem_minutes, light_minutes,
+              awake_minutes, avg_confidence, night_of)
+             VALUES ($sid, $s::TIMESTAMP, $e::TIMESTAMP, 'ziva', $fam, $u, $d,
+                     $tot, $deep, $rem, $light, $awk, $conf, $night::DATE)`,
+          {
+            sid: `sess_u6_${i}`,
+            s: start,
+            e: end,
+            fam: TENANT_A,
+            u: 'u6',
+            d: 'd6',
+            tot: 420,
+            deep: 90,
+            rem: 80,
+            light: 180,
+            awk: 70,
+            conf: 0.92,
+            night: nightOf,
+          },
+        )
+      }
+
+      const counted = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'sleep_session')}
+          WHERE user_id = $u`,
+        { u: 'u6' },
+      )
+      expect(counted[0]?.n).toBe(5n)
+
+      // Assert 14-col round-trip: DOUBLE avg_confidence, DATE night_of.
+      const first = await engine.execute<{
+        session_id: string
+        avg_confidence: number
+        night_of: string
+      }>(
+        `SELECT session_id, avg_confidence, night_of::VARCHAR AS night_of
+           FROM ${qualify(CATALOG_A, 'sleep_session')}
+          WHERE user_id = $u
+          ORDER BY ts_start
+          LIMIT 1`,
+        { u: 'u6' },
+      )
+      expect(first[0]?.session_id).toBe('sess_u6_0')
+      expect(first[0]?.avg_confidence).toBeCloseTo(0.92, 5)
+      expect(first[0]?.night_of).toBe('2025-06-01')
+
+      await engine.detach()
+    }
+    finally {
+      await engine.close()
+    }
+  })
+
+  it('case #7: device_config attach → INSERT → SELECT (composite PK, NULL valid_to)', async () => {
+    const engine = bootEngine()
+    try {
+      await engine.attach(attachCtx(TENANT_A))
+      expect(engine.state).toBe('attached')
+
+      // Clean slate — composite PK means we must delete by user_id AND
+      // data_type range to avoid stale rows from prior runs polluting the
+      // count assertion.
+      await engine.execute(
+        `DELETE FROM ${qualify(CATALOG_A, 'device_config')} WHERE user_id = $u`,
+        { u: 'u7' },
+      )
+
+      // Seed 3 configs with distinct data_type values (satisfies composite
+      // PK (device_id, data_type, valid_from)). One row has valid_to = NULL
+      // (open config, most recent). Two are closed (valid_to set).
+      const configs = [
+        { dt: 100, validFrom: '2025-06-01 00:00:00', validTo: '2025-06-02 00:00:00' as string | null },
+        { dt: 101, validFrom: '2025-06-01 00:00:00', validTo: '2025-06-02 00:00:00' as string | null },
+        { dt: 102, validFrom: '2025-06-02 00:00:00', validTo: null as string | null },
+      ]
+      for (const c of configs) {
+        await engine.execute(
+          `INSERT INTO ${qualify(CATALOG_A, 'device_config')}
+             (device_id, brand, family_id, user_id, data_type,
+              interval_minutes, start_time, end_time, weeks,
+              valid_from, valid_to)
+             VALUES ('d7', 'ziva', $fam, $u, $dt,
+                     15, NULL, NULL, NULL,
+                     $vf::TIMESTAMP, ${c.validTo === null ? 'NULL' : '$vt::TIMESTAMP'})`,
+          c.validTo === null
+            ? { fam: TENANT_A, u: 'u7', dt: c.dt, vf: c.validFrom }
+            : { fam: TENANT_A, u: 'u7', dt: c.dt, vf: c.validFrom, vt: c.validTo },
+        )
+      }
+
+      const counted = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = $u`,
+        { u: 'u7' },
+      )
+      expect(counted[0]?.n).toBe(3n)
+
+      // The open config (valid_to IS NULL) must survive round-trip as null.
+      const open = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = $u AND valid_to IS NULL`,
+        { u: 'u7' },
+      )
+      expect(open[0]?.n).toBe(1n)
+
+      // Composite PK is metadata-only in Iceberg (no storage enforcement),
+      // but the DDL round-trip should still let us project all three
+      // components together.
+      const shape = await engine.execute<{
+        device_id: string
+        data_type: number
+        valid_from: string
+      }>(
+        `SELECT device_id, data_type, valid_from::VARCHAR AS valid_from
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = $u
+          ORDER BY data_type, valid_from`,
+        { u: 'u7' },
+      )
+      expect(shape).toHaveLength(3)
+      expect(shape[0]?.data_type).toBe(100)
+      expect(shape[2]?.data_type).toBe(102)
+
+      await engine.detach()
+    }
+    finally {
+      await engine.close()
+    }
+  })
+
+  it('case #8: retention sweep honors sleep_session.ts_end (not ts_start)', async () => {
+    const engine = bootEngine(90) // brand default = 90 days
+    try {
+      await engine.attach(attachCtx(TENANT_A))
+
+      // Clean slate.
+      await engine.execute(
+        `DELETE FROM ${qualify(CATALOG_A, 'sleep_session')} WHERE user_id = $u`,
+        { u: 'u8' },
+      )
+      await engine.execute(
+        `DELETE FROM ${qualify(CATALOG_A, 'sync_watermark')}
+          WHERE brand = 'ziva' AND family_id = $fam AND table_name = 'sleep_session'`,
+        { fam: TENANT_A },
+      )
+
+      // Seed 100 sessions with ts_end spanning [now-100d, now-1d]. ts_start
+      // sits 7h earlier — deliberately places rows where a `ts_start`-based
+      // sweep would keep more rows than a `ts_end`-based sweep. Distinct
+      // session_ids satisfy the single-column PK.
+      await engine.execute(
+        `INSERT INTO ${qualify(CATALOG_A, 'sleep_session')}
+           (session_id, ts_start, ts_end, brand, family_id, user_id, device_id,
+            total_minutes, deep_minutes, rem_minutes, light_minutes,
+            awake_minutes, avg_confidence, night_of)
+         SELECT
+           'sess_u8_' || day_offset::VARCHAR,
+           (now() - (day_offset * INTERVAL 1 DAY) - INTERVAL 7 HOUR)::TIMESTAMP,
+           (now() - (day_offset * INTERVAL 1 DAY))::TIMESTAMP,
+           'ziva',
+           $fam,
+           'u8',
+           'd8',
+           420, 90, 80, 180, 70, 0.9,
+           (now() - (day_offset * INTERVAL 1 DAY))::DATE
+         FROM generate_series(1, 100) AS t(day_offset)`,
+        { fam: TENANT_A },
+      )
+      const seeded = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'sleep_session')}
+          WHERE user_id = 'u8'`,
+      )
+      expect(seeded[0]?.n).toBe(100n)
+
+      // Watermark 95d back — the tighter bound, constrains deletion to
+      // ts_end < now - 95d. This proves the sweep is reading ts_end (not
+      // ts_start, which sits 7h earlier and would otherwise shift the
+      // boundary).
+      await engine.execute(
+        `INSERT INTO ${qualify(CATALOG_A, 'sync_watermark')}
+           (brand, family_id, table_name, kind, cursor_ts, updated_at)
+           VALUES ('ziva', $fam, 'sleep_session', 'push',
+                   (now() - INTERVAL 95 DAY)::TIMESTAMP, now()::TIMESTAMP)`,
+        { fam: TENANT_A },
+      )
+
+      await engine.setRetention(90) // triggers runRetentionSweep
+
+      const remaining = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'sleep_session')}
+          WHERE user_id = 'u8'`,
+      )
+      // LEAST(now - 90d, watermark = now - 95d) = now - 95d.
+      // Rows at ts_end offset [96..100] days are older → 5 deleted.
+      // Absorb wall-clock jitter across seed/sweep by accepting 94..95.
+      const remainingN = Number(remaining[0]?.n ?? 0n)
+      expect(remainingN).toBeGreaterThanOrEqual(94)
+      expect(remainingN).toBeLessThanOrEqual(95)
+
+      // The oldest surviving session's ts_end must be inside the watermark
+      // bound. If the sweep had used ts_start, the oldest ts_end would be
+      // 7h younger than expected — this projection catches that regression.
+      const oldest = await engine.execute<{ age_days: number }>(
+        `SELECT (extract(epoch FROM (now() - MIN(ts_end))) / 86400)::INTEGER AS age_days
+           FROM ${qualify(CATALOG_A, 'sleep_session')}
+          WHERE user_id = 'u8'`,
+      )
+      expect(oldest[0]?.age_days).toBeGreaterThanOrEqual(90)
+      expect(oldest[0]?.age_days).toBeLessThanOrEqual(95)
+
+      await engine.detach()
+    }
+    finally {
+      await engine.close()
+    }
+  })
+
+  it('case #9: retention sweep skips device_config (SCD-2 config, no sweep)', async () => {
+    const engine = bootEngine(90) // brand default = 90 days
+    try {
+      await engine.attach(attachCtx(TENANT_A))
+
+      // Clean slate.
+      await engine.execute(
+        `DELETE FROM ${qualify(CATALOG_A, 'device_config')} WHERE user_id = $u`,
+        { u: 'u9' },
+      )
+
+      // Seed 5 configs with valid_from 180 days back — well past any
+      // reasonable retention window. Distinct data_type values satisfy the
+      // composite PK.
+      await engine.execute(
+        `INSERT INTO ${qualify(CATALOG_A, 'device_config')}
+           (device_id, brand, family_id, user_id, data_type,
+            interval_minutes, start_time, end_time, weeks,
+            valid_from, valid_to)
+         SELECT
+           'd9',
+           'ziva',
+           $fam,
+           'u9',
+           200 + dt,
+           15, NULL, NULL, NULL,
+           (now() - INTERVAL 180 DAY)::TIMESTAMP,
+           NULL
+         FROM generate_series(0, 4) AS t(dt)`,
+        { fam: TENANT_A },
+      )
+      const seeded = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = 'u9'`,
+      )
+      expect(seeded[0]?.n).toBe(5n)
+
+      // Aggressive retention setting — if the sweep touched device_config
+      // at all, every row would be older than the cutoff and swept.
+      await engine.setRetention(90)
+
+      const remaining = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = 'u9'`,
+      )
+      // TABLE_RETENTION.device_config === null → sweep is a no-op for this
+      // table. All 5 rows survive despite being 180 days old.
+      expect(remaining[0]?.n).toBe(5n)
+
+      await engine.detach()
+    }
+    finally {
+      await engine.close()
+    }
+  })
+
   it('case #5: token vendor is re-fetched at 75% TTL and the DuckDB secret is refreshed', async () => {
     // Short TTL keeps the test snappy: `after: { tokenRefresh }` fires at
     // 75% of TTL, so a 4-second token triggers refresh at ~3s. The machine

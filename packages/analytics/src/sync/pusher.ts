@@ -17,6 +17,7 @@
  */
 
 import type { HybridDuckDB } from '../core/engine'
+import { timeColumnFor } from '../core/table_metadata'
 import type { AttachContext } from '../core/types'
 import { SyncError } from './errors'
 import type { PushEmitter } from './events'
@@ -124,6 +125,7 @@ export class R2Pusher {
   }
 
   async #pushOnce(table: string, ctx: AttachContext): Promise<PushResult> {
+    const tsCol = timeColumnFor(table)
     const watermark = await this.#watermark.get(
       ctx.brand,
       ctx.tenantId,
@@ -135,7 +137,7 @@ export class R2Pusher {
 
     // Max ts to advance the watermark to. Null result → no new rows.
     const maxRows = await this.#engine.execute(
-      `SELECT MAX(ts) AS max_ts, COUNT(*) AS row_count FROM ${local} WHERE ts > $watermark AND family_id = $familyId`,
+      `SELECT MAX(${tsCol}) AS max_ts, COUNT(*) AS row_count FROM ${local} WHERE ${tsCol} > $watermark AND family_id = $familyId`,
       { watermark: watermark.toISOString(), familyId: ctx.tenantId },
     ) as Array<{ max_ts?: string | null, row_count?: number }>
 
@@ -146,7 +148,7 @@ export class R2Pusher {
     }
 
     await this.#engine.execute(
-      `INSERT INTO ${remote} SELECT * FROM ${local} WHERE ts > $watermark AND family_id = $familyId`,
+      `INSERT INTO ${remote} SELECT * FROM ${local} WHERE ${tsCol} > $watermark AND family_id = $familyId`,
       { watermark: watermark.toISOString(), familyId: ctx.tenantId },
     )
 

@@ -20,6 +20,7 @@
  */
 
 import type { HybridDuckDB } from '../core/engine'
+import { timeColumnFor } from '../core/table_metadata'
 import type { AttachContext } from '../core/types'
 import { SyncError } from './errors'
 import type { WatermarkStore } from './watermark'
@@ -124,15 +125,16 @@ export class R2Fetcher {
     params: FetchParams,
   ): Promise<FetchResult> {
     try {
+      const tsCol = timeColumnFor(params.table)
       const local = this.#localTable(ctx, params.table)
       const remote = this.#remoteTable(ctx, params.table)
       const bindings: Record<string, unknown> = {
         since: params.since.toISOString(),
         familyId: ctx.tenantId,
       }
-      let where = 'ts >= $since AND family_id = $familyId'
+      let where = `${tsCol} >= $since AND family_id = $familyId`
       if (params.until) {
-        where += ' AND ts <= $until'
+        where += ` AND ${tsCol} <= $until`
         bindings.until = params.until.toISOString()
       }
       const limitClause = params.limit ? ` LIMIT ${Math.max(1, Math.floor(params.limit))}` : ''
@@ -166,11 +168,12 @@ export class R2Fetcher {
     policy: PrefetchPolicy,
     cutoff: string,
   ): Promise<FetchResult> {
+    const tsCol = timeColumnFor(table)
     const local = this.#localTable(ctx, table)
     const remote = this.#remoteTable(ctx, table)
 
     if (policy.kind === 'all-family-on-attach') {
-      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE family_id = $familyId AND ts >= $cutoff ON CONFLICT DO NOTHING`
+      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $cutoff ON CONFLICT DO NOTHING`
       await this.#engine.execute(sql, {
         familyId: ctx.tenantId,
         cutoff,
@@ -181,7 +184,7 @@ export class R2Fetcher {
       const activeCutoff = new Date(activeCutoffMs).toISOString()
       // CTE picks user_ids seen in the recent window, then filters the window
       // pull down to those users.
-      const sql = `WITH active AS (SELECT DISTINCT user_id FROM ${remote} WHERE family_id = $familyId AND ts >= $activeCutoff) INSERT INTO ${local} SELECT r.* FROM ${remote} r JOIN active a ON r.user_id = a.user_id WHERE r.family_id = $familyId AND r.ts >= $cutoff ON CONFLICT DO NOTHING`
+      const sql = `WITH active AS (SELECT DISTINCT user_id FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $activeCutoff) INSERT INTO ${local} SELECT r.* FROM ${remote} r JOIN active a ON r.user_id = a.user_id WHERE r.family_id = $familyId AND r.${tsCol} >= $cutoff ON CONFLICT DO NOTHING`
       await this.#engine.execute(sql, {
         familyId: ctx.tenantId,
         cutoff,
@@ -189,7 +192,7 @@ export class R2Fetcher {
       })
     }
 
-    const rowsFetched = await this.#countFetched(remote, ctx, cutoff)
+    const rowsFetched = await this.#countFetched(remote, ctx, cutoff, tsCol)
     await this.#watermark.advance(
       ctx.brand,
       ctx.tenantId,
@@ -204,6 +207,7 @@ export class R2Fetcher {
     ctx: AttachContext,
     table: string,
   ): Promise<FetchResult> {
+    const tsCol = timeColumnFor(table)
     const watermark = await this.#watermark.get(
       ctx.brand,
       ctx.tenantId,
@@ -212,14 +216,14 @@ export class R2Fetcher {
     )
     const local = this.#localTable(ctx, table)
     const remote = this.#remoteTable(ctx, table)
-    const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ts > $watermark AND family_id = $familyId ON CONFLICT DO NOTHING`
+    const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${tsCol} > $watermark AND family_id = $familyId ON CONFLICT DO NOTHING`
     await this.#engine.execute(sql, {
       watermark: watermark.toISOString(),
       familyId: ctx.tenantId,
     })
 
     const maxRows = await this.#engine.execute(
-      `SELECT MAX(ts) AS max_ts, COUNT(*) AS row_count FROM ${remote} WHERE ts > $watermark AND family_id = $familyId`,
+      `SELECT MAX(${tsCol}) AS max_ts, COUNT(*) AS row_count FROM ${remote} WHERE ${tsCol} > $watermark AND family_id = $familyId`,
       { watermark: watermark.toISOString(), familyId: ctx.tenantId },
     ) as Array<{ max_ts?: string | null, row_count?: number }>
     const first = maxRows[0]
@@ -243,9 +247,10 @@ export class R2Fetcher {
     remote: string,
     ctx: AttachContext,
     cutoff: string,
+    tsCol: string,
   ): Promise<number> {
     const rows = await this.#engine.execute(
-      `SELECT COUNT(*) AS c FROM ${remote} WHERE family_id = $familyId AND ts >= $cutoff`,
+      `SELECT COUNT(*) AS c FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $cutoff`,
       { familyId: ctx.tenantId, cutoff },
     ) as Array<{ c?: number }>
     return Number(rows[0]?.c ?? 0)

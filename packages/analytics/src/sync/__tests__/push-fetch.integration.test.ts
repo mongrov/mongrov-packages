@@ -161,6 +161,126 @@ async function symmetricDiff(
   return rows[0]?.n ?? 0n
 }
 
+// -------------------- sleep_session helpers --------------------
+
+const SLEEP_TABLE = 'sleep_session'
+const SLEEP_LOCAL = `memory.main.${SLEEP_TABLE}`
+const SLEEP_REMOTE = `${CATALOG}.${NAMESPACE}.${SLEEP_TABLE}`
+
+/**
+ * `memory.main.sleep_session` local mirror. PK matches the Iceberg schema
+ * (single-column `session_id`) so the fetcher's ON CONFLICT DO NOTHING binds.
+ * 14 columns — matches `schemas.ts:101-116`.
+ */
+async function ensureSleepMirror(engine: AnalyticsEngine): Promise<void> {
+  await engine.execute(
+    `CREATE TABLE IF NOT EXISTS ${SLEEP_LOCAL} (
+      session_id VARCHAR PRIMARY KEY,
+      ts_start TIMESTAMP NOT NULL,
+      ts_end TIMESTAMP NOT NULL,
+      brand VARCHAR NOT NULL,
+      family_id VARCHAR NOT NULL,
+      user_id VARCHAR NOT NULL,
+      device_id VARCHAR NOT NULL,
+      total_minutes INTEGER NOT NULL,
+      deep_minutes INTEGER,
+      rem_minutes INTEGER,
+      light_minutes INTEGER,
+      awake_minutes INTEGER,
+      avg_confidence DOUBLE,
+      night_of DATE
+    )`,
+  )
+  await engine.execute(`DELETE FROM ${SLEEP_LOCAL}`)
+}
+
+async function resetRemoteSleep(engine: AnalyticsEngine): Promise<void> {
+  await engine.execute(
+    `DELETE FROM ${SLEEP_REMOTE} WHERE family_id = $f`,
+    { f: TENANT },
+  )
+}
+
+async function seedLocalSleep(engine: AnalyticsEngine, n: number): Promise<void> {
+  for (let i = 0; i < n; i++) {
+    const start = new Date(Date.UTC(2025, 5, 1 + i, 22, 0, 0))
+      .toISOString().replace('T', ' ').replace('Z', '')
+    const end = new Date(Date.UTC(2025, 5, 2 + i, 5, 0, 0))
+      .toISOString().replace('T', ' ').replace('Z', '')
+    const nightOf = `2025-06-${String(1 + i).padStart(2, '0')}`
+    await engine.execute(
+      `INSERT INTO ${SLEEP_LOCAL}
+         (session_id, ts_start, ts_end, brand, family_id, user_id, device_id,
+          total_minutes, deep_minutes, rem_minutes, light_minutes,
+          awake_minutes, avg_confidence, night_of)
+         VALUES ($sid, $s::TIMESTAMP, $e::TIMESTAMP, 'ziva', $f, 'u1', 'd1',
+                 420, 90, 80, 180, 70, 0.92, $night::DATE)`,
+      { sid: `sess_${i}`, s: start, e: end, f: TENANT, night: nightOf },
+    )
+  }
+}
+
+// -------------------- device_config helpers --------------------
+
+const CONFIG_TABLE = 'device_config'
+const CONFIG_LOCAL = `memory.main.${CONFIG_TABLE}`
+const CONFIG_REMOTE = `${CATALOG}.${NAMESPACE}.${CONFIG_TABLE}`
+
+/**
+ * `memory.main.device_config` local mirror. Composite PK matches the Iceberg
+ * schema (`device_id, data_type, valid_from`) so ON CONFLICT DO NOTHING is
+ * bound correctly — critical for the "fetch twice, count stable" idempotency
+ * assertion in the round-trip test.
+ */
+async function ensureConfigMirror(engine: AnalyticsEngine): Promise<void> {
+  await engine.execute(
+    `CREATE TABLE IF NOT EXISTS ${CONFIG_LOCAL} (
+      device_id VARCHAR NOT NULL,
+      brand VARCHAR NOT NULL,
+      family_id VARCHAR NOT NULL,
+      user_id VARCHAR NOT NULL,
+      data_type INTEGER NOT NULL,
+      interval_minutes INTEGER NOT NULL,
+      start_time VARCHAR,
+      end_time VARCHAR,
+      weeks INTEGER,
+      valid_from TIMESTAMP NOT NULL,
+      valid_to TIMESTAMP,
+      PRIMARY KEY (device_id, data_type, valid_from)
+    )`,
+  )
+  await engine.execute(`DELETE FROM ${CONFIG_LOCAL}`)
+}
+
+async function resetRemoteConfig(engine: AnalyticsEngine): Promise<void> {
+  await engine.execute(
+    `DELETE FROM ${CONFIG_REMOTE} WHERE family_id = $f`,
+    { f: TENANT },
+  )
+}
+
+/**
+ * Seed `n` device_config rows. Distinct `data_type` values (composite-PK
+ * requirement) and all rows are open configs (`valid_to = NULL`) so the
+ * round-trip must preserve NULL.
+ */
+async function seedLocalConfig(engine: AnalyticsEngine, n: number): Promise<void> {
+  for (let i = 0; i < n; i++) {
+    const validFrom = new Date(Date.UTC(2025, 5, 1, i, 0, 0))
+      .toISOString().replace('T', ' ').replace('Z', '')
+    await engine.execute(
+      `INSERT INTO ${CONFIG_LOCAL}
+         (device_id, brand, family_id, user_id, data_type,
+          interval_minutes, start_time, end_time, weeks,
+          valid_from, valid_to)
+         VALUES ('d1', 'ziva', $f, 'u1', $dt,
+                 15, NULL, NULL, NULL,
+                 $vf::TIMESTAMP, NULL)`,
+      { f: TENANT, dt: 300 + i, vf: validFrom },
+    )
+  }
+}
+
 describe('T-28 — R2 push/fetch byte-equal round trip (MinIO)', () => {
   let ep: Endpoints
 
@@ -273,6 +393,188 @@ describe('T-28 — R2 push/fetch byte-equal round trip (MinIO)', () => {
       // local seed. Compare on a projection to normalise BigInt/Date shapes.
       const fetchLocalSnapshot = await fetch.execute(
         `SELECT * FROM ${LOCAL_QUALIFIED} ORDER BY ts`,
+      )
+      expect(fetchLocalSnapshot).toHaveLength(ROW_COUNT)
+      expect(fetchLocalSnapshot).toEqual(pushLocalSnapshot)
+
+      await fetch.detach()
+    }
+    finally {
+      await fetch.close()
+    }
+  }, 30_000)
+
+  it('sleep_session — push/fetch byte-equal round trip (ts_start watermark, DATE round-trip)', async () => {
+    const ROW_COUNT = 10
+    const push = bootEngine()
+    let pushLocalSnapshot: readonly Record<string, unknown>[] = []
+
+    try {
+      await push.attach(ctx())
+      await ensureSleepMirror(push)
+      await resetRemoteSleep(push)
+      await seedLocalSleep(push, ROW_COUNT)
+
+      pushLocalSnapshot = await push.execute(
+        `SELECT * FROM ${SLEEP_LOCAL} ORDER BY ts_start`,
+      )
+      expect(pushLocalSnapshot).toHaveLength(ROW_COUNT)
+
+      const wm = new WatermarkStore({
+        kv: memoryKV(),
+        defaultRetentionMs: 365 * 10 * 24 * 60 * 60 * 1000, // 10y
+      })
+      const pusher = new R2Pusher({
+        engine: asDuckDBLike(push),
+        watermark: wm,
+        localTable: (_c, t) => `memory.main.${t}`,
+        remoteTable: (_c, t) => `${CATALOG}.${NAMESPACE}.${t}`,
+      })
+
+      // R2Pusher.push('sleep_session', …) will resolve `timeColumnFor` →
+      // 'ts_start' and issue `WHERE ts_start > $watermark`. If the refactor
+      // regresses and hardcodes 'ts', the SELECT will fail here.
+      const pushResult = await pusher.push(SLEEP_TABLE, ctx())
+      expect(pushResult).toMatchObject({ table: SLEEP_TABLE, ok: true })
+      expect(pushResult.rowsPushed).toBe(ROW_COUNT)
+      expect(await symmetricDiff(push, SLEEP_LOCAL, SLEEP_REMOTE)).toBe(0n)
+
+      await push.detach()
+    }
+    finally {
+      await push.close()
+    }
+
+    const fetch = bootEngine()
+    try {
+      await fetch.attach(ctx())
+      await ensureSleepMirror(fetch)
+
+      const wm = new WatermarkStore({
+        kv: memoryKV(),
+        defaultRetentionMs: 365 * 10 * 24 * 60 * 60 * 1000,
+      })
+      const fetcher = new R2Fetcher({
+        engine: asDuckDBLike(fetch),
+        watermark: wm,
+        tables: [SLEEP_TABLE],
+        localTable: (_c, t) => `memory.main.${t}`,
+        remoteTable: (_c, t) => `${CATALOG}.${NAMESPACE}.${t}`,
+      })
+
+      const fetchResults = await fetcher.fetchIncremental(ctx())
+      expect(fetchResults).toHaveLength(1)
+      expect(fetchResults[0]).toMatchObject({ table: SLEEP_TABLE, ok: true })
+      expect(fetchResults[0]?.rowsFetched).toBe(ROW_COUNT)
+      expect(await symmetricDiff(fetch, SLEEP_LOCAL, SLEEP_REMOTE)).toBe(0n)
+
+      const fetchLocalSnapshot = await fetch.execute(
+        `SELECT * FROM ${SLEEP_LOCAL} ORDER BY ts_start`,
+      )
+      expect(fetchLocalSnapshot).toHaveLength(ROW_COUNT)
+      expect(fetchLocalSnapshot).toEqual(pushLocalSnapshot)
+
+      await fetch.detach()
+    }
+    finally {
+      await fetch.close()
+    }
+  }, 30_000)
+
+  it('device_config — push/fetch byte-equal round trip (composite PK, NULL preservation, idempotent re-fetch)', async () => {
+    const ROW_COUNT = 3
+    const push = bootEngine()
+    let pushLocalSnapshot: readonly Record<string, unknown>[] = []
+
+    try {
+      await push.attach(ctx())
+      await ensureConfigMirror(push)
+      await resetRemoteConfig(push)
+      await seedLocalConfig(push, ROW_COUNT)
+
+      pushLocalSnapshot = await push.execute(
+        `SELECT * FROM ${CONFIG_LOCAL} ORDER BY valid_from, data_type`,
+      )
+      expect(pushLocalSnapshot).toHaveLength(ROW_COUNT)
+
+      const wm = new WatermarkStore({
+        kv: memoryKV(),
+        defaultRetentionMs: 365 * 10 * 24 * 60 * 60 * 1000,
+      })
+      const pusher = new R2Pusher({
+        engine: asDuckDBLike(push),
+        watermark: wm,
+        localTable: (_c, t) => `memory.main.${t}`,
+        remoteTable: (_c, t) => `${CATALOG}.${NAMESPACE}.${t}`,
+      })
+
+      // R2Pusher uses timeColumnFor('device_config') → 'valid_from'.
+      const pushResult = await pusher.push(CONFIG_TABLE, ctx())
+      expect(pushResult).toMatchObject({ table: CONFIG_TABLE, ok: true })
+      expect(pushResult.rowsPushed).toBe(ROW_COUNT)
+      expect(await symmetricDiff(push, CONFIG_LOCAL, CONFIG_REMOTE)).toBe(0n)
+
+      // NULL valid_to survived the push.
+      const nulls = await push.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n FROM ${CONFIG_REMOTE}
+          WHERE family_id = $f AND valid_to IS NULL`,
+        { f: TENANT },
+      )
+      expect(nulls[0]?.n).toBe(BigInt(ROW_COUNT))
+
+      await push.detach()
+    }
+    finally {
+      await push.close()
+    }
+
+    const fetch = bootEngine()
+    try {
+      await fetch.attach(ctx())
+      await ensureConfigMirror(fetch)
+
+      const wm = new WatermarkStore({
+        kv: memoryKV(),
+        defaultRetentionMs: 365 * 10 * 24 * 60 * 60 * 1000,
+      })
+      const fetcher = new R2Fetcher({
+        engine: asDuckDBLike(fetch),
+        watermark: wm,
+        tables: [CONFIG_TABLE],
+        localTable: (_c, t) => `memory.main.${t}`,
+        remoteTable: (_c, t) => `${CATALOG}.${NAMESPACE}.${t}`,
+      })
+
+      const first = await fetcher.fetchIncremental(ctx())
+      expect(first[0]?.rowsFetched).toBe(ROW_COUNT)
+      expect(await symmetricDiff(fetch, CONFIG_LOCAL, CONFIG_REMOTE)).toBe(0n)
+
+      // Idempotency: composite-PK ON CONFLICT DO NOTHING holds count stable
+      // on a re-fetch even without watermark advance (defensive re-run).
+      const firstCount = await fetch.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n FROM ${CONFIG_LOCAL}`,
+      )
+      // Force a re-fetch by resetting the local watermark; the ON CONFLICT
+      // clause on the local mirror is what prevents duplication.
+      const wm2 = new WatermarkStore({
+        kv: memoryKV(),
+        defaultRetentionMs: 365 * 10 * 24 * 60 * 60 * 1000,
+      })
+      const fetcher2 = new R2Fetcher({
+        engine: asDuckDBLike(fetch),
+        watermark: wm2,
+        tables: [CONFIG_TABLE],
+        localTable: (_c, t) => `memory.main.${t}`,
+        remoteTable: (_c, t) => `${CATALOG}.${NAMESPACE}.${t}`,
+      })
+      await fetcher2.fetchIncremental(ctx())
+      const secondCount = await fetch.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n FROM ${CONFIG_LOCAL}`,
+      )
+      expect(secondCount[0]?.n).toBe(firstCount[0]?.n)
+
+      const fetchLocalSnapshot = await fetch.execute(
+        `SELECT * FROM ${CONFIG_LOCAL} ORDER BY valid_from, data_type`,
       )
       expect(fetchLocalSnapshot).toHaveLength(ROW_COUNT)
       expect(fetchLocalSnapshot).toEqual(pushLocalSnapshot)

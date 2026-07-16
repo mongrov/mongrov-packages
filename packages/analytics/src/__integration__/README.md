@@ -24,7 +24,8 @@ setup/
 └── seed.ts             Test-side helpers: ensureNamespace/dropNamespace
                         (Iceberg REST v1), ensureS3Secret (DuckDB TYPE
                         S3 for MinIO), staticTokenVendor,
-                        refreshingTokenVendor, memoryKV, seedHrvRows.
+                        refreshingTokenVendor, memoryKV, seedHrvRows,
+                        seedSleepSessionRows, seedDeviceConfigRows.
 ```
 
 ## Architecture
@@ -81,11 +82,14 @@ INTEGRATION_STACK_EXTERNAL=1 pnpm test:integration  # requires you to run docker
 
 ## Non-goals
 
-- **Full CI coverage of every table**: today only `hrv` is used because
-  it's the simplest schema and any Iceberg type-mapping surprises will
-  show up there first. Adding coverage for `sleep_session` or
-  `device_config` (composite PKs) is worth doing when their code paths
-  land.
+- **Full CI coverage of every table**: `hrv`, `sleep_session`, and
+  `device_config` are covered end-to-end (attach → INSERT → SELECT →
+  retention → push → fetch). Remaining tables (`heart_rate`, `spo2`,
+  `temperature`, `activity`, `activity_bucket`, `sleep_stage`,
+  `sleep_raw`, `device_event`, `insight`, `tool_call_audit`) share the
+  same code paths and are exercised in unit tests via `TABLE_METADATA`
+  parametrization; adding integration coverage for them is
+  low-priority until a specific type-mapping regression surfaces.
 - **Fake-timer / mock-clock testing**: kept out on purpose — the
   75%-TTL refresh test uses real wall-clock sleeps (4s TTL) so the
   xstate `after` delay behaves as it would in production.

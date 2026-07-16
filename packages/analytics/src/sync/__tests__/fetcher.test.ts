@@ -142,3 +142,46 @@ describe('R2Fetcher.fetchOnDemand', () => {
       .toBe('2026-06-15T00:00:00.000Z')
   })
 })
+
+describe('R2Fetcher time column resolution', () => {
+  it('prefetchOnAttach uses ts_start for sleep_session', async () => {
+    const { fetcher, fake } = newFetcher(['sleep_session'])
+    fake.mockNext([]) // INSERT
+    fake.mockNext([{ c: 2 }]) // COUNT
+    await fetcher.prefetchOnAttach(ctx, {
+      kind: 'all-family-on-attach',
+      windowDays: 7,
+    })
+    const insert = fake.calls.find(c => c.sql.startsWith('INSERT INTO main.sleep_session'))!
+    expect(insert.sql).toContain('ts_start >= $cutoff')
+    expect(insert.sql).not.toMatch(/\bts >=/)
+    const count = fake.calls.find(c => c.sql.startsWith('SELECT COUNT'))!
+    expect(count.sql).toContain('ts_start >= $cutoff')
+  })
+
+  it('fetchIncremental uses valid_from for device_config', async () => {
+    const { fetcher, fake } = newFetcher(['device_config'])
+    fake.mockNext([]) // INSERT
+    fake.mockNext([{ max_ts: '2026-06-01T00:00:00.000Z', row_count: 1 }])
+    await fetcher.fetchIncremental(ctx)
+    const insert = fake.calls.find(c => c.sql.startsWith('INSERT INTO main.device_config'))!
+    expect(insert.sql).toContain('valid_from > $watermark')
+    const maxCall = fake.calls.find(c => c.sql.startsWith('SELECT MAX'))!
+    expect(maxCall.sql).toContain('MAX(valid_from)')
+    expect(maxCall.sql).toContain('valid_from > $watermark')
+  })
+
+  it('fetchOnDemand uses ts_start for sleep_session', async () => {
+    const { fetcher, fake } = newFetcher(['sleep_session'])
+    fake.mockNext([]) // INSERT
+    fake.mockNext([{ c: 3 }]) // COUNT
+    await fetcher.fetchOnDemand(ctx, {
+      table: 'sleep_session',
+      since: new Date('2026-05-25T00:00:00Z'),
+      until: new Date('2026-06-15T00:00:00Z'),
+    })
+    expect(fake.calls[0]!.sql).toContain('ts_start >= $since')
+    expect(fake.calls[0]!.sql).toContain('ts_start <= $until')
+    expect(fake.calls[0]!.sql).not.toMatch(/\bts >=/)
+  })
+})
