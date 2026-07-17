@@ -131,9 +131,13 @@ export type {
   HrvRow,
   MappedBatch,
   MapperContext,
+  RingConfigTranslator,
   SleepRawRow,
   SleepSessionRow,
   SleepStageRow,
   Spo2Row,
   TemperatureRow,
 } from './mapper/types'
+
+// SCD-2 pending closes (Phase G+).
+export { PendingClosesStore } from './pending_closes'

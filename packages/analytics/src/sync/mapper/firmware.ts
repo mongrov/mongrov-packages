@@ -27,13 +27,25 @@ import type {
   FirmwareExport,
   MappedBatch,
   MapperContext,
+  RingConfigTranslator,
 } from './types'
 
 export interface MapFirmwareOptions {
   /** Override for deterministic tests. Defaults to `new Date()`. */
   now?: Date
-  /** SCD-2 prior-config map — see `mapRingConfig`. */
-  activePriorConfigs?: ReadonlyMap<string, DeviceConfigRow>
+  /**
+   * SCD-2 prior-config map keyed by `data_type` (integer) — see
+   * `mapRingConfig`. Required whenever `fw.ring` is non-empty; the mapper
+   * skips ring-config translation entirely when this is absent and `fw.ring`
+   * has no windows.
+   */
+  activePriorConfigs?: ReadonlyMap<number, DeviceConfigRow>
+  /**
+   * Consumer-provided translation from firmware ring metrics to schema
+   * fields. Required if `fw.ring.automaticMonitoringData` has entries;
+   * skipped (empty inserts + closes) if absent.
+   */
+  translator?: RingConfigTranslator
 }
 
 export interface FirmwareMappedBatch extends MappedBatch {
@@ -47,11 +59,7 @@ export function mapFirmwareExport(
 ): FirmwareMappedBatch {
   const activity = mapActivity(fw.activitydetails ?? [], ctx)
   const sleep = reconstructSleepSessions(fw.sleep_processed ?? [], ctx)
-  const config = mapRingConfig(
-    fw.ring ?? { automaticMonitoringData: [] },
-    ctx,
-    opts,
-  )
+  const config = mapRingConfigIfPossible(fw, ctx, opts)
 
   return {
     hrv: mapHrv(fw.hrv_table ?? [], ctx),
@@ -67,4 +75,36 @@ export function mapFirmwareExport(
     device_config: config.inserts,
     device_config_closes: config.closes,
   }
+}
+
+/**
+ * Guard around `mapRingConfig`. When the firmware has no ring windows and no
+ * translator is supplied, we short-circuit to an empty result rather than
+ * threading a required-translator error through every synthetic firmware
+ * call site that doesn't touch device_config (e.g. unit fixtures for other
+ * sub-mappers).
+ */
+function mapRingConfigIfPossible(
+  fw: FirmwareExport,
+  ctx: MapperContext,
+  opts: MapFirmwareOptions,
+): { inserts: MappedBatch['device_config'], closes: RingConfigClose[] } {
+  const windows = fw.ring?.automaticMonitoringData ?? []
+  if (windows.length === 0 && !opts.translator) {
+    return { inserts: [], closes: [] }
+  }
+  if (!opts.translator) {
+    throw new Error(
+      'mapFirmwareExport: firmware ring.automaticMonitoringData has entries but no `translator` was provided in options',
+    )
+  }
+  return mapRingConfig(
+    fw.ring ?? { automaticMonitoringData: [] },
+    ctx,
+    {
+      now: opts.now,
+      activePriorConfigs: opts.activePriorConfigs,
+      translator: opts.translator,
+    },
+  )
 }

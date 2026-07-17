@@ -12,6 +12,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
+import type { RingConfigClose } from '../mapper/ring-config'
 import { R2Pusher } from '../pusher'
 import { WatermarkStore } from '../watermark'
 import { createFakeSqlEngine } from './__fakes__/fake-sql-engine'
@@ -108,6 +109,60 @@ describe('R2Pusher time column resolution', () => {
     expect(fake.calls[0]!.sql).toMatch(/SELECT MAX\(valid_from\)/)
     expect(fake.calls[0]!.sql).toMatch(/WHERE valid_from > \$watermark/)
     expect(fake.calls[1]!.sql).toMatch(/WHERE valid_from > \$watermark/)
+  })
+})
+
+describe('R2Pusher.pushCloses', () => {
+  const NOW = new Date('2026-06-17T12:00:00Z')
+  const closes: RingConfigClose[] = [
+    { device_id: 'ring_1', data_type: 1, valid_to: NOW },
+    { device_id: 'ring_1', data_type: 2, valid_to: NOW },
+  ]
+
+  it('issues one UPDATE per close bound to (device_id, data_type, family_id, valid_to IS NULL)', async () => {
+    const { pusher, fake } = newPusher()
+    fake.mockNext([])
+    fake.mockNext([])
+
+    const result = await pusher.pushCloses(closes, ctx)
+    expect(result).toEqual({ table: 'device_config', rowsPushed: 2, ok: true })
+    expect(fake.calls).toHaveLength(2)
+    for (const call of fake.calls) {
+      expect(call.sql).toMatch(/UPDATE zone_fam_A\.device_config/)
+      expect(call.sql).toMatch(/valid_to IS NULL/)
+      expect(call.params?.family_id).toBe('fam_A')
+      expect(call.params?.valid_to).toBe(NOW.toISOString())
+    }
+    expect(fake.calls[0]!.params?.data_type).toBe(1)
+    expect(fake.calls[1]!.params?.data_type).toBe(2)
+  })
+
+  it('empty closes returns ok without issuing SQL', async () => {
+    const { pusher, fake } = newPusher()
+    const result = await pusher.pushCloses([], ctx)
+    expect(result).toEqual({ table: 'device_config', rowsPushed: 0, ok: true })
+    expect(fake.calls).toHaveLength(0)
+  })
+
+  it('401 triggers refreshToken and retries once', async () => {
+    const refreshToken = vi.fn().mockResolvedValue(undefined)
+    const { pusher, fake } = newPusher(refreshToken)
+    fake.throwNext(new Error('401 unauthorized'))
+    fake.mockNext([])
+    fake.mockNext([])
+
+    const result = await pusher.pushCloses(closes, ctx)
+    expect(refreshToken).toHaveBeenCalledTimes(1)
+    expect(result.ok).toBe(true)
+    expect(result.rowsPushed).toBe(2)
+  })
+
+  it('non-401 error surfaces push_failed', async () => {
+    const { pusher, fake } = newPusher()
+    fake.throwNext(new Error('connection reset'))
+    const result = await pusher.pushCloses(closes, ctx)
+    expect(result.ok).toBe(false)
+    expect(result.error?.code).toBe('push_failed')
   })
 })
 

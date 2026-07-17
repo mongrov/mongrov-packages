@@ -9,7 +9,10 @@
  *   1. First install (no prior configs): every automaticMonitoringData entry
  *      becomes an insert with valid_from = now, valid_to = null; no closes.
  *   2. Config change: metric present in both prior and new → one insert +
- *      one close entry keyed on that metric.
+ *      one close entry keyed on `(device_id, data_type)`.
+ *   3. Translator drives `data_type` + `start_time`/`end_time`/`weeks`
+ *      derivation — the mapper never invents schema-specific integers or
+ *      strings.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -21,6 +24,7 @@ import type {
   FirmwareBatteryRow,
   FirmwareRingConfig,
   MapperContext,
+  RingConfigTranslator,
 } from '../types'
 
 const ctx: MapperContext = {
@@ -29,6 +33,20 @@ const ctx: MapperContext = {
   userId: 'user_alice',
   deviceId: 'ring_8047',
   userTimezone: 'America/Los_Angeles',
+}
+
+// Minimal test translator: fixed metric ↔ data_type map + naive HH:00 → HH:MM
+// window rendering with a static all-days weeks bitmask (0x7F = 0b1111111).
+const METRIC_ENUM: Record<string, number> = { hrv: 1, spo2: 2, heart_rate: 3 }
+const ENUM_METRIC: Record<number, string> = { 1: 'hrv', 2: 'spo2', 3: 'heart_rate' }
+const translator: RingConfigTranslator = {
+  metricToDataType: metric => METRIC_ENUM[metric] ?? 99,
+  dataTypeToMetric: dataType => ENUM_METRIC[dataType] ?? 'unknown',
+  windowToSchemaFields: w => ({
+    start_time: `${String(w.start_hour).padStart(2, '0')}:00`,
+    end_time: `${String(w.end_hour).padStart(2, '0')}:00`,
+    weeks: 0x7F,
+  }),
 }
 
 describe('mapBattery', () => {
@@ -58,36 +76,47 @@ describe('mapRingConfig', () => {
   }
 
   it('first install: emits inserts only, no closes', () => {
-    const { inserts, closes } = mapRingConfig(fw, ctx, { now: NOW })
+    const { inserts, closes } = mapRingConfig(fw, ctx, { now: NOW, translator })
     expect(inserts).toHaveLength(2)
     expect(closes).toHaveLength(0)
     for (const row of inserts) {
       expect(row.valid_from.toISOString()).toBe(NOW.toISOString())
       expect(row.valid_to).toBeNull()
     }
-    expect(inserts.map(r => r.metric)).toEqual(['hrv', 'spo2'])
+    // Translator produced the schema-shaped integers + strings.
+    expect(inserts.map(r => r.data_type)).toEqual([1, 2])
+    expect(inserts[0].start_time).toBe('22:00')
+    expect(inserts[0].end_time).toBe('08:00')
+    expect(inserts[0].interval_minutes).toBe(5)
+    expect(inserts[0].weeks).toBe(0x7F)
+    expect(inserts[1].start_time).toBe('00:00')
+    expect(inserts[1].end_time).toBe('23:00')
   })
 
-  it('emits a close entry for each metric that had a prior active config', () => {
+  it('emits a close entry keyed on (device_id, data_type) for each metric with a prior open config', () => {
     const priorHrv: DeviceConfigRow = {
       ts: new Date('2026-06-01T00:00:00.000Z'),
       brand: ctx.brand,
       family_id: ctx.familyId,
       user_id: ctx.userId,
       device_id: ctx.deviceId,
-      metric: 'hrv',
+      data_type: 1,
       interval_minutes: 10,
-      start_hour: 22,
-      end_hour: 8,
+      start_time: '22:00',
+      end_time: '08:00',
+      weeks: 0x7F,
       valid_from: new Date('2026-06-01T00:00:00.000Z'),
       valid_to: null,
     }
-    const activePrior = new Map<string, DeviceConfigRow>([['hrv', priorHrv]])
+    const activePrior = new Map<number, DeviceConfigRow>([[1, priorHrv]])
     const { inserts, closes } = mapRingConfig(fw, ctx, {
       now: NOW,
       activePriorConfigs: activePrior,
+      translator,
     })
     expect(inserts).toHaveLength(2)
-    expect(closes).toEqual([{ metric: 'hrv', valid_to: NOW }])
+    expect(closes).toEqual([
+      { device_id: 'ring_8047', data_type: 1, valid_to: NOW },
+    ])
   })
 })

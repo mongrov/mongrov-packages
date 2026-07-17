@@ -66,6 +66,33 @@ describe('createSyncManager — validation', () => {
       flush: { maxRows: -1 },
     })).toThrow()
   })
+
+  it('throws when tables includes device_config but no ringConfigTranslator is provided', () => {
+    expect(() => createSyncManager({
+      ...baseConfig(),
+      tables: ['hrv', 'device_config'],
+      columnOrder: {
+        hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms'] as const,
+        device_config: ['device_id', 'brand', 'family_id', 'user_id', 'data_type', 'interval_minutes', 'start_time', 'end_time', 'weeks', 'valid_from', 'valid_to'] as const,
+      },
+    })).toThrow(/ringConfigTranslator is required/)
+  })
+
+  it('accepts device_config when ringConfigTranslator is provided', () => {
+    expect(() => createSyncManager({
+      ...baseConfig(),
+      tables: ['hrv', 'device_config'],
+      columnOrder: {
+        hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms'] as const,
+        device_config: ['device_id', 'brand', 'family_id', 'user_id', 'data_type', 'interval_minutes', 'start_time', 'end_time', 'weeks', 'valid_from', 'valid_to'] as const,
+      },
+      ringConfigTranslator: {
+        metricToDataType: () => 1,
+        dataTypeToMetric: () => 'hrv',
+        windowToSchemaFields: () => ({ start_time: null, end_time: null, weeks: null }),
+      },
+    })).not.toThrow()
+  })
 })
 
 describe('createSyncManager — assembly', () => {
@@ -307,5 +334,140 @@ describe('scheduler wiring', () => {
     const mgr = createSyncManager(baseConfig())
     const result = await mgr.triggerNow()
     expect(result.ok).toBe(true)
+  })
+})
+
+describe('device_config sink (SCD-2 close semantics)', () => {
+  const deviceConfigColumns = [
+    'device_id', 'brand', 'family_id', 'user_id', 'data_type',
+    'interval_minutes', 'start_time', 'end_time', 'weeks',
+    'valid_from', 'valid_to',
+  ] as const
+
+  const translator = {
+    metricToDataType: (m: string) => ({ hrv: 1, spo2: 2 } as Record<string, number>)[m] ?? 99,
+    dataTypeToMetric: (d: number) => ({ 1: 'hrv', 2: 'spo2' } as Record<number, string>)[d] ?? 'unknown',
+    windowToSchemaFields: (w: { start_hour: number, end_hour: number }) => ({
+      start_time: `${String(w.start_hour).padStart(2, '0')}:00`,
+      end_time: `${String(w.end_hour).padStart(2, '0')}:00`,
+      weeks: 0x7F,
+    }),
+  }
+
+  const emptyFirmware = {
+    heartrate: [], hrv_table: [], spo2: [], temperature_table: [],
+    activitydetails: [], sleep_processed: [], battery_table: [],
+  }
+  const mapperCtx = {
+    brand: 'ziva', familyId: 'fam_A', userId: 'u1',
+    deviceId: 'ring_1', userTimezone: 'UTC',
+  }
+
+  function makeMgr(fake: ReturnType<typeof createFakeEngine>) {
+    return createSyncManager({
+      ...baseConfig(),
+      analytics: fake.engine as unknown as AnalyticsEngine,
+      tables: ['device_config'],
+      columnOrder: { device_config: deviceConfigColumns },
+      ringConfigTranslator: translator,
+    })
+  }
+
+  it('first install: pushFirmware pre-fetches (empty) → no closes → new insert buffered', async () => {
+    const fake = createFakeEngine()
+    fake.mockExecuteNext([]) // SELECT returns no prior configs
+    const mgr = makeMgr(fake)
+
+    await mgr.sink.pushFirmware({
+      ...emptyFirmware,
+      ring: { automaticMonitoringData: [
+        { metric: 'hrv', interval_minutes: 5, start_hour: 22, end_hour: 8 },
+      ] },
+    }, mapperCtx)
+
+    // 1 SELECT + 0 UPDATEs (no prior).
+    expect(fake.executeCalls).toHaveLength(1)
+    expect(fake.executeCalls[0]!.sql).toMatch(/SELECT device_id, brand, family_id/)
+    expect(fake.executeCalls[0]!.sql).toMatch(/FROM memory\.main\.device_config/)
+    expect(fake.executeCalls[0]!.sql).toMatch(/valid_to IS NULL/)
+    expect(fake.executeCalls[0]!.params?.device_id).toBe('ring_1')
+
+    // Inserted row is now buffered.
+    expect(await mgr.sink.pendingRowCount('device_config')).toBe(1)
+  })
+
+  it('config change: SELECT returns prior → UPDATE issued for local close + new insert buffered', async () => {
+    const fake = createFakeEngine()
+    // SELECT returns one open HRV config.
+    fake.mockExecuteNext([{
+      device_id: 'ring_1', brand: 'ziva', family_id: 'fam_A', user_id: 'u1',
+      data_type: 1, interval_minutes: 10,
+      start_time: '22:00', end_time: '08:00', weeks: 0x7F,
+      valid_from: '2026-06-01T00:00:00.000Z', valid_to: null,
+    }])
+    fake.mockExecuteNext([]) // UPDATE returns nothing.
+    const mgr = makeMgr(fake)
+
+    await mgr.sink.pushFirmware({
+      ...emptyFirmware,
+      ring: { automaticMonitoringData: [
+        { metric: 'hrv', interval_minutes: 5, start_hour: 22, end_hour: 8 },
+      ] },
+    }, mapperCtx)
+
+    // 1 SELECT + 1 UPDATE.
+    expect(fake.executeCalls).toHaveLength(2)
+    const update = fake.executeCalls[1]!
+    expect(update.sql).toMatch(/UPDATE memory\.main\.device_config/)
+    expect(update.sql).toMatch(/SET valid_to/)
+    expect(update.sql).toMatch(/valid_to IS NULL/)
+    expect(update.params?.data_type).toBe(1)
+    expect(update.params?.device_id).toBe('ring_1')
+
+    // New insert is buffered.
+    expect(await mgr.sink.pendingRowCount('device_config')).toBe(1)
+  })
+
+  it('scheduler cycle drains pending closes via pushCloses UPDATE against remote', async () => {
+    const fake = createFakeEngine()
+    // 1. SELECT prior configs → returns one open HRV
+    fake.mockExecuteNext([{
+      device_id: 'ring_1', brand: 'ziva', family_id: 'fam_A', user_id: 'u1',
+      data_type: 1, interval_minutes: 10,
+      start_time: '22:00', end_time: '08:00', weeks: 0x7F,
+      valid_from: '2026-06-01T00:00:00.000Z', valid_to: null,
+    }])
+    // 2. Local UPDATE returns nothing.
+    fake.mockExecuteNext([])
+    const mgr = makeMgr(fake)
+
+    // pushFirmware enqueues + local-UPDATEs.
+    await mgr.sink.pushFirmware({
+      ...emptyFirmware,
+      ring: { automaticMonitoringData: [
+        { metric: 'hrv', interval_minutes: 5, start_hour: 22, end_hour: 8 },
+      ] },
+    }, mapperCtx)
+
+    // 3. For the scheduler cycle:
+    //    - flushAll → 1 SELECT MAX(valid_from) + 1 INSERT (pusher.pushAll)
+    //    - Actually flushAll uses appender, not execute. pushAll runs SELECT+INSERT.
+    // Queue enough responses for pushAll's SELECT MAX/COUNT.
+    fake.mockExecuteNext([{ max_ts: null, row_count: 0 }]) // pushAll SELECT → no new rows
+    // 4. pushClosesForDeviceConfig → 1 UPDATE (remote)
+    fake.mockExecuteNext([])
+    // 5. fetchIncremental will call execute too.
+    fake.mockExecuteNext([{ max_ts: null, row_count: 0 }])
+    fake.mockExecuteNext([])
+
+    await mgr.triggerNow()
+
+    // Verify a remote UPDATE (zone_*) was issued for the pending close.
+    const remoteUpdate = fake.executeCalls.find(c =>
+      c.sql.includes('UPDATE zone_fam_A.device_config'),
+    )
+    expect(remoteUpdate).toBeDefined()
+    expect(remoteUpdate!.params?.family_id).toBe('fam_A')
+    expect(remoteUpdate!.params?.data_type).toBe(1)
   })
 })

@@ -29,8 +29,14 @@ import type { PrefetchPolicy } from './fetcher'
 import { BatchFlusher } from './flusher'
 import type { SyncEmitter } from './flusher'
 import { mapFirmwareExport } from './mapper/firmware'
-import type { FirmwareExport, MapperContext } from './mapper/types'
+import type {
+  DeviceConfigRow,
+  FirmwareExport,
+  MapperContext,
+  RingConfigTranslator,
+} from './mapper/types'
 import { OverflowStore } from './overflow'
+import { PendingClosesStore } from './pending_closes'
 import { R2Pusher } from './pusher'
 import {
   type BackgroundTaskPort,
@@ -63,6 +69,7 @@ const configSchema = z.object({
   tables: z.array(z.string().min(1)).min(1),
   columnOrder: z.record(z.string(), z.array(z.string()).readonly()),
   prefetchPolicy: prefetchPolicySchema,
+  hasRingConfigTranslator: z.boolean(),
   flush: z.object({
     maxRows: z.number().int().positive().optional(),
     maxAgeMs: z.number().int().positive().optional(),
@@ -77,7 +84,13 @@ const configSchema = z.object({
     requiresWifi: z.boolean().optional(),
     taskName: z.string().optional(),
   }).optional(),
-})
+}).refine(
+  cfg => !cfg.tables.includes('device_config') || cfg.hasRingConfigTranslator,
+  {
+    message: 'ringConfigTranslator is required when `tables` includes \'device_config\'',
+    path: ['ringConfigTranslator'],
+  },
+)
 
 export interface CreateSyncManagerConfig {
   analytics: AnalyticsEngine
@@ -112,6 +125,13 @@ export interface CreateSyncManagerConfig {
    */
   rulesEngine?: RulesEngine
   logger?: SchedulerLogger
+  /**
+   * Consumer-provided translation between firmware ring-config semantics
+   * and the schema-shaped `device_config` row. **Required** whenever
+   * `tables` includes `'device_config'` — enforced at construction by a
+   * Zod refinement. See `mapper/types.ts` for the contract.
+   */
+  ringConfigTranslator?: RingConfigTranslator
 }
 
 /**
@@ -123,6 +143,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     tables: config.tables,
     columnOrder: config.columnOrder,
     prefetchPolicy: config.prefetchPolicy,
+    hasRingConfigTranslator: config.ringConfigTranslator !== undefined,
     flush: config.flush,
     overflow: config.overflow,
     scheduler: config.scheduler,
@@ -201,6 +222,8 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     tables: [...config.tables],
   })
 
+  const pendingClosesStore = new PendingClosesStore(config.storage)
+
   const scheduler = new SyncScheduler({
     backgroundTask: config.backgroundTask ?? noopBackgroundTask(),
     constraints: config.constraints ?? alwaysAllowedConstraints(),
@@ -209,6 +232,29 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         await Promise.all(config.tables.map(t => flusher.flush(t, 'scheduled')))
       },
       pushAll: async (tables, ctx) => pusher.pushAll(tables, ctx),
+      pushClosesForDeviceConfig: config.tables.includes('device_config')
+        ? async (ctx) => {
+            const pending = await pendingClosesStore.drain(ctx)
+            if (pending.length === 0) return
+            try {
+              const result = await pusher.pushCloses(pending, ctx)
+              if (!result.ok) {
+                await pendingClosesStore.requeue(ctx, pending)
+                rulesLogger?.warn('sync.factory: pushCloses failed; requeued', {
+                  count: pending.length,
+                  code: result.error?.code,
+                })
+              }
+            }
+            catch (err) {
+              await pendingClosesStore.requeue(ctx, pending)
+              rulesLogger?.warn('sync.factory: pushCloses threw; requeued', {
+                count: pending.length,
+                err: err instanceof Error ? err.message : String(err),
+              })
+            }
+          }
+        : undefined,
       fetchIncremental: async ctx => fetcher.fetchIncremental(ctx),
       // Scheduled rules pass runs after the cycle's flush/push/fetch. Fire-
       // and-forget — a throw here would surface as a cycle error, but the
@@ -248,7 +294,16 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     notify()
   })
 
-  const sink = createSensorSink({ buffer, flusher, triggers, tables: config.tables })
+  const sink = createSensorSink({
+    buffer,
+    flusher,
+    triggers,
+    tables: config.tables,
+    engine: engineAsHybrid,
+    attachCtx: config.ctx,
+    translator: config.ringConfigTranslator,
+    pendingClosesStore,
+  })
 
   return {
     analytics: config.analytics,
@@ -285,16 +340,112 @@ interface CreateSinkDeps {
   flusher: BatchFlusher
   triggers: FlushTriggers
   tables: readonly string[]
+  engine: HybridDuckDB
+  attachCtx: AttachContext
+  translator: RingConfigTranslator | undefined
+  pendingClosesStore: PendingClosesStore
 }
 
-function createSensorSink({ buffer, flusher, triggers, tables }: CreateSinkDeps): SensorSink {
+/**
+ * Pre-fetch the currently-open `device_config` rows for the given device
+ * so `mapRingConfig` can decide which metrics need SCD-2 closes.
+ *
+ * Value shape (`DeviceConfigRow`) is not consulted by the mapper — only
+ * `.has(dataType)` — but hydrating the row keeps the map future-friendly
+ * for logging / diagnostics without a second query.
+ */
+async function fetchActivePriorConfigs(
+  engine: HybridDuckDB,
+  ctx: MapperContext,
+): Promise<Map<number, DeviceConfigRow>> {
+  // Fully-qualified `memory.main.device_config` so this resolves against the
+  // local in-memory catalog regardless of the active `USE <iceberg>.default`
+  // that `attach()` issues. A 2-part `main.device_config` would resolve
+  // against the current (Iceberg) catalog post-attach and miss.
+  const rows = await engine.execute<Record<string, unknown>>(
+    `SELECT device_id, brand, family_id, user_id, data_type, interval_minutes, start_time, end_time, weeks, valid_from, valid_to
+       FROM memory.main.device_config
+      WHERE device_id = $device_id
+        AND family_id = $family_id
+        AND user_id = $user_id
+        AND valid_to IS NULL`,
+    {
+      device_id: ctx.deviceId,
+      family_id: ctx.familyId,
+      user_id: ctx.userId,
+    },
+  )
+  const map = new Map<number, DeviceConfigRow>()
+  for (const r of rows) {
+    const dataType = Number(r.data_type)
+    map.set(dataType, {
+      ts: new Date(String(r.valid_from ?? '')),
+      brand: String(r.brand ?? ''),
+      family_id: String(r.family_id ?? ''),
+      user_id: String(r.user_id ?? ''),
+      device_id: String(r.device_id ?? ''),
+      data_type: dataType,
+      interval_minutes: Number(r.interval_minutes),
+      start_time: r.start_time == null ? null : String(r.start_time),
+      end_time: r.end_time == null ? null : String(r.end_time),
+      weeks: r.weeks == null ? null : Number(r.weeks),
+      valid_from: new Date(String(r.valid_from ?? '')),
+      valid_to: r.valid_to == null ? null : new Date(String(r.valid_to)),
+    })
+  }
+  return map
+}
+
+function createSensorSink(deps: CreateSinkDeps): SensorSink {
+  const { buffer, flusher, triggers, tables, engine, attachCtx, translator, pendingClosesStore } = deps
+  const handlesConfig = tables.includes('device_config') && translator !== undefined
+
   return {
     push: async (batch: SensorBatch) => {
       await buffer.push(batch)
       triggers.noteEnqueue(batch.table, Date.now())
     },
     pushFirmware: async (fw: FirmwareExport, ctx: MapperContext) => {
-      const mapped = mapFirmwareExport(fw, ctx)
+      // 1) Pre-fetch open configs for this device so the mapper can decide
+      //    which metrics need SCD-2 closes. Skipped when we're not
+      //    subscribed to device_config or no translator is wired.
+      const activePriorConfigs = handlesConfig
+        ? await fetchActivePriorConfigs(engine, ctx)
+        : new Map<number, DeviceConfigRow>()
+
+      // 2) Map firmware → mapped batch. The mapper requires a translator
+      //    only when firmware has ring windows; the wrapper in `firmware.ts`
+      //    enforces that.
+      const mapped = mapFirmwareExport(fw, ctx, {
+        activePriorConfigs,
+        translator,
+      })
+
+      // 3) SCD-2 close handling. Enqueue-before-UPDATE keeps the local
+      //    UPDATE + remote UPDATE replay-safe under crash: both are
+      //    idempotent via the `valid_to IS NULL` guard.
+      if (handlesConfig && mapped.device_config_closes.length > 0) {
+        await pendingClosesStore.enqueue(attachCtx, mapped.device_config_closes)
+        for (const close of mapped.device_config_closes) {
+          // Fully-qualified `memory.main.device_config` — same reason as
+          // `fetchActivePriorConfigs` above: sink runs after `attach()` has
+          // called `USE <iceberg>.default`, so 2-part names miss.
+          await engine.execute(
+            `UPDATE memory.main.device_config
+                SET valid_to = $valid_to
+              WHERE device_id = $device_id
+                AND data_type = $data_type
+                AND valid_to IS NULL`,
+            {
+              valid_to: close.valid_to.toISOString(),
+              device_id: close.device_id,
+              data_type: close.data_type,
+            },
+          )
+        }
+      }
+
+      // 4) Buffer the new inserts across every mapped table.
       const asRows = <T>(rows: readonly T[]): Record<string, unknown>[] =>
         rows as unknown as Record<string, unknown>[]
       const mappedTables: Array<[string, Record<string, unknown>[]]> = [

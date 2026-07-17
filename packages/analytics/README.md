@@ -6,11 +6,16 @@ Per-family (or per-tenant) warehouses attached as DuckDB catalogs. Zero-copy
 reads against R2 Iceberg tables. Headless core with optional React hooks and
 UI subpaths.
 
-Status: **0.1.0-alpha.7** — Phases 1 → 7 landed on the core engine plus the
-full `@mongrov/analytics/sync` subpath (mapper → buffer → flusher → watermark
-→ pusher → fetcher → scheduler → factory + hooks). MinIO integration test
-(T-18 / T-28) and app-kill e2e (T-29) still pending; `0.1.0` publish (T-20)
-follows once integration coverage lands.
+Status: **0.3.0** — Phases 1 → 7 landed on the core engine plus the full
+`@mongrov/analytics/sync` subpath (mapper → buffer → flusher → watermark →
+pusher → fetcher → scheduler → factory + hooks). T-18 / T-28 integration
+suites green against the MinIO + Iceberg REST docker stack (10 cases + 3
+round trips). 0.3.0 additionally lands SCD-2 `device_config` support:
+`RingConfigTranslator`, `PendingClosesStore`, `R2Pusher.pushCloses`, and
+a rewritten sink that closes prior configs both locally and against the
+remote Iceberg zone. **Breaking**: `DeviceConfigRow` shape changed
+(`metric` → `data_type`, `start_hour`/`end_hour` → `start_time`/`end_time`,
+added `weeks`) — see the `ringConfigTranslator` section below.
 
 ## Features
 
@@ -423,6 +428,60 @@ export default function App() {
 | `backgroundTask?` | `BackgroundTaskPort` | Inject a native background port (defaults to an in-process no-op). |
 | `constraints?` | `ConstraintPort` | Inject Wi-Fi + charging probes (defaults to always-allowed). |
 | `logger?` | `SchedulerLogger` | Debug hook for the scheduler cycle. |
+| `ringConfigTranslator?` | `RingConfigTranslator` | **Required** when `tables` includes `'device_config'`. Consumer-provided translation between firmware metric names (e.g. `'hrv'`) and the schema `data_type` integer, plus firmware monitoring windows → schema `start_time`/`end_time`/`weeks` fields. Enforced at construction via a Zod refinement (throws `z.ZodError` if missing). |
+
+### `ringConfigTranslator` (SCD-2 `device_config`)
+
+Ring configs land in the warehouse as SCD-2 rows: every automatic-monitoring
+window becomes one row keyed on `(device_id, data_type, valid_from)`, with
+`valid_to = NULL` marking the "open" (currently-effective) config. When the
+firmware reports a changed window for the same `data_type`, the sync manager:
+
+1. Pre-fetches every open `device_config` row for the device (single SELECT).
+2. Runs `mapRingConfig` with those rows as `activePriorConfigs` — the mapper
+   emits `device_config_closes[]` for any metric that already had an open
+   row, alongside the new inserts.
+3. Enqueues the closes to a persistent `PendingClosesStore` (survives crash).
+4. Applies the local UPDATE (`valid_to := now`) against
+   `memory.main.device_config`.
+5. Buffers the new open row for normal push through the flusher.
+6. On the next scheduler cycle, `R2Pusher.pushCloses(pending)` issues one
+   `UPDATE … WHERE valid_to IS NULL` per pending close against the remote
+   Iceberg zone. The `valid_to IS NULL` guard makes replays idempotent.
+
+Consumers supply `ringConfigTranslator` because the metric ↔ `data_type`
+mapping and the "how do firmware hours map to `HH:MM` strings + weekday
+bitmasks" choices are app-specific:
+
+```ts
+import { type RingConfigTranslator } from '@mongrov/analytics/sync'
+
+const ringConfigTranslator: RingConfigTranslator = {
+  metricToDataType: (metric) => {
+    switch (metric) {
+      case 'hrv': return 1
+      case 'spo2': return 2
+      case 'heart_rate': return 3
+      case 'temperature': return 4
+      default: throw new Error(`unknown metric: ${metric}`)
+    }
+  },
+  dataTypeToMetric: (dt) => {
+    switch (dt) {
+      case 1: return 'hrv'
+      case 2: return 'spo2'
+      case 3: return 'heart_rate'
+      case 4: return 'temperature'
+      default: return 'unknown'
+    }
+  },
+  windowToSchemaFields: (w) => ({
+    start_time: `${String(w.start_hour).padStart(2, '0')}:00`,
+    end_time: `${String(w.end_hour).padStart(2, '0')}:00`,
+    weeks: 0x7F, // Mon..Sun bitmask; adjust to your firmware
+  }),
+}
+```
 
 ### Prefetch policies
 

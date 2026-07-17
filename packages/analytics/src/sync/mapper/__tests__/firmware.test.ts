@@ -18,7 +18,25 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { mapFirmwareExport } from '../firmware'
-import type { FirmwareExport, MapperContext } from '../types'
+import type { FirmwareExport, MapperContext, RingConfigTranslator } from '../types'
+
+// Test translator: fixed metric ↔ data_type map + naive HH:00 → HH:MM
+// window rendering with a static all-days weeks bitmask.
+const METRIC_ENUM: Record<string, number> = {
+  hrv: 1, spo2: 2, heart_rate: 3, temperature: 4,
+}
+const ENUM_METRIC: Record<number, string> = {
+  1: 'hrv', 2: 'spo2', 3: 'heart_rate', 4: 'temperature',
+}
+const translator: RingConfigTranslator = {
+  metricToDataType: metric => METRIC_ENUM[metric] ?? 99,
+  dataTypeToMetric: dataType => ENUM_METRIC[dataType] ?? 'unknown',
+  windowToSchemaFields: w => ({
+    start_time: `${String(w.start_hour).padStart(2, '0')}:00`,
+    end_time: `${String(w.end_hour).padStart(2, '0')}:00`,
+    weeks: 0x7F,
+  }),
+}
 
 const ctx: MapperContext = {
   brand: 'ziva',
@@ -37,7 +55,7 @@ const NOW = new Date('2026-06-17T12:00:00.000Z')
 describe('mapFirmwareExport', () => {
   it('produces the expected MappedBatch shape from the full fixture', () => {
     const fw: FirmwareExport = JSON.parse(readFileSync(FIXTURE_PATH, 'utf-8'))
-    const batch = mapFirmwareExport(fw, ctx, { now: NOW })
+    const batch = mapFirmwareExport(fw, ctx, { now: NOW, translator })
 
     // Row-count assertions per table.
     expect(batch.heart_rate).toHaveLength(2)

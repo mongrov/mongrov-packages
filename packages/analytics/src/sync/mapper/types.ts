@@ -156,13 +156,46 @@ export interface DeviceEventRow extends BaseRow {
   payload: Record<string, unknown>
 }
 
+/**
+ * `device_config` warehouse row shape (SCD-2). Column names match the DDL in
+ * `core/schemas.ts` exactly so that a `row[c]` lookup keyed by
+ * `columnOrder.device_config` produces the correct positional appender input.
+ *
+ * Fields that the firmware doesn't natively speak in schema terms
+ * (`data_type`, `start_time`, `end_time`, `weeks`) are produced by a
+ * consumer-provided `RingConfigTranslator` (see below).
+ */
 export interface DeviceConfigRow extends BaseRow {
-  metric: string
+  data_type: number
   interval_minutes: number
-  start_hour: number
-  end_hour: number
+  start_time: string | null
+  end_time: string | null
+  weeks: number | null
   valid_from: Date
   valid_to: Date | null
+}
+
+/**
+ * Consumer-provided translation from firmware ring-config semantics to
+ * warehouse schema semantics. Required at `createSyncManager()` time whenever
+ * the subscribed tables include `'device_config'`.
+ *
+ * Split into three responsibilities so the mapper can:
+ *   - materialize `data_type` per insert (`metricToDataType`);
+ *   - key `activePriorConfigs` by `data_type` when reading local state
+ *     (`dataTypeToMetric` — round-trips the enum for callers that want to
+ *     surface metric names in logs or diagnostics);
+ *   - compute the schema-shaped time fields per firmware window
+ *     (`windowToSchemaFields`).
+ */
+export interface RingConfigTranslator {
+  metricToDataType: (metric: string) => number
+  dataTypeToMetric: (dataType: number) => string
+  windowToSchemaFields: (window: FirmwareMonitoringWindow) => {
+    start_time: string | null
+    end_time: string | null
+    weeks: number | null
+  }
 }
 
 export interface MappedBatch {

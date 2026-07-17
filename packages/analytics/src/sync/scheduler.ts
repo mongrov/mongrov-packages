@@ -35,6 +35,13 @@ export interface ConstraintPort {
 export interface SyncCoordinator {
   flushAll: () => Promise<void>
   pushAll: (tables: string[], ctx: AttachContext) => Promise<Array<{ ok: boolean }>>
+  /**
+   * SCD-2 close directives (`device_config.valid_to = now()`) pending
+   * against the remote Iceberg zone. Drained + pushed between `pushAll`
+   * and `fetchIncremental` so the fetch step sees consistent closes.
+   * Optional — only wired when `tables` includes `'device_config'`.
+   */
+  pushClosesForDeviceConfig?: (ctx: AttachContext) => Promise<void>
   fetchIncremental: (ctx: AttachContext) => Promise<Array<{ ok: boolean }>>
   onCycleComplete?: () => Promise<void>
 }
@@ -161,6 +168,7 @@ export class SyncScheduler {
     try {
       await this.#config.coordinator.flushAll()
       await this.#config.coordinator.pushAll(this.#config.tables, this.#config.ctx)
+      await this.#config.coordinator.pushClosesForDeviceConfig?.(this.#config.ctx)
       await this.#config.coordinator.fetchIncremental(this.#config.ctx)
       await this.#config.coordinator.onCycleComplete?.()
       this.#config.logger.debug('scheduler.cycle.ok')

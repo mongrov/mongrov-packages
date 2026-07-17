@@ -30,6 +30,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import type { HybridDuckDB } from '../engine'
 import type { AnalyticsEngine, AttachContext } from '../types'
 import { createAnalytics } from '../factory'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
@@ -42,6 +43,8 @@ import {
   refreshingTokenVendor,
   staticTokenVendor,
 } from '../../__integration__/setup/seed'
+import { R2Pusher } from '../../sync/pusher'
+import { WatermarkStore } from '../../sync/watermark'
 import { warehouseSecretName } from '../warehouse'
 
 const NAMESPACE = 'default'
@@ -692,4 +695,116 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       await engine.close()
     }
   }, 15_000)
+
+  it('case #10: R2Pusher.pushCloses UPDATEs valid_to on Iceberg device_config + idempotent replay', async () => {
+    const engine = bootEngine()
+    try {
+      await engine.attach(attachCtx(TENANT_A))
+      expect(engine.state).toBe('attached')
+
+      // Clean slate.
+      await engine.execute(
+        `DELETE FROM ${qualify(CATALOG_A, 'device_config')} WHERE user_id = $u`,
+        { u: 'u10' },
+      )
+
+      // Seed two OPEN configs (valid_to = NULL). data_type=300 is the target
+      // of the close; data_type=301 must remain open to prove the WHERE clause
+      // narrows correctly.
+      const validFrom = '2025-07-01 00:00:00'
+      for (const dt of [300, 301]) {
+        await engine.execute(
+          `INSERT INTO ${qualify(CATALOG_A, 'device_config')}
+             (device_id, brand, family_id, user_id, data_type,
+              interval_minutes, start_time, end_time, weeks,
+              valid_from, valid_to)
+             VALUES ('d10', 'ziva', $fam, $u, $dt,
+                     15, NULL, NULL, NULL,
+                     $vf::TIMESTAMP, NULL)`,
+          { fam: TENANT_A, u: 'u10', dt, vf: validFrom },
+        )
+      }
+
+      // Wire an R2Pusher against the attached engine. The pusher only uses
+      // `execute()`, so the thin adapter mirrors the T-28 pattern.
+      const asDuckDBLike: HybridDuckDB = {
+        execute: (sql, params) => engine.execute(sql, params),
+      } as unknown as HybridDuckDB
+      const wm = new WatermarkStore({
+        kv: memoryKV(),
+        defaultRetentionMs: 365 * 10 * 24 * 60 * 60 * 1000,
+      })
+      const pusher = new R2Pusher({
+        engine: asDuckDBLike,
+        watermark: wm,
+        localTable: (_c, t) => `memory.main.${t}`,
+        remoteTable: (_c, t) => `${CATALOG_A}.${NAMESPACE}.${t}`,
+      })
+
+      const closeAt = new Date(Date.UTC(2025, 7, 1, 12, 0, 0)) // 2025-08-01T12:00Z
+      const res1 = await pusher.pushCloses(
+        [{ device_id: 'd10', data_type: 300, valid_to: closeAt }],
+        attachCtx(TENANT_A),
+      )
+      expect(res1).toMatchObject({ table: 'device_config', ok: true, rowsPushed: 1 })
+
+      // Assert shape: one closed (dt=300, valid_to set), one open (dt=301).
+      const closed = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = $u AND data_type = 300 AND valid_to IS NOT NULL`,
+        { u: 'u10' },
+      )
+      expect(closed[0]?.n).toBe(1n)
+
+      const stillOpen = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = $u AND data_type = 301 AND valid_to IS NULL`,
+        { u: 'u10' },
+      )
+      expect(stillOpen[0]?.n).toBe(1n)
+
+      // Read back the exact valid_to on the closed row.
+      const validToRow = await engine.execute<{ valid_to: string }>(
+        `SELECT valid_to::VARCHAR AS valid_to
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = $u AND data_type = 300`,
+        { u: 'u10' },
+      )
+      expect(validToRow[0]?.valid_to).toContain('2025-08-01 12:00:00')
+
+      // Idempotency: replay the same close. The `valid_to IS NULL` guard in
+      // pushCloses should turn the second UPDATE into a no-op (0 rows matched).
+      // Neither the row count nor the valid_to timestamp should change.
+      const laterCloseAt = new Date(Date.UTC(2025, 8, 1, 12, 0, 0)) // deliberately different
+      const res2 = await pusher.pushCloses(
+        [{ device_id: 'd10', data_type: 300, valid_to: laterCloseAt }],
+        attachCtx(TENANT_A),
+      )
+      expect(res2.ok).toBe(true)
+
+      const validToAfterReplay = await engine.execute<{ valid_to: string }>(
+        `SELECT valid_to::VARCHAR AS valid_to
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = $u AND data_type = 300`,
+        { u: 'u10' },
+      )
+      // Idempotent: original close time preserved.
+      expect(validToAfterReplay[0]?.valid_to).toContain('2025-08-01 12:00:00')
+
+      const totalAfterReplay = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n
+           FROM ${qualify(CATALOG_A, 'device_config')}
+          WHERE user_id = $u`,
+        { u: 'u10' },
+      )
+      expect(totalAfterReplay[0]?.n).toBe(2n)
+
+      await engine.detach()
+    }
+    finally {
+      await engine.close()
+    }
+  }, 30_000)
 })

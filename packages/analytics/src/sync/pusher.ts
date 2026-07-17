@@ -21,6 +21,7 @@ import { timeColumnFor } from '../core/table_metadata'
 import type { AttachContext } from '../core/types'
 import { SyncError } from './errors'
 import type { PushEmitter } from './events'
+import type { RingConfigClose } from './mapper/ring-config'
 import type { WatermarkStore } from './watermark'
 
 export interface PushResult {
@@ -106,6 +107,77 @@ export class R2Pusher {
       }
       return this.#toFailure(table, err, 'push_failed')
     }
+  }
+
+  /**
+   * SCD-2 close directives → remote UPDATE (T-08 continuation).
+   *
+   * Each close becomes:
+   *   UPDATE <remote>.device_config
+   *      SET valid_to = $valid_to
+   *    WHERE device_id = $device_id
+   *      AND data_type = $data_type
+   *      AND family_id = $family_id
+   *      AND valid_to IS NULL
+   *
+   * The `valid_to IS NULL` guard makes replaying the same close a no-op,
+   * which is what lets the `PendingClosesStore` + scheduler retry cycle
+   * survive crashes between local UPDATE and remote UPDATE.
+   *
+   * 401 handling mirrors `#pushOrCatch`: one `refreshToken()` + retry, then
+   * surface `token_expired`. Other errors surface `push_failed` and leave
+   * the caller responsible for requeueing.
+   */
+  async pushCloses(
+    closes: readonly RingConfigClose[],
+    ctx: AttachContext,
+  ): Promise<PushResult> {
+    const result = await this.#pushClosesOrCatch(closes, ctx)
+    this.#emit?.(result)
+    return result
+  }
+
+  async #pushClosesOrCatch(
+    closes: readonly RingConfigClose[],
+    ctx: AttachContext,
+  ): Promise<PushResult> {
+    try {
+      return await this.#pushClosesOnce(closes, ctx)
+    }
+    catch (err) {
+      if (this.#is401(err) && this.#refreshToken) {
+        try {
+          await this.#refreshToken()
+          return await this.#pushClosesOnce(closes, ctx)
+        }
+        catch (retryErr) {
+          return this.#toFailure('device_config', retryErr, 'token_expired')
+        }
+      }
+      return this.#toFailure('device_config', err, 'push_failed')
+    }
+  }
+
+  async #pushClosesOnce(
+    closes: readonly RingConfigClose[],
+    ctx: AttachContext,
+  ): Promise<PushResult> {
+    if (closes.length === 0) {
+      return { table: 'device_config', rowsPushed: 0, ok: true }
+    }
+    const remote = this.#remoteTable(ctx, 'device_config')
+    for (const close of closes) {
+      await this.#engine.execute(
+        `UPDATE ${remote} SET valid_to = $valid_to WHERE device_id = $device_id AND data_type = $data_type AND family_id = $family_id AND valid_to IS NULL`,
+        {
+          valid_to: close.valid_to.toISOString(),
+          device_id: close.device_id,
+          data_type: close.data_type,
+          family_id: ctx.tenantId,
+        },
+      )
+    }
+    return { table: 'device_config', rowsPushed: closes.length, ok: true }
   }
 
   async pushAll(
