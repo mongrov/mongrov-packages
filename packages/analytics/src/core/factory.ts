@@ -108,6 +108,42 @@ function currentState(actor: ReturnType<typeof createActor<typeof analyticsMachi
   return typeof raw === 'string' ? (raw as AnalyticsState) : 'idle'
 }
 
+function assertAttached(state: AnalyticsState, operation: string): void {
+  if (state !== 'attached') {
+    throw new AnalyticsError(
+      'not_attached',
+      `${operation} requires an attached engine (state=${state})`,
+    )
+  }
+}
+
+const MEMORY_LIMIT_PATTERN = /^\d+(?:\.\d+)?\s*(?:KB|MB|GB|TB)$/i
+const THREADS_PATTERN = /^\d+$/
+
+async function applyDuckdbTuning(
+  db: HybridDuckDB,
+  cfg: AnalyticsConfig['duckdb'],
+): Promise<void> {
+  if (cfg?.memoryLimit !== undefined) {
+    if (!MEMORY_LIMIT_PATTERN.test(cfg.memoryLimit)) {
+      throw new AnalyticsError(
+        'engine_open_failed',
+        `invalid duckdb.memoryLimit: ${cfg.memoryLimit} (expected e.g. '512MB', '2GB')`,
+      )
+    }
+    await db.execute(`SET memory_limit = '${cfg.memoryLimit}'`)
+  }
+  if (cfg?.threads !== undefined) {
+    if (!THREADS_PATTERN.test(cfg.threads)) {
+      throw new AnalyticsError(
+        'engine_open_failed',
+        `invalid duckdb.threads: ${cfg.threads} (expected integer)`,
+      )
+    }
+    await db.execute(`SET threads = ${cfg.threads}`)
+  }
+}
+
 // -------------------- factory --------------------
 
 export function createAnalytics(
@@ -121,6 +157,7 @@ export function createAnalytics(
   const machineActors: MachineActors = {
     async openEngine() {
       await db.open()
+      await applyDuckdbTuning(db, config.duckdb)
       await bootstrapExtensions(db)
     },
     async attachEngine({ ctx }) {
@@ -285,9 +322,22 @@ export function createAnalytics(
         }
       }
     },
-    execute: (sql, params) => db.execute(sql, params),
-    stream: (sql, params) => db.stream(sql, params),
-    createAppender: (table): AnalyticsAppender => db.createAppender(table),
+    // `execute` declares `Promise<T[]>` — funnel the guard through a
+    // rejected promise instead of a sync throw so all failures land on the
+    // returned promise. `stream` / `createAppender` return synchronous
+    // values, so a sync throw is the natural signal there.
+    async execute(sql, params) {
+      assertAttached(currentState(actor), 'execute')
+      return db.execute(sql, params)
+    },
+    stream: (sql, params) => {
+      assertAttached(currentState(actor), 'stream')
+      return db.stream(sql, params)
+    },
+    createAppender: (table): AnalyticsAppender => {
+      assertAttached(currentState(actor), `createAppender('${table}')`)
+      return db.createAppender(table)
+    },
     get state(): AnalyticsState {
       return currentState(actor)
     },

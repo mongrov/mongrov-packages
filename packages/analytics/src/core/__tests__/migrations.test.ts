@@ -104,8 +104,41 @@ describe('ensureMigrations', () => {
 })
 
 describe('schemaVersionKey', () => {
-  it('composes analytics:schema-version:<brand>:<tenantId>', () => {
-    expect(schemaVersionKey('brandA', 'fam123')).toBe('analytics:schema-version:brandA:fam123')
+  it('composes analytics:schema_version:<brand>:<tenantId>', () => {
+    expect(schemaVersionKey('brandA', 'fam123')).toBe('analytics:schema_version:brandA:fam123')
+  })
+})
+
+describe('legacy key migration (T-23)', () => {
+  const LEGACY_KEY = 'analytics:schema-version:brandA:fam123'
+
+  it('adopts legacy hyphenated key when canonical key is absent, then deletes the legacy entry', async () => {
+    const { fake, db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    store.set(LEGACY_KEY, CURRENT_VERSION)
+
+    const result = await ensureMigrations(db, kv, CTX, CATALOG)
+
+    expect(result).toEqual({ from: CURRENT_VERSION, to: CURRENT_VERSION })
+    expect(store.get(KEY)).toBe(CURRENT_VERSION)
+    expect(store.get(LEGACY_KEY)).toBeUndefined()
+    expect(fake.calls).toHaveLength(0)
+  })
+
+  it('canonical key wins over legacy when both are present (legacy left untouched by ensureMigrations)', async () => {
+    const { db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    store.set(KEY, CURRENT_VERSION)
+    store.set(LEGACY_KEY, 0)
+
+    const result = await ensureMigrations(db, kv, CTX, CATALOG)
+
+    expect(result).toEqual({ from: CURRENT_VERSION, to: CURRENT_VERSION })
+    expect(store.get(KEY)).toBe(CURRENT_VERSION)
+    // Legacy key untouched — the one-shot branch never fired because
+    // canonical key was present. Cleanup of orphan legacy keys is
+    // out of scope for the migration runner.
+    expect(store.get(LEGACY_KEY)).toBe(0)
   })
 })
 

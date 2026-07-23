@@ -10,7 +10,9 @@
  * locate the offending brand file.
  */
 
-import TOML from '@iarna/toml'
+// Direct import of parse-string avoids the parse.js -> parse-stream.js ->
+// require('stream') chain that breaks Metro (React Native has no Node stdlib).
+import parseString from '@iarna/toml/parse-string.js'
 import { RuleSchema, RuleValidationError, type Rule } from '../schema'
 
 interface CatalogDoc {
@@ -29,7 +31,7 @@ export function parseCatalog(
   const label = options?.name ?? 'catalog'
   let doc: CatalogDoc
   try {
-    doc = TOML.parse(toml) as CatalogDoc
+    doc = parseString(toml) as CatalogDoc
   }
   catch (err) {
     throw new RuleValidationError(

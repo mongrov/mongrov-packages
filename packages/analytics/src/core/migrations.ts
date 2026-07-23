@@ -49,6 +49,15 @@ export const CURRENT_VERSION: number = MIGRATIONS.length
  * `(brand, tenantId)` pair.
  */
 export function schemaVersionKey(brand: string, tenantId: string): string {
+  return `analytics:schema_version:${brand}:${tenantId}`
+}
+
+/**
+ * Legacy KV key format used before T-23 canonicalization (hyphen instead
+ * of underscore). Read-only — `ensureMigrations` copies any legacy entry
+ * to the canonical key on first read and deletes the legacy one.
+ */
+function legacySchemaVersionKey(brand: string, tenantId: string): string {
   return `analytics:schema-version:${brand}:${tenantId}`
 }
 
@@ -75,7 +84,21 @@ export async function ensureMigrations(
   catalog: string,
 ): Promise<EnsureMigrationsResult> {
   const key = schemaVersionKey(ctx.brand, ctx.tenantId)
-  const stored = await kv.get<number>(key)
+  let stored = await kv.get<number>(key)
+
+  // One-shot migration from the pre-T-23 hyphenated key. If the canonical
+  // key is absent but a legacy value exists, adopt it under the new key
+  // and remove the legacy entry so this branch stays cold on next boot.
+  if (stored === undefined) {
+    const legacyKey = legacySchemaVersionKey(ctx.brand, ctx.tenantId)
+    const legacyValue = await kv.get<number>(legacyKey)
+    if (typeof legacyValue === 'number') {
+      await kv.set(key, legacyValue)
+      await kv.delete(legacyKey)
+      stored = legacyValue
+    }
+  }
+
   const from = typeof stored === 'number' ? stored : 0
 
   if (from >= CURRENT_VERSION) {

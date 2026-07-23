@@ -87,6 +87,8 @@ export interface RulesEngineConfig {
 /** Public rules engine surface. */
 export interface RulesEngine {
   register(rules: Rule[]): Promise<void>
+  /** Atomically swap the entire rule set; see `RulesRegistry.replace`. */
+  replace(rules: Rule[]): Promise<void>
   enable(ruleId: string): Promise<void>
   disable(ruleId: string): Promise<void>
   list(): Rule[]
@@ -99,4 +101,11 @@ export interface RulesEngine {
    * `useRuleRegistry` hook via `useSyncExternalStore`.
    */
   subscribeRegistry(listener: () => void): Unsubscribe
+  /**
+   * Release resources held by the engine: clears all violation handlers,
+   * releases the registry subscription set. After `close()`, further calls
+   * to `evaluateOnBatch` / `evaluateScheduled` are no-ops that return `[]`,
+   * and `on(...)` returns a subscription that never fires.
+   */
+  close(): Promise<void>
 }

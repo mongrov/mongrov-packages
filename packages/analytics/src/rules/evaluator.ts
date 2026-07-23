@@ -17,6 +17,7 @@
  */
 
 import { METRIC_METADATA, type MetricId } from '../core/metric_metadata'
+import { AnalyticsError } from '../core/errors'
 import type { AnalyticsEngine } from '../core/types'
 import type { CompilerCache } from './compiler-cache'
 import type { createEmitter } from './emitter'
@@ -161,6 +162,12 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     },
 
     async evaluateScheduled() {
+      if (analytics.state !== 'attached') {
+        throw new AnalyticsError(
+          'not_attached',
+          `evaluateScheduled requires an attached analytics engine (state=${analytics.state})`,
+        )
+      }
       const active = registry.getByBrand(brand)
       if (active.length === 0) {
         return []

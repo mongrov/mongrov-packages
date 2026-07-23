@@ -37,7 +37,7 @@ export class AnalyticsError extends Error {
  */
 export class NotImplementedError extends AnalyticsError {
   constructor(symbol: string) {
-    super('not_implemented', `${symbol} is not implemented in @mongrov/analytics@0.1.0-alpha.0`)
+    super('not_implemented', `${symbol} is not implemented`)
     this.name = 'NotImplementedError'
   }
 }

@@ -22,6 +22,12 @@ function enabledKey(ruleId: string): string {
 
 export interface RulesRegistry {
   register(rules: Rule[]): Promise<void>
+  /**
+   * Atomically swap the entire rule set: clears existing entries, validates
+   * every incoming rule, rehydrates each rule's `enabled` state from KV,
+   * bumps `rev` once, and notifies subscribers exactly once.
+   */
+  replace(rules: Rule[]): Promise<void>
   enable(ruleId: string): Promise<void>
   disable(ruleId: string): Promise<void>
   list(): Rule[]
@@ -30,6 +36,8 @@ export interface RulesRegistry {
   getByBrand(brand: string): Rule[]
   subscribe(listener: () => void): Unsubscribe
   readonly rev: number
+  /** Drop every subscribed listener. Idempotent. Used by `RulesEngine.close()`. */
+  close(): void
 }
 
 export interface CreateRegistryConfig {
@@ -83,6 +91,27 @@ export function createRulesRegistry({
       notify()
     },
 
+    async replace(rules) {
+      // Validate everything up-front — fail fast leaves the current set intact.
+      const validated: Rule[] = []
+      for (const raw of rules) {
+        const parsed = RuleSchema.parse(raw)
+        validateRule(parsed, logger)
+        validated.push(parsed)
+      }
+
+      entries.clear()
+      for (const rule of validated) {
+        const persisted = await storage.get<boolean>(enabledKey(rule.id))
+        entries.set(rule.id, {
+          rule,
+          enabled: persisted ?? true,
+        })
+      }
+      logger?.info('rules.registry: replaced', { count: validated.length })
+      notify()
+    },
+
     async enable(ruleId) {
       const entry = entries.get(ruleId)
       if (!entry) {
@@ -132,6 +161,10 @@ export function createRulesRegistry({
 
     get rev() {
       return rev
+    },
+
+    close() {
+      listeners.clear()
     },
   }
 }

@@ -14,6 +14,8 @@ type ViolationHandler = (v: RuleViolation) => void
 export interface RulesEmitter {
   on(event: 'violation', handler: ViolationHandler): Unsubscribe
   emit(event: 'violation', payload: RuleViolation): void
+  /** Drop every subscriber. Idempotent. Used by `RulesEngine.close()`. */
+  close(): void
 }
 
 export interface CreateEmitterConfig {
@@ -42,6 +44,9 @@ export function createEmitter({ logger }: CreateEmitterConfig = {}): RulesEmitte
           })
         }
       }
+    },
+    close() {
+      handlers.clear()
     },
   }
 }

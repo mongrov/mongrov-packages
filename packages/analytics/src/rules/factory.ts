@@ -48,8 +48,11 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
     logger,
   })
 
+  let closed = false
+
   return {
     register: (rules) => registry.register(rules),
+    replace: (rules) => registry.replace(rules),
     enable: (ruleId) => {
       cache.invalidate(ruleId)
       return registry.enable(ruleId)
@@ -60,9 +63,27 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
     },
     list: () => registry.list(),
     getActive: () => registry.getActive(),
-    evaluateOnBatch: (batch) => evaluator.evaluateOnBatch(batch),
-    evaluateScheduled: () => evaluator.evaluateScheduled(),
-    on: (event, handler) => emitter.on(event, handler),
-    subscribeRegistry: (listener) => registry.subscribe(listener),
+    evaluateOnBatch: async (batch) => {
+      if (closed) return []
+      return evaluator.evaluateOnBatch(batch)
+    },
+    evaluateScheduled: async () => {
+      if (closed) return []
+      return evaluator.evaluateScheduled()
+    },
+    on: (event, handler) => {
+      if (closed) return () => {}
+      return emitter.on(event, handler)
+    },
+    subscribeRegistry: (listener) => {
+      if (closed) return () => {}
+      return registry.subscribe(listener)
+    },
+    async close() {
+      if (closed) return
+      closed = true
+      emitter.close()
+      registry.close()
+    },
   }
 }

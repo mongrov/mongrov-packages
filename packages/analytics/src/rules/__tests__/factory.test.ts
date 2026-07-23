@@ -94,4 +94,85 @@ describe('createRulesEngine', () => {
     // Only the ziva rule ran.
     expect(analytics.__calls).toHaveLength(1)
   })
+
+  it('evaluateScheduled throws not_attached when analytics state !== attached', async () => {
+    const { engine, analytics } = build()
+    await engine.register([rule])
+    analytics.__setState('ready')
+    await expect(engine.evaluateScheduled()).rejects.toMatchObject({
+      code: 'not_attached',
+      message: expect.stringContaining('evaluateScheduled requires an attached analytics engine'),
+    })
+    analytics.__setState('attaching')
+    await expect(engine.evaluateScheduled()).rejects.toMatchObject({
+      code: 'not_attached',
+    })
+  })
+
+  it('replace() swaps rule set atomically via registry', async () => {
+    const { engine, analytics } = build()
+    await engine.register([rule])
+    // New rule targets a different table (heart_rate) so we can prove the
+    // old (hrv-table) rule is gone by driving evaluateOnBatch with each
+    // table separately.
+    const other = {
+      ...rule,
+      id: 'test.hr.spike',
+      metric: 'hr_bpm',
+      compare: 'greater_than',
+      target: { type: 'absolute', value: 120 },
+    } as const satisfies Partial<Rule> as Rule
+    await engine.replace([other])
+    expect(engine.list()).toHaveLength(1)
+    expect(engine.list()[0].id).toBe('test.hr.spike')
+
+    // hrv table — old rule was here, but replace() removed it: no fire.
+    analytics.__setResult([{ observed_value: 10, threshold_value: 40 }])
+    const hrvViolations = await engine.evaluateOnBatch({
+      affectedUserIds: ['u1'],
+      affectedTables: ['hrv'],
+    })
+    expect(hrvViolations).toHaveLength(0)
+
+    // heart_rate table — new rule matches, fires.
+    analytics.__setResult([{ observed_value: 150, threshold_value: 120 }])
+    const hrViolations = await engine.evaluateOnBatch({
+      affectedUserIds: ['u1'],
+      affectedTables: ['heart_rate'],
+    })
+    expect(hrViolations).toHaveLength(1)
+  })
+
+  it('close() clears violation handlers; subsequent evaluate returns []', async () => {
+    const { engine, analytics } = build()
+    await engine.register([rule])
+    const seen: unknown[] = []
+    engine.on('violation', v => seen.push(v))
+
+    await engine.close()
+
+    analytics.__setResult([{ observed_value: 10, threshold_value: 40 }])
+    const violations = await engine.evaluateOnBatch({
+      affectedUserIds: ['u1'],
+      affectedTables: ['hrv'],
+    })
+    expect(violations).toEqual([])
+    expect(seen).toEqual([])
+  })
+
+  it('close() is idempotent', async () => {
+    const { engine } = build()
+    await engine.close()
+    await expect(engine.close()).resolves.toBeUndefined()
+  })
+
+  it('after close(), on() returns a no-op unsub and never fires', async () => {
+    const { engine } = build()
+    await engine.close()
+    const unsub = engine.on('violation', () => {
+      throw new Error('should not fire')
+    })
+    expect(typeof unsub).toBe('function')
+    unsub()
+  })
 })

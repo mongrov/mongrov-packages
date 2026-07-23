@@ -107,4 +107,69 @@ describe('createRulesRegistry', () => {
       registry.register([{ ...rule, window: '1h' }]),
     ).rejects.toThrow()
   })
+
+  it('replace() atomically swaps rule set, bumps rev once, fires subscribers once', async () => {
+    const storage = createFakeStorage()
+    const registry = createRulesRegistry({ storage })
+    await registry.register([rule, secondRule])
+    const revBefore = registry.rev
+    let hits = 0
+    const unsub = registry.subscribe(() => {
+      hits += 1
+    })
+
+    await registry.replace([secondRule])
+
+    expect(registry.list()).toHaveLength(1)
+    expect(registry.list()[0].id).toBe(secondRule.id)
+    expect(registry.rev).toBe(revBefore + 1)
+    expect(hits).toBe(1)
+    unsub()
+  })
+
+  it('replace() rehydrates enabled state from KV for surviving rules', async () => {
+    const storage = createFakeStorage()
+    const registry = createRulesRegistry({ storage })
+    await registry.register([rule])
+    await registry.disable(rule.id)
+
+    await registry.replace([rule, secondRule])
+    expect(registry.getActive()).toHaveLength(1)
+    expect(registry.getActive()[0].id).toBe(secondRule.id)
+  })
+
+  it('replace() fail-fast leaves current set intact', async () => {
+    const storage = createFakeStorage()
+    const registry = createRulesRegistry({ storage })
+    await registry.register([rule])
+    const snapshot = registry.list()
+
+    await expect(
+      registry.replace([{ ...secondRule, window: '1h' }]),
+    ).rejects.toThrow()
+
+    expect(registry.list()).toEqual(snapshot)
+  })
+
+  it('close() drops every subscribed listener; further subscribe still works', async () => {
+    const storage = createFakeStorage()
+    const registry = createRulesRegistry({ storage })
+    let hits = 0
+    registry.subscribe(() => {
+      hits += 1
+    })
+
+    registry.close()
+    await registry.register([rule])
+    expect(hits).toBe(0)
+  })
+
+  it('close() is idempotent', () => {
+    const storage = createFakeStorage()
+    const registry = createRulesRegistry({ storage })
+    expect(() => {
+      registry.close()
+      registry.close()
+    }).not.toThrow()
+  })
 })

@@ -409,3 +409,106 @@ describe('createAnalytics — logger integration (Phase 7)', () => {
     expect(true).toBe(true)
   })
 })
+
+describe('createAnalytics — data-plane attached-state guard (T-21)', () => {
+  it('execute() throws not_attached in ready state, passes through in attached', async () => {
+    const { config, fakeDb } = buildHarness()
+    const engine = createAnalytics(config, { duckdbFactory: fakeDb.factory })
+    await waitForState(engine, ['ready'])
+
+    await expect(engine.execute('SELECT 1')).rejects.toMatchObject({
+      code: 'not_attached',
+      message: expect.stringContaining('execute requires an attached engine'),
+    })
+
+    await engine.attach(ATTACH_CTX)
+    await expect(engine.execute('SELECT 1')).resolves.toBeDefined()
+    await engine.close()
+  })
+
+  it('stream() throws not_attached in ready state', async () => {
+    const { config, fakeDb } = buildHarness()
+    const engine = createAnalytics(config, { duckdbFactory: fakeDb.factory })
+    await waitForState(engine, ['ready'])
+
+    expect(() => engine.stream('SELECT 1')).toThrow(
+      expect.objectContaining({
+        code: 'not_attached',
+        message: expect.stringContaining('stream requires an attached engine'),
+      }),
+    )
+    await engine.close()
+  })
+
+  it('createAppender() throws not_attached in ready state', async () => {
+    const { config, fakeDb } = buildHarness()
+    const engine = createAnalytics(config, { duckdbFactory: fakeDb.factory })
+    await waitForState(engine, ['ready'])
+
+    expect(() => engine.createAppender('hrv')).toThrow(
+      expect.objectContaining({
+        code: 'not_attached',
+        message: expect.stringContaining("createAppender('hrv') requires an attached engine"),
+      }),
+    )
+    await engine.close()
+  })
+})
+
+describe('createAnalytics — duckdb tuning (T-22)', () => {
+  it('applies memoryLimit + threads PRAGMAs after open() and before extensions', async () => {
+    const { config, fakeDb } = buildHarness()
+    const tunedConfig: AnalyticsConfig = {
+      ...config,
+      duckdb: { memoryLimit: '512MB', threads: '4' },
+    }
+    const engine = createAnalytics(tunedConfig, { duckdbFactory: fakeDb.factory })
+    await waitForState(engine, ['ready'])
+
+    const pragmas = fakeDb.calls.map(c => c.sql)
+    expect(pragmas).toContain("SET memory_limit = '512MB'")
+    expect(pragmas).toContain('SET threads = 4')
+    // PRAGMAs run before any extension LOAD.
+    const memIdx = pragmas.findIndex(s => s === "SET memory_limit = '512MB'")
+    const loadIdx = pragmas.findIndex(s => s.startsWith('LOAD '))
+    expect(memIdx).toBeGreaterThanOrEqual(0)
+    expect(memIdx).toBeLessThan(loadIdx)
+    await engine.close()
+  })
+
+  it('skips both PRAGMAs when duckdb config is omitted', async () => {
+    const { config, fakeDb } = buildHarness()
+    const engine = createAnalytics(config, { duckdbFactory: fakeDb.factory })
+    await waitForState(engine, ['ready'])
+
+    const pragmas = fakeDb.calls.map(c => c.sql)
+    expect(pragmas.some(s => s.startsWith('SET memory_limit'))).toBe(false)
+    expect(pragmas.some(s => s.startsWith('SET threads'))).toBe(false)
+    await engine.close()
+  })
+
+  it('rejects invalid memoryLimit format', async () => {
+    const { config, fakeDb } = buildHarness()
+    const bad: AnalyticsConfig = { ...config, duckdb: { memoryLimit: '512 gigs' } }
+    const engine = createAnalytics(bad, { duckdbFactory: fakeDb.factory })
+    // Machine transitions to error; lastError carries the AnalyticsError.
+    await waitForState(engine, ['error'])
+    expect(engine.lastError).toBeInstanceOf(AnalyticsError)
+    expect((engine.lastError as AnalyticsError).message).toContain(
+      'invalid duckdb.memoryLimit',
+    )
+    await engine.close()
+  })
+
+  it('rejects invalid threads format', async () => {
+    const { config, fakeDb } = buildHarness()
+    const bad: AnalyticsConfig = { ...config, duckdb: { threads: 'four' } }
+    const engine = createAnalytics(bad, { duckdbFactory: fakeDb.factory })
+    await waitForState(engine, ['error'])
+    expect(engine.lastError).toBeInstanceOf(AnalyticsError)
+    expect((engine.lastError as AnalyticsError).message).toContain(
+      'invalid duckdb.threads',
+    )
+    await engine.close()
+  })
+})
