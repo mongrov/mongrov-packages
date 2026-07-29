@@ -464,7 +464,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
 
     // Verify a remote UPDATE (zone_*) was issued for the pending close.
     const remoteUpdate = fake.executeCalls.find(c =>
-      c.sql.includes('UPDATE zone_fam_A.device_config'),
+      c.sql.includes('UPDATE zone_fam_A.default.device_config'),
     )
     expect(remoteUpdate).toBeDefined()
     expect(remoteUpdate!.params?.family_id).toBe('fam_A')

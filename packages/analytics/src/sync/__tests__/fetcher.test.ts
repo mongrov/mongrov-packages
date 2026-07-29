@@ -58,7 +58,7 @@ describe('R2Fetcher.prefetchOnAttach', () => {
     const insertCalls = fake.calls.filter(c => c.sql.startsWith('INSERT INTO'))
     expect(insertCalls).toHaveLength(2)
     expect(insertCalls[0]!.sql).toContain('main.hrv')
-    expect(insertCalls[0]!.sql).toContain('zone_fam_A.hrv')
+    expect(insertCalls[0]!.sql).toContain('zone_fam_A.default.hrv')
     expect(insertCalls[0]!.sql).toContain('ON CONFLICT DO NOTHING')
     expect(insertCalls[1]!.sql).toContain('main.hr')
   })

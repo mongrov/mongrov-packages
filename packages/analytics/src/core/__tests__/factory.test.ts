@@ -118,10 +118,12 @@ describe('createAnalytics — attach / detach lifecycle', () => {
     await engine.attach(ATTACH_CTX)
     expect(engine.state).toBe('attached')
 
-    // Warehouse SECRET + ATTACH + 14 schema DDLs issued.
+    // Warehouse SECRET + ATTACH + 14 local + 14 remote = 28 schema DDLs
+    // (0.5.0 now creates local + remote tables so the sink doesn't throw
+    // on first append; see MIGRATIONS baseline).
     expect(fakeDb.calls.some(c => c.sql.includes('CREATE OR REPLACE SECRET'))).toBe(true)
     expect(fakeDb.calls.some(c => c.sql.includes('ATTACH'))).toBe(true)
-    expect(fakeDb.calls.filter(c => c.sql.includes('CREATE TABLE IF NOT EXISTS')).length).toBe(14)
+    expect(fakeDb.calls.filter(c => c.sql.includes('CREATE TABLE IF NOT EXISTS')).length).toBe(28)
 
     await engine.close()
   })

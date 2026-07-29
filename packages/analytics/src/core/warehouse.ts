@@ -1,17 +1,33 @@
 /**
- * Warehouse attach / detach for a single tenant zone.
+ * Warehouse attach / detach.
  *
- * Attaches R2 Iceberg data as a named DuckDB catalog, so downstream code can
- * `SELECT ... FROM zone_<tenantId>.<table>`. The full sequence lives here so
- * the state machine (T-09) can invoke it as a single actor step.
+ * Two modes:
+ * - `attachWarehouse` (R2 mode): attaches R2 Iceberg data as a named
+ *   DuckDB catalog, so downstream code can address remote tables via
+ *   `<zone_<tenantId>>.default.<table>` (3-part names).
+ * - `attachLocal` (local mode): no ATTACH; local tables live in the
+ *   current file-backed catalog. Returns a synthetic `AttachResult`
+ *   whose `warehouseSecret` is the local catalog name (probed via
+ *   `current_database()`), so downstream state-machine code keeps the
+ *   same shape.
  *
- * Sequence per spec §Attach Protocol:
+ * Sequence for `attachWarehouse` per spec §Attach Protocol:
  *   1. Build warehouse URI via `warehouseUriBuilder(brand, scope, tenantId)`.
  *   2. Fetch bearer token via `tokenVendor.fetch({ brand, scope, tenantId })`.
  *   3. `CREATE OR REPLACE SECRET` bound to the catalog endpoint + bearer token.
  *   4. `ATTACH '<warehouseUri>' AS zone_<tenantId> (TYPE ICEBERG)`.
  *   5. If `tenantScope === 'family'`, prime member ids via
  *      `familyMembersProvider({ brand, familyId })` (for retention math).
+ *
+ * NOTE: 0.5.0 dropped the previous `USE ${secretName}.default` step
+ * inside attach + the matching `USE memory.main` before detach. Rationale:
+ * `USE memory.main` fails on file-backed DuckDB (real devices open a
+ * `.duckdb` file → catalog name is the file stem, not `memory`), and the
+ * `USE remote` step made unqualified queries resolve to the remote
+ * catalog — silently breaking the pusher's `main.<table>` SQL by pointing
+ * `main` at the remote instead of local. Callers should address remote
+ * tables via 3-part names (`<secret>.default.<table>`); local tables stay
+ * addressable via unqualified names.
  *
  * All failures map to `AnalyticsError('attach_failed' | 'token_vendor_failed',
  * <phase>, cause)`.
@@ -130,19 +146,15 @@ export async function attachWarehouse(
     )
   }
 
-  // Step 4: ATTACH + pin the current schema to the `default` namespace.
-  //
-  // DuckDB's Iceberg attach does not select a namespace, so unqualified
-  // `<catalog>.<table>` DDL (see `schemas.ts` / `qualifyDdl`) would resolve
-  // against schema `""` and fail with `Schema with name "" not found`.
-  // Iceberg mandates 3-part names; picking `default` here lets the rest of
-  // the codebase keep the 2-part `<catalog>.<table>` shape it was written
-  // against. Callers that need a different namespace should attach directly.
+  // Step 4: ATTACH. See top-of-file NOTE for why the prior
+  // `USE ${secretName}.default` step was dropped in 0.5.0. Consumers write
+  // to the remote via 3-part names (`${secretName}.default.<table>`), keeping
+  // local `main.<table>` addressable for the pusher's SELECT source and the
+  // rules engine's INSERT sink.
   try {
     await db.execute(
       `ATTACH '${uri}' AS ${secretName} (TYPE ICEBERG);`,
     )
-    await db.execute(`USE ${secretName}.default;`)
   }
   catch (cause) {
     throw new AnalyticsError(
@@ -182,6 +194,11 @@ export async function attachWarehouse(
  * Reverse of `attachWarehouse`: `DETACH` the catalog then drop its secret.
  * Idempotent from the caller's perspective — a `DETACH` of an unknown alias
  * throws in DuckDB, but the machine only calls this from `attached`.
+ *
+ * Since 0.5.0's attach no longer switches the current catalog with
+ * `USE ${secretName}.default`, this detach no longer needs to reset via
+ * `USE memory.main` (which failed on file-backed DuckDB anyway — the
+ * catalog on a real device is `<filestem>`, not `memory`).
  */
 export async function detachWarehouse(
   db: HybridDuckDB,
@@ -189,10 +206,6 @@ export async function detachWarehouse(
 ): Promise<void> {
   const secretName = warehouseSecretName(tenantId)
   try {
-    // DuckDB refuses to detach the current default database, and `attach`
-    // above pinned it to `${secretName}.default`. Reset to the in-memory
-    // catalog before detaching so DETACH succeeds.
-    await db.execute(`USE memory.main;`)
     await db.execute(`DETACH ${secretName};`)
     await db.execute(`DROP SECRET ${secretName};`)
   }
@@ -203,4 +216,90 @@ export async function detachWarehouse(
       rootCause(cause),
     )
   }
+}
+
+// -------------------- local mode --------------------
+
+/**
+ * Local-mode "attach" — no ATTACH statement, no auth, no remote catalog.
+ * The consumer's DuckDB (in-memory or file-backed) is already the current
+ * catalog after `db.open()`; we just probe its name and return a synthetic
+ * `AttachResult`. Table creation is deferred to `ensureMigrations` (called
+ * next by the factory) so schema evolution stays in one place.
+ *
+ * `warehouseSecret` in the returned result is set to the local catalog
+ * name (from `current_database()`) so downstream state-machine code + the
+ * public `engine.catalog` getter surface a meaningful identifier. Fields
+ * that only make sense for R2 (`warehouseUri`, `tokenExpiresAt`) get
+ * sentinel values: URI is `local:`, expiry is far-future so token-refresh
+ * timers never fire.
+ */
+export async function attachLocal(
+  db: HybridDuckDB,
+  _ctx: AttachContext,
+): Promise<AttachResult> {
+  // Probe the current catalog name so downstream code addresses local
+  // tables via `${catalog}.main.<table>` when it needs to be explicit.
+  let catalog: string
+  try {
+    const rows = await db.execute<{ current_database: string }>(
+      `SELECT current_database() AS current_database;`,
+    )
+    catalog = rows[0]?.current_database ?? 'memory'
+  }
+  catch (cause) {
+    throw new AnalyticsError(
+      'attach_failed',
+      `attachLocal: current_database() probe failed`,
+      rootCause(cause),
+    )
+  }
+
+  // Sentinel expiry — 100 years from now. Token-refresh scheduling in the
+  // state machine keys off this; setting it far-future prevents the
+  // refresh actor from ever firing in local mode.
+  const farFuture = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000)
+
+  return {
+    warehouseSecret: catalog,
+    warehouseUri: 'local:',
+    tokenExpiresAt: farFuture,
+    // No family fanout in local mode; retention math falls back to ctx.userId.
+    familyMemberIds: undefined,
+  }
+}
+
+/**
+ * Probe the current DuckDB catalog name (via `SELECT current_database()`).
+ * Used by R2 mode too — the pusher needs to know the local catalog name so
+ * its `INSERT INTO r2.default.<table> SELECT * FROM <local>.main.<table>`
+ * addresses the correct source (post-0.5.0 attach no longer switches the
+ * current catalog, so `main.<table>` still means local).
+ */
+export async function probeLocalCatalog(db: HybridDuckDB): Promise<string> {
+  try {
+    const rows = await db.execute<{ current_database: string }>(
+      `SELECT current_database() AS current_database;`,
+    )
+    return rows[0]?.current_database ?? 'memory'
+  }
+  catch (cause) {
+    throw new AnalyticsError(
+      'query_failed',
+      `probeLocalCatalog: current_database() failed`,
+      rootCause(cause),
+    )
+  }
+}
+
+/**
+ * Reverse of `attachLocal` — no-op. Local mode never issued any ATTACH /
+ * SECRET, so there's nothing to unwind. Kept as an explicit function so
+ * the state machine's `detachEngine` actor can dispatch symmetrically.
+ */
+export async function detachLocal(
+  _db: HybridDuckDB,
+  _tenantId: string,
+): Promise<void> {
+  // intentional no-op
 }

@@ -32,6 +32,7 @@ export function createFakeEngine(): FakeEngine {
     get state() { return state },
     lastError: null,
     catalog: 'fake',
+    mode: 'r2',
     subscribe: () => () => {},
     async setRetention() {},
     async getLastAttach() { return null },

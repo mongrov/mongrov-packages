@@ -1,10 +1,17 @@
 /**
  * DuckDB extension bootstrap.
  *
- * Analytics needs `httpfs` + `iceberg` + `parquet` loaded before any
- * `ATTACH 'iceberg://…'` can succeed. This module is the single place we
- * issue `INSTALL/LOAD`, so failures map cleanly to
- * `AnalyticsError('extension_load_failed', <name>)`.
+ * Two extension sets, selected by mode:
+ * - `r2` (default) — `httpfs` + `iceberg` + `parquet`. Required before
+ *   any `ATTACH 'iceberg://…'` can succeed. iceberg + httpfs also drag
+ *   in AWSSDK + OpenSSL/curl at native build time — see the fork's
+ *   build-duckdb-ios.sh / android/CMakeLists.txt for the vcpkg wiring.
+ * - `local` — just `parquet`. Skips iceberg + httpfs entirely, which
+ *   means local-only consumers can build the fork WITHOUT AWSSDK /
+ *   OpenSSL / vcpkg (major DX win on iOS + Android).
+ *
+ * This module is the single place we issue `INSTALL/LOAD`, so failures
+ * map cleanly to `AnalyticsError('extension_load_failed', <name>)`.
  *
  * Bootstrapping is idempotent — a `#booted: Set<string>` guards repeated
  * calls, and DuckDB itself no-ops re-loads, so calling twice is safe.
@@ -12,9 +19,13 @@
 
 import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
+import type { AnalyticsMode } from './types'
 
 /** Extensions required for R2 Iceberg attach, in load order. */
 export const REQUIRED_EXTENSIONS = ['httpfs', 'iceberg', 'parquet'] as const
+
+/** Extensions required for local-only mode (no remote sync, no iceberg). */
+export const LOCAL_EXTENSIONS = ['parquet'] as const
 
 export type RequiredExtension = (typeof REQUIRED_EXTENSIONS)[number]
 
@@ -25,7 +36,11 @@ export type RequiredExtension = (typeof REQUIRED_EXTENSIONS)[number]
 const bootedByDb = new WeakMap<HybridDuckDB, Set<string>>()
 
 /**
- * Issue `INSTALL <ext>; LOAD <ext>;` for each required extension in order.
+ * Issue `INSTALL <ext>; LOAD <ext>;` for each mode-appropriate extension
+ * in order.
+ *
+ * `mode` is optional and defaults to `'r2'` for back-compat with 0.4.x
+ * callers.
  *
  * Idempotent per-engine: extensions already loaded on the same
  * `HybridDuckDB` instance are skipped.
@@ -33,14 +48,20 @@ const bootedByDb = new WeakMap<HybridDuckDB, Set<string>>()
  * @throws `AnalyticsError('extension_load_failed', <ext>)` if any extension
  *   fails; the extension name appears in the message + cause is preserved.
  */
-export async function bootstrapExtensions(db: HybridDuckDB): Promise<void> {
+export async function bootstrapExtensions(
+  db: HybridDuckDB,
+  mode: AnalyticsMode = 'r2',
+): Promise<void> {
   let booted = bootedByDb.get(db)
   if (!booted) {
     booted = new Set()
     bootedByDb.set(db, booted)
   }
 
-  for (const ext of REQUIRED_EXTENSIONS) {
+  const extensions: readonly string[]
+    = mode === 'local' ? LOCAL_EXTENSIONS : REQUIRED_EXTENSIONS
+
+  for (const ext of extensions) {
     if (booted.has(ext)) {
       continue
     }

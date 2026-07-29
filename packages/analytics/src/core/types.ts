@@ -99,9 +99,46 @@ export interface EventBus {
 
 // -------------------- config --------------------
 
-export interface AnalyticsConfig {
+/**
+ * Attach mode — whether to wire a remote R2 Iceberg catalog (`'r2'`) or
+ * operate against local DuckDB only (`'local'`). Default `'r2'` for
+ * back-compat with 0.4.x consumers.
+ *
+ * In `'local'` mode:
+ * - `iceberg` + `httpfs` extensions are NOT loaded (removes the AWSSDK
+ *   / vcpkg build burden on iOS + Android; apps that don't need remote
+ *   sync can skip building those extensions entirely).
+ * - `attach()` transitions straight to `attached` after ensuring the
+ *   local tables exist; no R2 auth handshake, no remote catalog.
+ * - `pusher` / `fetcher` in `@mongrov/analytics/sync` are no-ops.
+ * - Rules engine still runs on batch (local-only violation detection).
+ */
+export type AnalyticsMode = 'local' | 'r2'
+
+interface CommonAnalyticsConfig {
   storage: KVStore
   logger?: AnalyticsLogger
+  retention: Record<string, { days: number }>
+  extensions?: string[]
+  dbPath?: string
+  duckdb?: { memoryLimit?: string; threads?: string }
+  eventBus?: EventBus
+}
+
+/**
+ * Local-only config. Omits the R2 fields; `mode` is required as the
+ * discriminant so consumers explicitly opt in.
+ */
+export interface LocalAnalyticsConfig extends CommonAnalyticsConfig {
+  mode: 'local'
+}
+
+/**
+ * Remote R2 Iceberg config. `mode` is optional and defaults to `'r2'` for
+ * back-compat with 0.4.x call sites that don't set it.
+ */
+export interface R2AnalyticsConfig extends CommonAnalyticsConfig {
+  mode?: 'r2'
   warehouseUriBuilder: (
     brand: string,
     tenantScope: TenantScope,
@@ -110,12 +147,9 @@ export interface AnalyticsConfig {
   catalogEndpoint: string
   tokenVendor: TokenVendor
   familyMembersProvider: FamilyMembersProvider
-  retention: Record<string, { days: number }>
-  extensions?: string[]
-  dbPath?: string
-  duckdb?: { memoryLimit?: string; threads?: string }
-  eventBus?: EventBus
 }
+
+export type AnalyticsConfig = LocalAnalyticsConfig | R2AnalyticsConfig
 
 // -------------------- engine + appender --------------------
 
@@ -136,6 +170,13 @@ export interface AnalyticsEngine {
   readonly lastError: Error | null
   /** Catalog / warehouse secret name for the current attach; undefined when not attached. */
   readonly catalog: string | undefined
+  /**
+   * Resolved mode — `'local'` if `AnalyticsConfig.mode === 'local'`,
+   * `'r2'` otherwise (including undefined for back-compat). Consumers can
+   * use this to gate mode-specific work — e.g. `createSyncManager` skips
+   * wiring the R2 pusher/fetcher in local mode.
+   */
+  readonly mode: AnalyticsMode
   subscribe(listener: (s: AnalyticsState) => void): Unsubscribe
   setRetention(days: number): Promise<void>
   /**

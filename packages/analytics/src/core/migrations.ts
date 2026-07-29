@@ -3,14 +3,26 @@
  *
  * Version is tracked per `(brand, tenantId)` in KVStore. v0.1.0 has a single
  * baseline migration (step 1: `ensureSchemas`) — future migrations append to
- * `MIGRATIONS` in order; each `up(db)` receives the attached catalog name.
+ * `MIGRATIONS` in order; each `up(db, catalogs)` receives the catalog set
+ * for the current attach mode.
+ *
+ * `ensureMigrations` accepts a `MigrationCatalogs` object with:
+ * - `local` — the local DuckDB catalog name (always present, from
+ *   `current_database()`). LOCAL_SCHEMAS DDL runs here.
+ * - `remote` — the attached R2 iceberg catalog secret name (present only
+ *   in R2 mode). SCHEMAS (with `PARTITIONED BY`) DDL runs here.
+ *
+ * The baseline migration ensures BOTH sets get created when both catalogs
+ * are present. Local-mode installs run just the LOCAL_SCHEMAS half. R2
+ * installs run both halves — fixing the pre-0.5.0 gap where `local.*`
+ * tables never got created and the sink threw on first append.
  *
  * `ensureMigrations` is idempotent and safe to call on every attach.
  */
 
 import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
-import { ensureSchemas } from './schemas'
+import { ensureSchemas, LOCAL_SCHEMAS, SCHEMAS } from './schemas'
 import type { KVStore } from './types'
 
 export interface MigrationContext {
@@ -18,13 +30,20 @@ export interface MigrationContext {
   tenantId: string
 }
 
+export interface MigrationCatalogs {
+  /** Local DuckDB catalog name (e.g. `memory` in tests, `<filestem>` on device). */
+  local: string
+  /** Attached R2 iceberg catalog secret name. Undefined in local mode. */
+  remote?: string
+}
+
 export interface Migration {
   /** Sequential integer, starting at 1. */
   version: number
   /** Human name shown in errors + logs. */
   name: string
-  /** Idempotent DDL — called with the attached catalog alias. */
-  up(db: HybridDuckDB, catalog: string): Promise<void>
+  /** Idempotent DDL — called with the current attach's catalog set. */
+  up(db: HybridDuckDB, catalogs: MigrationCatalogs): Promise<void>
 }
 
 /**
@@ -35,8 +54,15 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
   {
     version: 1,
     name: 'baseline schemas',
-    async up(db, catalog) {
-      await ensureSchemas(db, catalog)
+    async up(db, catalogs) {
+      // Always ensure local tables (LOCAL_SCHEMAS — no PARTITIONED BY;
+      // plain DuckDB accepts the DDL).
+      await ensureSchemas(db, catalogs.local, LOCAL_SCHEMAS)
+      // Ensure remote tables when attached to R2 (SCHEMAS — with
+      // PARTITIONED BY; Iceberg requires it).
+      if (catalogs.remote) {
+        await ensureSchemas(db, catalogs.remote, SCHEMAS)
+      }
     },
   },
 ])
@@ -81,7 +107,7 @@ export async function ensureMigrations(
   db: HybridDuckDB,
   kv: KVStore,
   ctx: MigrationContext,
-  catalog: string,
+  catalogs: MigrationCatalogs,
 ): Promise<EnsureMigrationsResult> {
   const key = schemaVersionKey(ctx.brand, ctx.tenantId)
   let stored = await kv.get<number>(key)
@@ -110,7 +136,7 @@ export async function ensureMigrations(
       continue
     }
     try {
-      await migration.up(db, catalog)
+      await migration.up(db, catalogs)
     }
     catch (cause) {
       throw new AnalyticsError(

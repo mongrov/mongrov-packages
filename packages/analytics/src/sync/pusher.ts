@@ -42,9 +42,16 @@ export interface R2PusherConfig {
    */
   is401?: (err: unknown) => boolean
   /**
-   * SQL name builders. Defaults follow the warehouse convention:
-   *   local  = `main.<table>`
-   *   remote = `zone_<familyId>.<table>`
+   * SQL name builders. Defaults follow the 0.5.0 warehouse convention:
+   *   local  = `main.<table>`               (current catalog's main schema)
+   *   remote = `zone_<familyId>.default.<table>`  (3-part, iceberg namespace)
+   *
+   * The 3-part remote form is required because 0.5.0's `attachWarehouse`
+   * no longer does `USE ${secretName}.default` after ATTACH — see
+   * `core/warehouse.ts` top-of-file NOTE. A 2-part `zone_<id>.<table>`
+   * would resolve `<table>` against current_schema (`main`), but iceberg
+   * catalogs only expose `default`.
+   *
    * Override if the warehouse module produces different aliases.
    */
   localTable?: (ctx: AttachContext, table: string) => string
@@ -64,7 +71,7 @@ const DEFAULT_IS_401 = (err: unknown): boolean => {
 
 const DEFAULT_LOCAL = (_c: AttachContext, table: string) => `main.${table}`
 const DEFAULT_REMOTE = (c: AttachContext, table: string) =>
-  `zone_${c.tenantId}.${table}`
+  `zone_${c.tenantId}.default.${table}`
 
 export class R2Pusher {
   readonly #engine: HybridDuckDB

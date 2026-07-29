@@ -222,6 +222,14 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     tables: [...config.tables],
   })
 
+  // Local-mode gate: in `analytics.mode === 'local'` there's no remote R2
+  // to push/fetch against. Instead of removing the pusher/fetcher entirely
+  // (they're still returned on the SyncManager surface for consumers that
+  // inspect them), we short-circuit the scheduler's coordinator hooks so
+  // no push/fetch SQL actually runs. Rules still fire on-batch via the
+  // flusher; scheduled rules also fire via `onCycleComplete`.
+  const isLocal = config.analytics.mode === 'local'
+
   const pendingClosesStore = new PendingClosesStore(config.storage)
 
   const scheduler = new SyncScheduler({
@@ -231,9 +239,12 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       flushAll: async () => {
         await Promise.all(config.tables.map(t => flusher.flush(t, 'scheduled')))
       },
-      pushAll: async (tables, ctx) => pusher.pushAll(tables, ctx),
-      pushClosesForDeviceConfig: config.tables.includes('device_config')
-        ? async (ctx) => {
+      pushAll: isLocal
+        ? async () => []
+        : async (tables, ctx) => pusher.pushAll(tables, ctx),
+      pushClosesForDeviceConfig: (isLocal || !config.tables.includes('device_config'))
+        ? undefined
+        : async (ctx) => {
             const pending = await pendingClosesStore.drain(ctx)
             if (pending.length === 0) return
             try {
@@ -253,9 +264,10 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
                 err: err instanceof Error ? err.message : String(err),
               })
             }
-          }
-        : undefined,
-      fetchIncremental: async ctx => fetcher.fetchIncremental(ctx),
+          },
+      fetchIncremental: isLocal
+        ? async () => []
+        : async ctx => fetcher.fetchIncremental(ctx),
       // Scheduled rules pass runs after the cycle's flush/push/fetch. Fire-
       // and-forget — a throw here would surface as a cycle error, but the
       // catch keeps the scheduler idle.
@@ -329,7 +341,9 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       await scheduler.stop()
     },
     triggerNow: () => scheduler.triggerNow(),
-    prefetch: (ctx) => fetcher.prefetchOnAttach(ctx, config.prefetchPolicy),
+    prefetch: isLocal
+      ? async () => []
+      : ctx => fetcher.prefetchOnAttach(ctx, config.prefetchPolicy),
   }
 }
 

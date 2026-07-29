@@ -50,7 +50,7 @@ describe('R2Pusher.push', () => {
     // First call: MAX/COUNT SELECT.
     expect(fake.calls[0]!.sql).toMatch(/SELECT MAX\(ts\)/)
     // Second call: INSERT.
-    expect(fake.calls[1]!.sql).toMatch(/INSERT INTO zone_fam_A\.hrv SELECT \* FROM main\.hrv/)
+    expect(fake.calls[1]!.sql).toMatch(/INSERT INTO zone_fam_A.default.hrv SELECT \* FROM main\.hrv/)
     // Watermark advanced.
     expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:push')).toBe('2026-06-01T00:00:00.000Z')
   })
@@ -128,7 +128,7 @@ describe('R2Pusher.pushCloses', () => {
     expect(result).toEqual({ table: 'device_config', rowsPushed: 2, ok: true })
     expect(fake.calls).toHaveLength(2)
     for (const call of fake.calls) {
-      expect(call.sql).toMatch(/UPDATE zone_fam_A\.device_config/)
+      expect(call.sql).toMatch(/UPDATE zone_fam_A.default.device_config/)
       expect(call.sql).toMatch(/valid_to IS NULL/)
       expect(call.params?.family_id).toBe('fam_A')
       expect(call.params?.valid_to).toBe(NOW.toISOString())
@@ -175,7 +175,7 @@ describe('R2Pusher.pushAll', () => {
       type: 'rows',
       rows: [{ max_ts: '2026-06-01T00:00:00.000Z', row_count: 2 }],
     })
-    fake.mockWhen('INSERT INTO zone_fam_A.hrv', { type: 'rows', rows: [] })
+    fake.mockWhen('INSERT INTO zone_fam_A.default.hrv', { type: 'rows', rows: [] })
     fake.mockWhen('FROM main.hr ', { type: 'throw', err: new Error('boom') })
 
     const results = await pusher.pushAll(['hrv', 'hr'], ctx)

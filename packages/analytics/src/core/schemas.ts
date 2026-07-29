@@ -5,10 +5,21 @@
  * DDL strings are frozen — apps must not mutate them; migrations (T-08) own
  * schema evolution.
  *
- * `ensureSchemas(db, catalog)` idempotently creates every table inside the
- * attached catalog (i.e. `zone_<tenantId>`), rewriting `CREATE TABLE <name>`
- * to `CREATE TABLE IF NOT EXISTS <catalog>.<name>` at issue time so the base
- * DDL stays faithful to the spec text.
+ * Two DDL variants exist:
+ * - `SCHEMAS` — for Iceberg-attached remote catalogs. Includes
+ *   `PARTITIONED BY (day(ts), user_id)` clauses that Iceberg requires
+ *   for partition pruning at scan time.
+ * - `LOCAL_SCHEMAS` — for the app's local DuckDB catalog. Identical to
+ *   `SCHEMAS` minus the `PARTITIONED BY` clauses, which plain DuckDB
+ *   (non-Iceberg) rejects with a parser error. Derived from `SCHEMAS`
+ *   via `toLocalDdl` at module load time so both variants stay in sync
+ *   through schema changes.
+ *
+ * `ensureSchemas(db, catalog, schemas)` idempotently creates every table
+ * inside the given catalog, rewriting `CREATE TABLE <name>` to
+ * `CREATE TABLE IF NOT EXISTS <catalog>.<name>` at issue time. Callers
+ * pick the variant: remote attach uses `SCHEMAS`, local mode uses
+ * `LOCAL_SCHEMAS`.
  */
 
 import { AnalyticsError } from './errors'
@@ -214,14 +225,46 @@ export function qualifyDdl(baseDdl: string, table: TableName, catalog: string): 
 }
 
 /**
+ * Strip the Iceberg-only `PARTITIONED BY (...)` clause from a DDL string.
+ * Plain DuckDB (non-Iceberg) rejects the clause with a parser error; local
+ * mode uses the returned form. Preserves the trailing `);` terminator.
+ *
+ * Exported for tests; call sites should prefer `LOCAL_SCHEMAS`.
+ */
+export function toLocalDdl(baseDdl: string): string {
+  return baseDdl.replace(/\)\s*PARTITIONED BY\s*\([^)]*\);?/g, ');')
+}
+
+/**
+ * Local-catalog DDL variants of `SCHEMAS` — same tables, same columns,
+ * same primary keys; only difference is the `PARTITIONED BY` clauses are
+ * stripped. Derived programmatically so schema changes in `SCHEMAS`
+ * propagate automatically.
+ */
+export const LOCAL_SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze(
+  Object.fromEntries(
+    TABLE_NAMES.map(table => [table, toLocalDdl(SCHEMAS[table])]),
+  ) as Record<TableName, string>,
+)
+
+/**
  * Create every warehouse table under `<catalog>.<table>`, in `TABLE_NAMES` order.
  *
  * Idempotent — every issued statement uses `IF NOT EXISTS`. Failure at any
  * table surfaces as `AnalyticsError('migration_failed', <table>, cause)`.
+ *
+ * `schemas` selects the DDL variant: pass `SCHEMAS` for remote iceberg
+ * catalogs (with `PARTITIONED BY`), `LOCAL_SCHEMAS` for the local DuckDB
+ * catalog (without). Default is `SCHEMAS` for back-compat with 0.4.x
+ * callers that only wrote to the attached remote.
  */
-export async function ensureSchemas(db: HybridDuckDB, catalog: string): Promise<void> {
+export async function ensureSchemas(
+  db: HybridDuckDB,
+  catalog: string,
+  schemas: Readonly<Record<TableName, string>> = SCHEMAS,
+): Promise<void> {
   for (const table of TABLE_NAMES) {
-    const sql = qualifyDdl(SCHEMAS[table], table, catalog)
+    const sql = qualifyDdl(schemas[table], table, catalog)
     try {
       await db.execute(sql)
     }

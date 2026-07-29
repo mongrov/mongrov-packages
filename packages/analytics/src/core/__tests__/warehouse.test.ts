@@ -48,10 +48,12 @@ describe('attachWarehouse', () => {
       { brand: 'brandA', tenantScope: 'family', tenantId: 'fam123' },
     ])
 
+    // 0.5.0 dropped the `USE zone_fam123.default;` step — remote is now
+    // addressed via 3-part names (`<secret>.default.<table>`), keeping
+    // the local catalog current so `main.<table>` still means local.
     expect(fake.calls.map(c => c.sql)).toEqual([
       'CREATE OR REPLACE SECRET zone_fam123 (TYPE ICEBERG, TOKEN $token, ENDPOINT $endpoint);',
       `ATTACH 's3://mongrov-analytics/brandA/fam123/warehouse' AS zone_fam123 (TYPE ICEBERG);`,
-      'USE zone_fam123.default;',
     ])
     expect(fake.calls[0].params).toEqual({
       token: 'fake-bearer-token',
@@ -143,8 +145,11 @@ describe('detachWarehouse', () => {
 
     await detachWarehouse(db, 'fam123')
 
+    // 0.5.0 dropped the `USE memory.main;` reset — attach no longer switches
+    // current catalog to remote, so there's nothing to reset. The prior
+    // `USE memory.main` also failed on file-backed DuckDB (real devices
+    // open a file → catalog name is the file stem, not `memory`).
     expect(fake.calls.map(c => c.sql)).toEqual([
-      'USE memory.main;',
       'DETACH zone_fam123;',
       'DROP SECRET zone_fam123;',
     ])

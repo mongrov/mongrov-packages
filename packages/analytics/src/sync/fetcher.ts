@@ -55,8 +55,9 @@ export interface R2FetcherConfig {
 }
 
 const DEFAULT_LOCAL = (_c: AttachContext, table: string) => `main.${table}`
+// 3-part remote for the same reason pusher's is 3-part — see pusher.ts.
 const DEFAULT_REMOTE = (c: AttachContext, table: string) =>
-  `zone_${c.tenantId}.${table}`
+  `zone_${c.tenantId}.default.${table}`
 
 export class R2Fetcher {
   readonly #engine: HybridDuckDB

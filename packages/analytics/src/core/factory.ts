@@ -35,11 +35,15 @@ import type {
   AnalyticsEngine,
   AnalyticsState,
   AttachContext,
+  R2AnalyticsConfig,
   Unsubscribe,
 } from './types'
 import {
+  attachLocal,
   attachWarehouse,
+  detachLocal,
   detachWarehouse,
+  probeLocalCatalog,
   warehouseSecretName,
 } from './warehouse'
 
@@ -154,24 +158,49 @@ export function createAnalytics(
   const duckdbFactory = internal.duckdbFactory ?? defaultDuckdbFactory()
   const db = new HybridDuckDB(duckdbFactory)
 
+  // Resolve mode once — default 'r2' for back-compat with 0.4.x call sites
+  // that don't set the field. `isLocal` gates dispatch throughout the
+  // actor closures; `r2Config` is a typed alias for the R2 branch (safe
+  // by construction — only accessed inside `if (!isLocal)` blocks).
+  const mode = config.mode ?? 'r2'
+  const isLocal = mode === 'local'
+  const r2Config = config as R2AnalyticsConfig
+
   const machineActors: MachineActors = {
     async openEngine() {
       await db.open()
       await applyDuckdbTuning(db, config.duckdb)
-      await bootstrapExtensions(db)
+      await bootstrapExtensions(db, mode)
     },
     async attachEngine({ ctx }) {
-      const attach = await attachWarehouse(db, ctx, {
-        warehouseUriBuilder: config.warehouseUriBuilder,
-        tokenVendor: config.tokenVendor,
-        familyMembersProvider: config.familyMembersProvider,
-        catalogEndpoint: config.catalogEndpoint,
-      })
+      // Dispatch based on mode. Local: probe current catalog, no auth,
+      // no ATTACH. R2: full attach protocol (URI + token + SECRET + ATTACH).
+      // In both cases, ensureMigrations runs with the appropriate catalog
+      // set — LOCAL_SCHEMAS always in local catalog; SCHEMAS in remote
+      // when attached — so local tables get created even for R2 installs
+      // (fixing the pre-0.5.0 gap where the sink threw on first append).
+      let attach
+      let remoteCatalog: string | undefined
+      if (isLocal) {
+        attach = await attachLocal(db, ctx)
+      }
+      else {
+        attach = await attachWarehouse(db, ctx, {
+          warehouseUriBuilder: r2Config.warehouseUriBuilder,
+          tokenVendor: r2Config.tokenVendor,
+          familyMembersProvider: r2Config.familyMembersProvider,
+          catalogEndpoint: r2Config.catalogEndpoint,
+        })
+        remoteCatalog = attach.warehouseSecret
+      }
+
+      const localCatalog = await probeLocalCatalog(db)
+
       await ensureMigrations(
         db,
         config.storage,
         { brand: ctx.brand, tenantId: ctx.tenantId },
-        attach.warehouseSecret,
+        { local: localCatalog, remote: remoteCatalog },
       )
       return {
         warehouseSecret: attach.warehouseSecret,
@@ -179,10 +208,25 @@ export function createAnalytics(
       }
     },
     async detachEngine({ ctx }) {
-      await detachWarehouse(db, ctx.tenantId)
+      if (isLocal) {
+        await detachLocal(db, ctx.tenantId)
+      }
+      else {
+        await detachWarehouse(db, ctx.tenantId)
+      }
     },
     async refreshToken({ ctx }) {
-      const token = await config.tokenVendor.fetch({
+      // Local mode: no token, no refresh. Return a far-future expiry so
+      // the machine's TOKEN_REFRESH_TICK never fires again. This actor
+      // shouldn't be scheduled in local mode (attachLocal returns
+      // sentinel far-future expiry), but guarding here is cheap
+      // defense-in-depth if a consumer forces attachEngine somehow.
+      if (isLocal) {
+        return {
+          tokenExpiresAt: Date.now() + 100 * 365 * 24 * 60 * 60 * 1000,
+        }
+      }
+      const token = await r2Config.tokenVendor.fetch({
         brand: ctx.brand,
         tenantScope: ctx.tenantScope,
         tenantId: ctx.tenantId,
@@ -191,7 +235,7 @@ export function createAnalytics(
       try {
         await db.execute(
           `CREATE OR REPLACE SECRET ${secretName} (TYPE ICEBERG, TOKEN $token, ENDPOINT $endpoint);`,
-          { token: token.token, endpoint: config.catalogEndpoint },
+          { token: token.token, endpoint: r2Config.catalogEndpoint },
         )
       }
       catch (cause) {
@@ -346,6 +390,9 @@ export function createAnalytics(
     },
     get catalog(): string | undefined {
       return actor.getSnapshot().context.warehouseSecret
+    },
+    get mode() {
+      return mode
     },
     subscribe(listener): Unsubscribe {
       publicSubscribers.add(listener)

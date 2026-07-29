@@ -27,13 +27,20 @@ describe('ensureMigrations', () => {
     const { fake, db } = await newOpenDb()
     const { kv, store } = createFakeKV()
 
-    const result = await ensureMigrations(db, kv, CTX, CATALOG)
+    const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
     expect(result).toEqual({ from: 0, to: CURRENT_VERSION })
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
-    // baseline migration is ensureSchemas → 14 DDLs.
-    expect(fake.calls).toHaveLength(14)
-    expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.hrv')
+    // baseline migration now issues LOCAL_SCHEMAS in local catalog +
+    // SCHEMAS in remote catalog = 14 + 14 = 28 DDLs (0.5.0 fix for
+    // "ensureSchemas never creates local.* tables").
+    expect(fake.calls).toHaveLength(28)
+    // Local tables come first (baseline migration order).
+    expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS memory.hrv')
+    expect(fake.calls[0].sql).not.toContain('PARTITIONED BY')
+    // Then remote tables with PARTITIONED BY.
+    expect(fake.calls[14].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.hrv')
+    expect(fake.calls[14].sql).toContain('PARTITIONED BY')
   })
 
   it('same-version rerun: no DDL issued, KV unchanged', async () => {
@@ -41,7 +48,7 @@ describe('ensureMigrations', () => {
     const { kv, store } = createFakeKV()
     store.set(KEY, CURRENT_VERSION)
 
-    const result = await ensureMigrations(db, kv, CTX, CATALOG)
+    const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
     expect(result).toEqual({ from: CURRENT_VERSION, to: CURRENT_VERSION })
     expect(fake.calls).toHaveLength(0)
@@ -53,8 +60,8 @@ describe('ensureMigrations', () => {
     const { kv, store } = createFakeKV()
     store.set(schemaVersionKey('brandA', 'famA'), CURRENT_VERSION)
 
-    const resultA = await ensureMigrations(db, kv, { brand: 'brandA', tenantId: 'famA' }, 'zone_famA')
-    const resultB = await ensureMigrations(db, kv, { brand: 'brandA', tenantId: 'famB' }, 'zone_famB')
+    const resultA = await ensureMigrations(db, kv, { brand: 'brandA', tenantId: 'famA' }, { local: 'memory', remote: 'zone_famA' })
+    const resultB = await ensureMigrations(db, kv, { brand: 'brandA', tenantId: 'famB' }, { local: 'memory', remote: 'zone_famB' })
 
     expect(resultA).toEqual({ from: CURRENT_VERSION, to: CURRENT_VERSION })
     expect(resultB).toEqual({ from: 0, to: CURRENT_VERSION })
@@ -72,7 +79,7 @@ describe('ensureMigrations', () => {
     const cause = new Error('boom')
     fake.failNextExecute(cause)
 
-    await expect(ensureMigrations(db, kv, CTX, CATALOG)).rejects.toMatchObject({
+    await expect(ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })).rejects.toMatchObject({
       code: 'migration_failed',
       message: expect.stringContaining('step-1'),
     })
@@ -88,14 +95,15 @@ describe('ensureMigrations', () => {
     const { kv, store } = createFakeKV()
 
     // Start from before baseline (as if a new tenant).
-    const result = await ensureMigrations(db, kv, CTX, CATALOG)
+    const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
     expect(result.from).toBe(0)
     expect(result.to).toBe(CURRENT_VERSION)
-    expect(fake.calls.length).toBe(14)
+    // Baseline creates 14 local + 14 remote = 28 DDLs post-0.5.0.
+    expect(fake.calls.length).toBe(28)
 
     // Same call again — no-op. KV already at CURRENT_VERSION.
     fake.calls.length = 0
-    const result2 = await ensureMigrations(db, kv, CTX, CATALOG)
+    const result2 = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
     expect(result2.from).toBe(CURRENT_VERSION)
     expect(result2.to).toBe(CURRENT_VERSION)
     expect(fake.calls.length).toBe(0)
@@ -117,7 +125,7 @@ describe('legacy key migration (T-23)', () => {
     const { kv, store } = createFakeKV()
     store.set(LEGACY_KEY, CURRENT_VERSION)
 
-    const result = await ensureMigrations(db, kv, CTX, CATALOG)
+    const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
     expect(result).toEqual({ from: CURRENT_VERSION, to: CURRENT_VERSION })
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
@@ -131,7 +139,7 @@ describe('legacy key migration (T-23)', () => {
     store.set(KEY, CURRENT_VERSION)
     store.set(LEGACY_KEY, 0)
 
-    const result = await ensureMigrations(db, kv, CTX, CATALOG)
+    const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
     expect(result).toEqual({ from: CURRENT_VERSION, to: CURRENT_VERSION })
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
