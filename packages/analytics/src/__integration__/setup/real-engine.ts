@@ -50,11 +50,17 @@ const EXTENSIONS = ['iceberg', 'httpfs']
  * Boot a real Node DuckDB instance, load the extensions the integration
  * suite exercises, and adapt it to the structural `DuckDBInstance`
  * interface the analytics factory expects.
+ *
+ * `extensions` defaults to the remote-sync set; pass `[]` for local-mode
+ * tests so they stay network-free (`INSTALL` fetches from the DuckDB
+ * extension repository when the local cache is cold).
  */
-export async function createRealDuckDB(): Promise<DuckDBInstance> {
+export async function createRealDuckDB(
+  extensions: readonly string[] = EXTENSIONS,
+): Promise<DuckDBInstance> {
   const inst = await NodeInstance.create(':memory:')
   const conn = await inst.connect()
-  for (const ext of EXTENSIONS) {
+  for (const ext of extensions) {
     await conn.run(`INSTALL ${ext}`)
     await conn.run(`LOAD ${ext}`)
   }

@@ -1,7 +1,7 @@
 /**
  * Table DDL for the analytics warehouse (spec §Table schema).
  *
- * Fourteen tables, verbatim from `.specifica/features/analytics-core/spec.md`.
+ * Fifteen tables, verbatim from `.specifica/features/analytics-core/spec.md`.
  * DDL strings are frozen — apps must not mutate them; migrations (T-08) own
  * schema evolution.
  *
@@ -37,6 +37,7 @@ export const TABLE_NAMES = [
   'sleep_stage',
   'sleep_raw',
   'device_event',
+  'device_battery',
   'device_config',
   'insight',
   'sync_watermark',
@@ -158,6 +159,15 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   payload VARCHAR
 ) PARTITIONED BY (day(ts));`,
 
+  device_battery: `CREATE TABLE device_battery (
+  ts TIMESTAMP NOT NULL,
+  brand VARCHAR NOT NULL,
+  family_id VARCHAR NOT NULL,
+  user_id VARCHAR NOT NULL,
+  device_id VARCHAR NOT NULL,
+  battery_pct DOUBLE NOT NULL
+) PARTITIONED BY (day(ts), device_id);`,
+
   device_config: `CREATE TABLE device_config (
   device_id VARCHAR NOT NULL,
   brand VARCHAR NOT NULL,
@@ -232,7 +242,10 @@ export function qualifyDdl(baseDdl: string, table: TableName, catalog: string): 
  * Exported for tests; call sites should prefer `LOCAL_SCHEMAS`.
  */
 export function toLocalDdl(baseDdl: string): string {
-  return baseDdl.replace(/\)\s*PARTITIONED BY\s*\([^)]*\);?/g, ');')
+  // The clause always terminates the DDL, and its column list contains
+  // nested parens (`day(ts)`), so strip from the closing table paren to
+  // end-of-string rather than trying to match the paren group.
+  return baseDdl.replace(/\)\s*PARTITIONED BY[\s\S]*$/, ');')
 }
 
 /**

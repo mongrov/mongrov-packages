@@ -22,7 +22,7 @@
 
 import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
-import { ensureSchemas, LOCAL_SCHEMAS, SCHEMAS } from './schemas'
+import { ensureSchemas, LOCAL_SCHEMAS, qualifyDdl, SCHEMAS } from './schemas'
 import type { KVStore } from './types'
 
 export interface MigrationContext {
@@ -36,6 +36,13 @@ export interface MigrationCatalogs {
   /** Attached R2 iceberg catalog secret name. Undefined in local mode. */
   remote?: string
 }
+
+/**
+ * Iceberg namespace remote DDL is issued under — remote tables live at
+ * `<secret>.default.<table>` (spec §Attach Protocol). Local DDL stays
+ * 2-part because the local catalog's default schema resolves implicitly.
+ */
+export const REMOTE_NAMESPACE = 'default'
 
 export interface Migration {
   /** Sequential integer, starting at 1. */
@@ -56,12 +63,32 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
     name: 'baseline schemas',
     async up(db, catalogs) {
       // Always ensure local tables (LOCAL_SCHEMAS — no PARTITIONED BY;
-      // plain DuckDB accepts the DDL).
+      // plain DuckDB accepts the DDL). 2-part `<catalog>.<table>` resolves
+      // via the local catalog's default `main` schema.
       await ensureSchemas(db, catalogs.local, LOCAL_SCHEMAS)
       // Ensure remote tables when attached to R2 (SCHEMAS — with
-      // PARTITIONED BY; Iceberg requires it).
+      // PARTITIONED BY; Iceberg requires it). Since 0.5.0 dropped the
+      // `USE <catalog>.default` step, remote DDL must spell the Iceberg
+      // namespace explicitly — 2-part `zone_x.<table>` fails with
+      // "Schema with name ... not found" on an attached Iceberg catalog.
       if (catalogs.remote) {
-        await ensureSchemas(db, catalogs.remote, SCHEMAS)
+        await ensureSchemas(db, `${catalogs.remote}.${REMOTE_NAMESPACE}`, SCHEMAS)
+      }
+    },
+  },
+  {
+    version: 2,
+    name: 'device_battery table',
+    // Dedicated numeric table for battery samples (fix option B2). The
+    // pre-0.6.0 `device_battery` metric pointed at `device_event.payload`
+    // (JSON VARCHAR) — rules compiled but compared strings to numbers
+    // across every event type, so they could never fire correctly.
+    // Installs that ran step 1 on ≥0.6.0 already have the table from the
+    // baseline `ensureSchemas` (IF NOT EXISTS makes this a no-op there).
+    async up(db, catalogs) {
+      await db.execute(qualifyDdl(LOCAL_SCHEMAS.device_battery, 'device_battery', catalogs.local))
+      if (catalogs.remote) {
+        await db.execute(qualifyDdl(SCHEMAS.device_battery, 'device_battery', `${catalogs.remote}.${REMOTE_NAMESPACE}`))
       }
     },
   },

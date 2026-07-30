@@ -2,8 +2,9 @@
  * T-07 (battery) + T-08 (ring config).
  *
  * Battery coverage:
- *   1. Each row → device_event(event_type='battery_sample') with battery
- *      level nested in payload.
+ *   1. Each row → device_battery with a numeric battery_pct column
+ *      (0.6.0 fix B2 — previously a device_event JSON payload the rules
+ *      compiler could not aggregate).
  *
  * Ring config coverage:
  *   1. First install (no prior configs): every automaticMonitoringData entry
@@ -17,7 +18,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { BATTERY_EVENT, mapBattery } from '../battery'
+import { mapBattery } from '../battery'
 import { mapRingConfig } from '../ring-config'
 import type {
   DeviceConfigRow,
@@ -50,7 +51,7 @@ const translator: RingConfigTranslator = {
 }
 
 describe('mapBattery', () => {
-  it('emits a battery_sample device_event with level in payload', () => {
+  it('emits device_battery rows with numeric battery_pct', () => {
     const fw: FirmwareBatteryRow[] = [
       { timestamp: '2026.06.17 03:15:00', battery: 82 },
       { timestamp: '2026.06.17 04:15:00', battery: 79 },
@@ -58,11 +59,11 @@ describe('mapBattery', () => {
     const rows = mapBattery(fw, ctx)
     expect(rows).toHaveLength(2)
     for (const row of rows) {
-      expect(row.event_type).toBe(BATTERY_EVENT)
       expect(row.device_id).toBe('ring_8047')
+      expect(typeof row.battery_pct).toBe('number')
     }
-    expect(rows[0].payload).toEqual({ battery: 82 })
-    expect(rows[1].payload).toEqual({ battery: 79 })
+    expect(rows[0].battery_pct).toBe(82)
+    expect(rows[1].battery_pct).toBe(79)
   })
 })
 

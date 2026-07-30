@@ -71,8 +71,11 @@ describe('mapFirmwareExport', () => {
     expect(batch.sleep_stage).toHaveLength(2)
     // Every input sleep row lives in raw.
     expect(batch.sleep_raw).toHaveLength(3)
-    // 2 battery samples → device_event.
-    expect(batch.device_event).toHaveLength(2)
+    // 2 battery samples → device_battery (0.6.0 fix B2); the generic
+    // event stream stays empty until another event type populates it.
+    expect(batch.device_battery).toHaveLength(2)
+    expect(batch.device_battery[0].battery_pct).toBe(82)
+    expect(batch.device_event).toHaveLength(0)
     // 2 monitoring windows → device_config.
     expect(batch.device_config).toHaveLength(2)
     // First-install: no prior configs → no closes.

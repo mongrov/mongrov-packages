@@ -252,4 +252,13 @@ describe('computeRefreshDelay', () => {
     expect(computeRefreshDelay(now, undefined)).toBe(30 * 60 * 1000)
     expect(computeRefreshDelay(now, now - 100)).toBe(30 * 60 * 1000)
   })
+
+  it('caps at 2^31-1 ms so far-future sentinels do not overflow setTimeout', () => {
+    // Local mode's attachLocal returns a 100-year expiry; a raw 75% of
+    // that overflows the 32-bit timer int and Node/Hermes clamp it to
+    // ~1ms — firing the refresh constantly instead of never.
+    const now = 1_000_000
+    const farFuture = now + 100 * 365 * 24 * 60 * 60 * 1000
+    expect(computeRefreshDelay(now, farFuture)).toBe(2 ** 31 - 1)
+  })
 })

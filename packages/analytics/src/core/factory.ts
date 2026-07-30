@@ -20,7 +20,7 @@ import { bootstrapExtensions } from './extensions'
 import { resolveLogger } from './logger'
 import type { MachineActors } from './machine'
 import { analyticsMachine } from './machine'
-import { ensureMigrations } from './migrations'
+import { ensureMigrations, REMOTE_NAMESPACE } from './migrations'
 import {
   clearLastAttach,
   loadLastAttach,
@@ -283,7 +283,11 @@ export function createAnalytics(
     const userOverride = (await loadRetentionOverride(config.storage, ctx)) ?? undefined
     const effectiveDays = resolveEffectiveRetention({ brandDefault, userOverride })
     if (effectiveDays <= 0) return
-    await runRetentionSweep(db, catalog, { effectiveDays })
+    // R2 mode: the swept catalog is the attached Iceberg zone, whose
+    // tables live under the explicit namespace (no `USE` since 0.5.0).
+    // Local mode: 2-part `<catalog>.<table>` resolves implicitly.
+    const target = isLocal ? catalog : `${catalog}.${REMOTE_NAMESPACE}`
+    await runRetentionSweep(db, target, { effectiveDays })
   }
 
   /**

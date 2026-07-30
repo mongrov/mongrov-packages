@@ -157,6 +157,15 @@ export interface DeviceEventRow extends BaseRow {
 }
 
 /**
+ * `device_battery` warehouse row — numeric battery samples in a dedicated
+ * table (0.6.0, fix B2). Battery previously rode `device_event.payload`
+ * as JSON, which the rules compiler could not aggregate numerically.
+ */
+export interface DeviceBatteryRow extends BaseRow {
+  battery_pct: number
+}
+
+/**
  * `device_config` warehouse row shape (SCD-2). Column names match the DDL in
  * `core/schemas.ts` exactly so that a `row[c]` lookup keyed by
  * `columnOrder.device_config` produces the correct positional appender input.
@@ -209,5 +218,6 @@ export interface MappedBatch {
   sleep_stage: SleepStageRow[]
   sleep_raw: SleepRawRow[]
   device_event: DeviceEventRow[]
+  device_battery: DeviceBatteryRow[]
   device_config: DeviceConfigRow[]
 }

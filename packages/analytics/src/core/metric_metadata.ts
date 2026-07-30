@@ -46,7 +46,7 @@ export const METRIC_METADATA = Object.freeze({
   distance_km: { table: 'activity_bucket', column: 'distance_km', sampling_minutes: 10, exposure: 'full' },
   sleep_total_minutes: { table: 'sleep_session', column: 'total_minutes', sampling_minutes: 'per_session', exposure: 'full' },
   sleep_score: { table: 'sleep_session', column: 'avg_confidence', sampling_minutes: 'per_session', exposure: 'full' },
-  device_battery: { table: 'device_event', column: 'payload', sampling_minutes: 240, exposure: 'full' },
+  device_battery: { table: 'device_battery', column: 'battery_pct', sampling_minutes: 240, exposure: 'full' },
 } as const satisfies Readonly<Record<string, MetricMetadataEntry>>)
 
 export type MetricId = keyof typeof METRIC_METADATA

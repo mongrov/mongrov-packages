@@ -85,6 +85,7 @@ const TABLE_RETENTION: Readonly<Record<TableName, TableRetention | null>> = Obje
   sleep_stage: { tsColumn: 'ts', kind: 'sensor' },
   sleep_raw: { tsColumn: 'ts', kind: 'sensor' },
   device_event: { tsColumn: 'ts', kind: 'sensor' },
+  device_battery: { tsColumn: 'ts', kind: 'sensor' },
   device_config: null,
   insight: { tsColumn: 'ts', kind: 'insight' },
   sync_watermark: null,

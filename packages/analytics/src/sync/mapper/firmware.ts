@@ -71,7 +71,10 @@ export function mapFirmwareExport(
     sleep_session: sleep.sleep_session,
     sleep_stage: sleep.sleep_stage,
     sleep_raw: sleep.sleep_raw,
-    device_event: mapBattery(fw.battery_table ?? [], ctx),
+    // Battery moved off the generic event stream in 0.6.0 (fix B2);
+    // `device_event` stays in the batch shape for future event types.
+    device_event: [],
+    device_battery: mapBattery(fw.battery_table ?? [], ctx),
     device_config: config.inserts,
     device_config_closes: config.closes,
   }

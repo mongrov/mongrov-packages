@@ -82,9 +82,9 @@ describe('runRetentionSweep', () => {
     const result = await runRetentionSweep(db, 'zone_fam123', { effectiveDays: 90 })
     const deletes = fake.calls.slice(openCalls).filter(c => c.sql.startsWith('DELETE FROM'))
 
-    // 14 tables total in SCHEMAS; device_config + sync_watermark skipped → 12 DELETEs.
-    expect(deletes).toHaveLength(12)
-    expect(result.swept).toHaveLength(12)
+    // 15 tables total in SCHEMAS; device_config + sync_watermark skipped → 13 DELETEs.
+    expect(deletes).toHaveLength(13)
+    expect(result.swept).toHaveLength(13)
     const swept = new Set(result.swept.map(e => e.table))
     expect(swept.has('device_config')).toBe(false)
     expect(swept.has('sync_watermark')).toBe(false)

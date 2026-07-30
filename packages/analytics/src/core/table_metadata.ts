@@ -34,6 +34,7 @@ export const TABLE_METADATA: Readonly<Record<TableName, TableSyncMetadata>> = Ob
   sleep_stage: { timeColumn: 'ts', syncable: true },
   sleep_raw: { timeColumn: 'ts', syncable: true },
   device_event: { timeColumn: 'ts', syncable: true },
+  device_battery: { timeColumn: 'ts', syncable: true },
   device_config: { timeColumn: 'valid_from', syncable: true },
   insight: { timeColumn: 'ts', syncable: true },
   sync_watermark: { timeColumn: 'updated_at', syncable: false },

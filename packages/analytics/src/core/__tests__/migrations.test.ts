@@ -31,16 +31,17 @@ describe('ensureMigrations', () => {
 
     expect(result).toEqual({ from: 0, to: CURRENT_VERSION })
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
-    // baseline migration now issues LOCAL_SCHEMAS in local catalog +
-    // SCHEMAS in remote catalog = 14 + 14 = 28 DDLs (0.5.0 fix for
-    // "ensureSchemas never creates local.* tables").
-    expect(fake.calls).toHaveLength(28)
+    // baseline issues LOCAL_SCHEMAS in local catalog + SCHEMAS in remote
+    // catalog = 15 + 15 = 30 DDLs (0.5.0 fix for "ensureSchemas never
+    // creates local.* tables"), then step-2 re-ensures device_battery in
+    // both catalogs = 2 more (no-op DDLs on fresh installs).
+    expect(fake.calls).toHaveLength(32)
     // Local tables come first (baseline migration order).
     expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS memory.hrv')
     expect(fake.calls[0].sql).not.toContain('PARTITIONED BY')
     // Then remote tables with PARTITIONED BY.
-    expect(fake.calls[14].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.hrv')
-    expect(fake.calls[14].sql).toContain('PARTITIONED BY')
+    expect(fake.calls[15].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.default.hrv')
+    expect(fake.calls[15].sql).toContain('PARTITIONED BY')
   })
 
   it('same-version rerun: no DDL issued, KV unchanged', async () => {
@@ -87,10 +88,26 @@ describe('ensureMigrations', () => {
     expect(store.get(KEY)).toBeUndefined()
   })
 
+  it('upgrade from v1 runs only step-2 (device_battery, both catalogs)', async () => {
+    const { fake, db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    store.set(KEY, 1)
+
+    const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
+
+    expect(result).toEqual({ from: 1, to: CURRENT_VERSION })
+    expect(store.get(KEY)).toBe(CURRENT_VERSION)
+    // Step-2 only: local (no PARTITIONED BY) + remote (with) device_battery.
+    expect(fake.calls).toHaveLength(2)
+    expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS memory.device_battery')
+    expect(fake.calls[0].sql).not.toContain('PARTITIONED BY')
+    expect(fake.calls[1].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.default.device_battery')
+    expect(fake.calls[1].sql).toContain('PARTITIONED BY (day(ts), device_id)')
+  })
+
   it('multi-step upgrade path applies only newer migrations', async () => {
-    // Since MIGRATIONS is v0.1.0-only (one step), simulate a future upgrade
-    // via a synthetic run: pre-set KV to a version below CURRENT_VERSION,
-    // observe that ensureSchemas still runs (since v1 > from=0).
+    // Pre-set KV to a version below CURRENT_VERSION, observe that
+    // every remaining migration runs in order.
     const { fake, db } = await newOpenDb()
     const { kv, store } = createFakeKV()
 
@@ -98,8 +115,9 @@ describe('ensureMigrations', () => {
     const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
     expect(result.from).toBe(0)
     expect(result.to).toBe(CURRENT_VERSION)
-    // Baseline creates 14 local + 14 remote = 28 DDLs post-0.5.0.
-    expect(fake.calls.length).toBe(28)
+    // Baseline creates 15 local + 15 remote = 30 DDLs, plus step-2's
+    // 2 device_battery DDLs = 32.
+    expect(fake.calls.length).toBe(32)
 
     // Same call again — no-op. KV already at CURRENT_VERSION.
     fake.calls.length = 0

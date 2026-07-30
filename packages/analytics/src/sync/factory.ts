@@ -473,6 +473,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
         ['sleep_stage', asRows(mapped.sleep_stage)],
         ['sleep_raw', asRows(mapped.sleep_raw)],
         ['device_event', asRows(mapped.device_event)],
+        ['device_battery', asRows(mapped.device_battery)],
         ['device_config', asRows(mapped.device_config)],
       ]
       for (const [table, rows] of mappedTables) {

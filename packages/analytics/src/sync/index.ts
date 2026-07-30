@@ -116,6 +116,7 @@ export type {
   ActivityBucketRow,
   ActivityRow,
   DeviceConfigRow,
+  DeviceBatteryRow,
   DeviceEventRow,
   FirmwareActivityRow,
   FirmwareBatteryRow,

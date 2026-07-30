@@ -20,10 +20,23 @@
  */
 
 import type { HybridDuckDB } from '../core/engine'
+import { SCHEMAS, type TableName } from '../core/schemas'
 import { timeColumnFor } from '../core/table_metadata'
 import type { AttachContext } from '../core/types'
 import { SyncError } from './errors'
 import type { WatermarkStore } from './watermark'
+
+/**
+ * `ON CONFLICT DO NOTHING` for idempotent re-fetch — but only on tables
+ * that actually declare a PRIMARY KEY. DuckDB ≥1.5 rejects a blanket
+ * `ON CONFLICT` on key-less tables ("no UNIQUE/PRIMARY KEY constraints
+ * that refer to this table"); for those, watermark advancement is the
+ * dedupe guard.
+ */
+function conflictClause(table: string): string {
+  const ddl = (SCHEMAS as Record<string, string>)[table as TableName]
+  return ddl?.includes('PRIMARY KEY') ? ' ON CONFLICT DO NOTHING' : ''
+}
 
 export type PrefetchPolicy
   = | { kind: 'all-family-on-attach', windowDays: number }
@@ -139,7 +152,7 @@ export class R2Fetcher {
         bindings.until = params.until.toISOString()
       }
       const limitClause = params.limit ? ` LIMIT ${Math.max(1, Math.floor(params.limit))}` : ''
-      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${where}${limitClause} ON CONFLICT DO NOTHING`
+      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${where}${limitClause}${conflictClause(params.table)}`
       await this.#engine.execute(sql, bindings)
 
       const countRows = await this.#engine.execute(
@@ -174,7 +187,7 @@ export class R2Fetcher {
     const remote = this.#remoteTable(ctx, table)
 
     if (policy.kind === 'all-family-on-attach') {
-      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $cutoff ON CONFLICT DO NOTHING`
+      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $cutoff${conflictClause(table)}`
       await this.#engine.execute(sql, {
         familyId: ctx.tenantId,
         cutoff,
@@ -185,7 +198,7 @@ export class R2Fetcher {
       const activeCutoff = new Date(activeCutoffMs).toISOString()
       // CTE picks user_ids seen in the recent window, then filters the window
       // pull down to those users.
-      const sql = `WITH active AS (SELECT DISTINCT user_id FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $activeCutoff) INSERT INTO ${local} SELECT r.* FROM ${remote} r JOIN active a ON r.user_id = a.user_id WHERE r.family_id = $familyId AND r.${tsCol} >= $cutoff ON CONFLICT DO NOTHING`
+      const sql = `WITH active AS (SELECT DISTINCT user_id FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $activeCutoff) INSERT INTO ${local} SELECT r.* FROM ${remote} r JOIN active a ON r.user_id = a.user_id WHERE r.family_id = $familyId AND r.${tsCol} >= $cutoff${conflictClause(table)}`
       await this.#engine.execute(sql, {
         familyId: ctx.tenantId,
         cutoff,
@@ -217,7 +230,7 @@ export class R2Fetcher {
     )
     const local = this.#localTable(ctx, table)
     const remote = this.#remoteTable(ctx, table)
-    const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${tsCol} > $watermark AND family_id = $familyId ON CONFLICT DO NOTHING`
+    const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${tsCol} > $watermark AND family_id = $familyId${conflictClause(table)}`
     await this.#engine.execute(sql, {
       watermark: watermark.toISOString(),
       familyId: ctx.tenantId,

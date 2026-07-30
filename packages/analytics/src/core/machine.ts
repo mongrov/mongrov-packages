@@ -24,6 +24,15 @@ import type { AttachContext } from './types'
 // -------------------- token TTL math --------------------
 
 /**
+ * Timers above 2^31-1 ms overflow the signed 32-bit int both Node and
+ * Hermes use for setTimeout, which clamps the delay to ~1ms — turning
+ * local mode's far-future sentinel expiry into a refresh that fires
+ * constantly instead of never. Cap at ~24.8 days; on the rare re-arm the
+ * TTL is recomputed and stays capped.
+ */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
+/**
  * Compute the delay before firing `TOKEN_REFRESH_TICK`. Spec calls for 75%
  * TTL. Falls back to a 30-minute default when the vendor's `expiresAt` is
  * missing or already in the past — the refresh will fail loudly rather than
@@ -34,7 +43,7 @@ export function computeRefreshDelay(now: number, expiresAt: number | undefined):
     return 30 * 60 * 1000
   }
   const ttl = expiresAt - now
-  return Math.max(Math.floor(ttl * 0.75), 1)
+  return Math.min(Math.max(Math.floor(ttl * 0.75), 1), MAX_TIMER_MS)
 }
 
 // -------------------- actor deps + shape --------------------

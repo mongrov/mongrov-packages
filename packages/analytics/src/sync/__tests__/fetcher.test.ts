@@ -59,7 +59,9 @@ describe('R2Fetcher.prefetchOnAttach', () => {
     expect(insertCalls).toHaveLength(2)
     expect(insertCalls[0]!.sql).toContain('main.hrv')
     expect(insertCalls[0]!.sql).toContain('zone_fam_A.default.hrv')
-    expect(insertCalls[0]!.sql).toContain('ON CONFLICT DO NOTHING')
+    // hrv declares no PRIMARY KEY → no ON CONFLICT clause (DuckDB ≥1.5
+    // rejects it on key-less tables); watermark advancement is the guard.
+    expect(insertCalls[0]!.sql).not.toContain('ON CONFLICT')
     expect(insertCalls[1]!.sql).toContain('main.hr')
   })
 
@@ -136,7 +138,9 @@ describe('R2Fetcher.fetchOnDemand', () => {
     expect(result).toEqual({ table: 'hrv', rowsFetched: 7, ok: true })
     expect(fake.calls[0]!.sql).toContain('LIMIT 100')
     expect(fake.calls[0]!.sql).toContain('ts <= $until')
-    expect(fake.calls[0]!.sql).toContain('ON CONFLICT DO NOTHING')
+    // hrv declares no PRIMARY KEY → no ON CONFLICT clause (DuckDB ≥1.5
+    // rejects it on key-less tables).
+    expect(fake.calls[0]!.sql).not.toContain('ON CONFLICT')
     // Watermark advanced to `until` (must be after default watermark to move).
     expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
       .toBe('2026-06-15T00:00:00.000Z')

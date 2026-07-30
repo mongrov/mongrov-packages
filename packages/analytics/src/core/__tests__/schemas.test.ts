@@ -25,8 +25,23 @@ describe('SCHEMAS', () => {
     }
   })
 
-  it('covers 14 tables per spec §Table schema', () => {
-    expect(TABLE_NAMES).toHaveLength(14)
+  it('covers 15 tables per spec §Table schema', () => {
+    expect(TABLE_NAMES).toHaveLength(15)
+  })
+
+  it('toLocalDdl strips PARTITIONED BY cleanly despite nested parens', async () => {
+    // Regression: `PARTITIONED BY (day(ts), user_id)` contains nested
+    // parens; a naive `\([^)]*\)` match left a dangling `, user_id);`
+    // that made every partitioned LOCAL_SCHEMAS entry a parser error on
+    // real DuckDB (fake engines swallowed it silently until 0.6.0).
+    const { LOCAL_SCHEMAS } = await import('../schemas')
+    for (const table of TABLE_NAMES) {
+      const ddl = LOCAL_SCHEMAS[table]
+      expect(ddl).not.toContain('PARTITIONED')
+      expect(ddl.trimEnd().endsWith(');')).toBe(true)
+      // No dangling fragment after the terminator.
+      expect(ddl.trimEnd().indexOf(');')).toBe(ddl.trimEnd().length - 2)
+    }
   })
 
   it('uses TIMESTAMP (per spec) not TIMESTAMPTZ', () => {
@@ -52,12 +67,12 @@ describe('qualifyDdl', () => {
 })
 
 describe('ensureSchemas', () => {
-  it('issues 14 CREATE TABLE IF NOT EXISTS statements in TABLE_NAMES order', async () => {
+  it('issues 15 CREATE TABLE IF NOT EXISTS statements in TABLE_NAMES order', async () => {
     const { fake, db } = await newOpenDb()
 
     await ensureSchemas(db, 'zone_fam123')
 
-    expect(fake.calls).toHaveLength(14)
+    expect(fake.calls).toHaveLength(15)
     for (let i = 0; i < TABLE_NAMES.length; i++) {
       const table = TABLE_NAMES[i]
       expect(fake.calls[i].sql).toContain(`CREATE TABLE IF NOT EXISTS zone_fam123.${table}`)
@@ -70,7 +85,7 @@ describe('ensureSchemas', () => {
     await ensureSchemas(db, 'zone_fam123')
     await ensureSchemas(db, 'zone_fam123')
 
-    expect(fake.calls).toHaveLength(28)
+    expect(fake.calls).toHaveLength(30)
     for (const call of fake.calls) {
       expect(call.sql).toContain('IF NOT EXISTS')
     }
