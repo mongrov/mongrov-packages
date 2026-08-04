@@ -42,6 +42,12 @@ export interface DataAccessProviderConfig {
    * client across nested trees or to configure retry/staleTime.
    */
   queryClient?: QueryClient
+  /**
+   * T-34 — brand data-retention horizon in days (principle 57). Queries
+   * whose `input.days` exceeds this are implicitly asyncFetch. Omitted →
+   * asyncFetch is never inferred (explicit per-query flags still apply).
+   */
+  brandRetentionDays?: number
   children?: ReactNode
 }
 
@@ -56,6 +62,8 @@ export interface DataAccessRuntime {
   bus: EventBus
   queryClient: QueryClient
   getContext: () => RequestContext
+  /** T-34 — retention horizon for implicit asyncFetch inference. */
+  brandRetentionDays?: number
 }
 
 const DataAccessContext = React.createContext<DataAccessRuntime | null>(null)
@@ -71,6 +79,7 @@ export function DataAccessProvider(
     context,
     bus: suppliedBus,
     queryClient: suppliedClient,
+    brandRetentionDays,
     children,
   } = props
 
@@ -93,9 +102,10 @@ export function DataAccessProvider(
       engines,
       bus: busRef.current as EventBus,
       queryClient: clientRef.current as QueryClient,
-      getContext: context,
+      getContext: () => withUserAliases(context()),
+      brandRetentionDays,
     }),
-    [registry, engines, context]
+    [registry, engines, context, brandRetentionDays]
   )
 
   return (
@@ -105,6 +115,20 @@ export function DataAccessProvider(
       </QueryClientProvider>
     </DataAccessContext.Provider>
   )
+}
+
+/**
+ * `userId` is canonical (renamed from `requesterUserId`; spec §Tenant
+ * auto-binding). The provider populates both names so consumers on
+ * either side of the rename keep working — including legacy callers
+ * that (untyped) still supply only `requesterUserId`.
+ */
+function withUserAliases(ctx: RequestContext): RequestContext {
+  const canonical = ctx.userId ?? ctx.requesterUserId ?? ''
+  if (ctx.userId === canonical && ctx.requesterUserId === canonical) {
+    return ctx
+  }
+  return { ...ctx, userId: canonical, requesterUserId: canonical }
 }
 
 /**

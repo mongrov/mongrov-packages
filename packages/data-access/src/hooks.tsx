@@ -17,9 +17,14 @@ import * as React from 'react'
 import type { z } from 'zod'
 
 import { useDataAccessRuntime } from './context'
+import { extractInputDays, resolveAsyncFetch } from './define'
 import { executeQuery, runAuthorize } from './dispatcher'
+import type { EngineAdapters } from './dispatcher'
 import { DataAccessError } from './errors'
+import { compileGlob } from './invalidation'
 import type {
+  EventBus,
+  MutationContext,
   MutationDefinition,
   QueryDefinition,
   RequestContext,
@@ -33,6 +38,14 @@ export const DEFAULT_GC_TIME = 300_000
 export interface UseAppQueryResult<TOutput> {
   data: TOutput | undefined
   loading: boolean
+  /**
+   * T-35 — true only while a >retention background R2 fetch (effective
+   * asyncFetch, principle 57) is in flight via the duckdb engine's
+   * fetchOnDemand. Local `data` stays visible throughout; screens show a
+   * spinner overlay on this flag. Deliberately NOT TanStack's isFetching —
+   * ordinary invalidation refetches never set it.
+   */
+  fetching: boolean
   error: Error | null
   refetch: () => Promise<void>
   isStale: boolean
@@ -159,6 +172,59 @@ export function useAppQuery<TInput, TOutput>(
     }
   }, [runtime, def, input, isRxdb, name])
 
+  // T-34/T-35 — background on-demand fetch for >retention ranges
+  // (principle 57). Effective asyncFetch: explicit config flag wins;
+  // otherwise inferred from input.days vs the provider's
+  // brandRetentionDays. duckdb-only — the R2 fetch lands rows in DuckDB.
+  const asyncFetchEffective =
+    engine === 'duckdb' &&
+    resolveAsyncFetch(def.config, input, runtime.brandRetentionDays)
+
+  const [onDemand, setOnDemand] = React.useState<{
+    fetching: boolean
+    error: Error | null
+  }>({ fetching: false, error: null })
+
+  React.useEffect(() => {
+    if (!asyncFetchEffective) return
+    const fetchOnDemand = runtime.engines.duckdb?.fetchOnDemand
+    // No R2 path wired → local-only serve; fetching stays false.
+    if (!fetchOnDemand) return
+
+    let cancelled = false
+    setOnDemand({ fetching: true, error: null })
+    const ctx = runtime.getContext()
+
+    Promise.resolve(
+      fetchOnDemand({
+        query: name,
+        input,
+        userId: ctx.userId,
+        days: extractInputDays(input),
+      })
+    )
+      .then(async () => {
+        // Fetched rows landed in local DuckDB — refetch so the query
+        // picks them up. TanStack keeps previous data visible during the
+        // refetch, so `data` never disappears.
+        await runtime.queryClient.invalidateQueries({ queryKey: [name] })
+        if (!cancelled) setOnDemand({ fetching: false, error: null })
+      })
+      .catch((err: unknown) => {
+        // Failure surfaces via `error` while local data stays served.
+        if (!cancelled) {
+          setOnDemand({
+            fetching: false,
+            error: err instanceof Error ? err : new Error(String(err)),
+          })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [asyncFetchEffective, runtime, name, input])
+
   // Invalidation subscriptions — TanStack path only. rxdb self-updates
   // via the observable stream.
   const patterns = def.config.invalidatedBy
@@ -184,6 +250,7 @@ export function useAppQuery<TInput, TOutput>(
     return {
       data: rxState.data,
       loading: rxState.loading,
+      fetching: false,
       error: rxState.error,
       refetch,
       isStale: false,
@@ -193,7 +260,8 @@ export function useAppQuery<TInput, TOutput>(
   return {
     data: query.data,
     loading: query.isPending,
-    error: query.error ?? null,
+    fetching: onDemand.fetching,
+    error: query.error ?? onDemand.error ?? null,
     refetch,
     isStale: query.isStale,
   }
@@ -231,8 +299,15 @@ export function useAppMutation<TInput, TOutput>(
         'input',
         name
       )
+      // Authorize sees only the read context; exec gets the extended
+      // MutationContext with engine write access (spec §Mutation flow).
       await runAuthorize(def.config.authorize, parsedInput, ctx)
-      const raw = await def.config.exec(parsedInput, ctx)
+      const mutationCtx = buildMutationContext(
+        ctx,
+        runtime.engines,
+        runtime.bus
+      )
+      const raw = await def.config.exec(parsedInput, mutationCtx)
       return parseWithSchema(def.config.output, raw, 'output', name)
     },
     onMutate: (input) => {
@@ -245,7 +320,28 @@ export function useAppMutation<TInput, TOutput>(
     onSuccess: () => {
       const patterns = def.config.invalidates ?? []
       for (const pattern of patterns) {
-        runtime.bus.emit(pattern, undefined)
+        if (pattern.includes('*')) {
+          // Glob entry (principle 49 semantics via compileGlob): match it
+          // against the literal event names queries subscribed with, and
+          // invalidate those caches directly. Emitting the glob string as
+          // a literal event would never match any subscription, so we
+          // deliberately do not emit it.
+          const regex = compileGlob(pattern)
+          for (const [queryName, queryDef] of Object.entries(
+            runtime.registry.queries
+          )) {
+            const subscribed = queryDef.config.invalidatedBy ?? []
+            const hit = subscribed.some(
+              (event) => !event.includes('*') && regex.test(event)
+            )
+            if (hit) {
+              runtime.queryClient.invalidateQueries({ queryKey: [queryName] })
+            }
+          }
+        }
+        else {
+          runtime.bus.emit(pattern, undefined)
+        }
       }
     },
     onSettled: () => {
@@ -309,6 +405,72 @@ export function useRequestContext(): RequestContext {
 }
 
 // --- helpers ---------------------------------------------------------
+
+/**
+ * Assemble the MutationContext handed to `exec` from the provider's
+ * engine adapters + RequestContext + event bus. Engine surfaces are
+ * wrapped lazily: a mutation only pays for (and can only fail on) the
+ * engines it actually touches — a missing engine throws `engine_missing`
+ * at call time, not at context construction.
+ */
+function buildMutationContext(
+  ctx: RequestContext,
+  engines: EngineAdapters,
+  bus: EventBus
+): MutationContext {
+  const kv = engines.kv
+  const analytics = engines.duckdb
+
+  return {
+    ...ctx,
+    kv: {
+      async get(key: string): Promise<unknown> {
+        if (!kv) throw missingMutationEngine('kv', 'get')
+        return kv.get(key)
+      },
+      async set(key: string, value: unknown): Promise<void> {
+        if (!kv?.set) throw missingMutationEngine('kv', 'set')
+        await kv.set(key, value)
+      },
+      async delete(key: string): Promise<void> {
+        if (!kv?.delete) throw missingMutationEngine('kv', 'delete')
+        await kv.delete(key)
+      },
+    },
+    analytics: {
+      async dismissInsight(args: {
+        insightId: string
+        userId: string
+      }): Promise<void> {
+        if (!analytics?.dismissInsight) {
+          throw missingMutationEngine('duckdb', 'dismissInsight')
+        }
+        await analytics.dismissInsight(args)
+      },
+      async execute(
+        sql: string,
+        params?: Record<string, unknown>
+      ): Promise<unknown[]> {
+        if (!analytics) throw missingMutationEngine('duckdb', 'execute')
+        const rows = await analytics.execute(sql, params ?? {})
+        return Array.isArray(rows) ? rows : [rows]
+      },
+    },
+    rxdb: engines.rxdb?.db,
+    emit: (event: string, payload?: unknown) => bus.emit(event, payload),
+  }
+}
+
+function missingMutationEngine(
+  engine: 'kv' | 'duckdb',
+  method: string
+): DataAccessError {
+  return new DataAccessError(
+    'engine_missing',
+    `mutation context: engine '${engine}' does not provide ${method}() ` +
+      'in this dispatcher'
+  )
+}
 
 function lookupDefinition<T>(
   bag: Record<string, unknown>,

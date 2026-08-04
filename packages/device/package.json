@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/device",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Headless BLE transport for @mongrov apps",
   "license": "MIT",
   "repository": {
@@ -43,7 +43,7 @@
     "xstate": "^5.30.0"
   },
   "peerDependencies": {
-    "@mongrov/types": "^0.4.0",
+    "@mongrov/types": "^0.5.0",
     "react": ">=18",
     "react-native": ">=0.74"
   },

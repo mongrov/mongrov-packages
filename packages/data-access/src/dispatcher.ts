@@ -32,10 +32,42 @@ import type {
 } from './types'
 
 /**
+ * T-35 — request handed to DuckdbEngine.fetchOnDemand when a query
+ * executes with effective asyncFetch true (principle 57). The package
+ * cannot know table/metric hints, so it passes the registry query name +
+ * raw input; the app-side adapter (backed by @mongrov/analytics/sync
+ * `fetchOnDemand({userId, metric, dateRange})`) maps those to a metric +
+ * date range.
+ */
+export interface FetchOnDemandRequest {
+  /** Registry name of the executing query (e.g. "spo2.month"). */
+  query: string
+  /** The caller's raw input — carries days / offset / dateRange fields. */
+  input: unknown
+  /** Requester identity from the active RequestContext. */
+  userId: string
+  /** Convenience extraction of a numeric `input.days`, when present. */
+  days?: number
+}
+
+/**
  * DuckDB adapter — analytics engine surface consumed by the dispatcher.
+ *
+ * `dismissInsight` is optional: apps that use the insight-dismissal
+ * mutation flow supply it (backed by @mongrov/analytics/core); the
+ * MutationContext throws `engine_missing` at call time when absent.
+ *
+ * `fetchOnDemand` is optional: apps that serve >retention ranges from R2
+ * supply it. When absent, asyncFetch-effective queries run local-only and
+ * the hook's `fetching` state stays false.
  */
 export interface DuckdbEngine {
   execute(sql: string, params: Record<string, unknown>): Promise<unknown>
+  dismissInsight?(args: {
+    insightId: string
+    userId: string
+  }): Promise<void>
+  fetchOnDemand?(request: FetchOnDemandRequest): Promise<void>
 }
 
 /**
@@ -56,10 +88,14 @@ export interface RxdbEngine {
 
 /**
  * KV adapter — the dispatcher builds the key via `config.keyBuilder(input)`
- * and reads through the app-provided store.
+ * and reads through the app-provided store. `set` / `delete` are optional
+ * write surfaces used only by the MutationContext; when absent, mutation
+ * writes throw `engine_missing` at call time.
  */
 export interface KvEngine {
   get(key: string): Promise<unknown> | unknown
+  set?(key: string, value: unknown): Promise<void> | void
+  delete?(key: string): Promise<void> | void
 }
 
 /**
