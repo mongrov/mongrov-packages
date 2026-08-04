@@ -6,16 +6,29 @@ Per-family (or per-tenant) warehouses attached as DuckDB catalogs. Zero-copy
 reads against R2 Iceberg tables. Headless core with optional React hooks and
 UI subpaths.
 
-Status: **0.3.0** — Phases 1 → 7 landed on the core engine plus the full
-`@mongrov/analytics/sync` subpath (mapper → buffer → flusher → watermark →
-pusher → fetcher → scheduler → factory + hooks). T-18 / T-28 integration
-suites green against the MinIO + Iceberg REST docker stack (10 cases + 3
-round trips). 0.3.0 additionally lands SCD-2 `device_config` support:
-`RingConfigTranslator`, `PendingClosesStore`, `R2Pusher.pushCloses`, and
-a rewritten sink that closes prior configs both locally and against the
-remote Iceberg zone. **Breaking**: `DeviceConfigRow` shape changed
-(`metric` → `data_type`, `start_hour`/`end_hour` → `start_time`/`end_time`,
-added `weeks`) — see the `ringConfigTranslator` section below.
+Status: **0.7.0** — Sprint 5 hardening. Core engine, `/sync`, `/rules`,
+`/tools` and `/tools/mcp` subpaths all landed; 727 tests green, plus the
+T-18 / T-28 integration suites against the MinIO + Iceberg REST docker
+stack.
+
+0.7.0 lands: `icu` extension, `v_{table}` union views (local-unpushed +
+remote), `user_baseline` with day-first quantiles, `batch:complete` batch
+lifecycle, rules `context` / `consecutive` / `user_setting` targets, the
+`getSpO2` tool, and copy guardrails on every formatter.
+
+**Breaking** — see [UPGRADING.md](./UPGRADING.md) for rewrites. Headlines:
+mapped sleep row shapes now match the DDL (they did not before, and sleep
+flushes were writing NULLs into NOT NULL columns); `AnalyticsEngine` gained
+`getFamilyMembers()` and `dismissInsight()`; rule and tool SQL now reads
+`v_{table}` views, so an attach is required; rules evaluate once per batch
+rather than per table.
+
+> Historical note (0.3.0): SCD-2 `device_config` support inverted the
+> ring-config mapping direction — `DeviceConfigRow` moved from `metric` to
+> `data_type`, with a consumer-supplied `RingConfigTranslator` producing the
+> firmware enum from our metric names. Sprint 5 §2 intended to reverse this
+> (`metric VARCHAR`), but the change is **blocked**: the spec's firmware
+> codes do not match the real JStyle codes. See UPGRADING §12.
 
 ## Features
 

@@ -56,7 +56,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "UPGRADING.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
