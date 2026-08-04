@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/types",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Shared type definitions for @mongrov packages",
   "license": "MIT",
   "repository": {
@@ -17,6 +17,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./analytics-queries": {
+      "types": "./dist/analytics-queries.d.ts",
+      "import": "./dist/analytics-queries.js"
+    },
+    "./device-events": {
+      "types": "./dist/device-events.d.ts",
+      "import": "./dist/device-events.js"
     }
   },
   "files": [
@@ -31,10 +39,14 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm run build"
   },
+  "peerDependencies": {
+    "zod": "^3.23.8 || ^4.0.0"
+  },
   "devDependencies": {
     "@types/jest": "^29.5.12",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "zod": "^3.23.8"
   }
 }
