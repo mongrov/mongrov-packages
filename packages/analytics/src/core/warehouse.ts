@@ -35,6 +35,7 @@
 
 import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
+import { dropViewDdl, generateViewDdl, VIEWED_TABLES } from './schemas'
 import type {
   AttachContext,
   FamilyMembersProvider,
@@ -302,4 +303,62 @@ export async function detachLocal(
   _tenantId: string,
 ): Promise<void> {
   // intentional no-op
+}
+
+// -------------------- union views (Sprint 5 T-06) --------------------
+
+/**
+ * Create every `v_{table}` union view for the current attach.
+ *
+ * Called after migrations, so the underlying tables are guaranteed to
+ * exist — a view over a missing table fails at creation in DuckDB, not
+ * lazily at scan.
+ *
+ * The view bodies bake in `brand` + `family_id` (see `generateViewDdl` for
+ * why they cannot be bound parameters), which makes recreation on every
+ * attach a correctness requirement rather than housekeeping: a brand
+ * switch that reused the previous attach's views would serve the previous
+ * tenant's rows. `CREATE OR REPLACE` handles the overwrite; `dropViews` on
+ * detach closes the window where a stale view exists with no attach behind
+ * it.
+ */
+export async function createViews(
+  db: HybridDuckDB,
+  ctx: {
+    brand: string
+    familyId: string
+    localCatalog: string
+    remoteCatalog?: string
+  },
+): Promise<void> {
+  for (const table of VIEWED_TABLES) {
+    try {
+      await db.execute(generateViewDdl(table, ctx))
+    }
+    catch (cause) {
+      throw new AnalyticsError(
+        'attach_failed',
+        `CREATE VIEW v_${table} failed`,
+        rootCause(cause),
+      )
+    }
+  }
+}
+
+/**
+ * Drop every union view. Idempotent (`DROP VIEW IF EXISTS`), and tolerant
+ * of individual failures: detach must not be blockable by a view that is
+ * already gone or whose catalog vanished first, or the engine would strand
+ * in `detaching`.
+ */
+export async function dropViews(db: HybridDuckDB): Promise<void> {
+  for (const table of VIEWED_TABLES) {
+    try {
+      await db.execute(dropViewDdl(table))
+    }
+    catch {
+      // Best-effort: a failed DROP VIEW IF EXISTS means the catalog is
+      // already unreachable, which is the state we were aiming for.
+    }
+  }
 }

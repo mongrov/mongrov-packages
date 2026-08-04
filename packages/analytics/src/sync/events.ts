@@ -10,16 +10,21 @@
  * Consumers use these events to invalidate caches / re-run subscriptions.
  */
 
+import type { EventBus as AnalyticsEventBus } from '../core/types'
 import type { FlushedEvent, SyncEmitter } from './flusher'
 import type { PushResult } from './pusher'
 
 /**
- * Minimal event-bus contract. Kept narrow so any host (React Query cache,
- * mitt, EventEmitter, custom fan-out) satisfies it structurally.
+ * The emit-only half of the package's `EventBus` contract.
+ *
+ * Derived from `core/types.ts` rather than redeclared: the sync layer only
+ * ever publishes, so requiring `subscribe` / `subscribePattern` here would
+ * force every host (React Query cache, mitt, EventEmitter, custom fan-out)
+ * to implement surface it never uses. Deriving keeps the two in step — a
+ * change to the core `emit` signature surfaces here instead of silently
+ * producing two incompatible buses in one package.
  */
-export interface EventBus {
-  emit: (name: string, payload?: unknown) => void
-}
+export type EventBus = Pick<AnalyticsEventBus, 'emit'>
 
 export interface FlushInsertPayload {
   table: string
@@ -30,6 +35,16 @@ export interface FlushInsertPayload {
 export interface SyncCompletePayload {
   table: string
   rowsPushed: number
+}
+
+/** Payload of the `batch:complete` bus event (Sprint 5 T-12). */
+export interface BatchCompletePayload {
+  batchId: string
+  affectedTables: string[]
+  affectedUserIds: string[]
+  brand?: string
+  familyId?: string
+  rowCounts: Record<string, number>
 }
 
 /**
@@ -47,6 +62,23 @@ export function bindFlushEvents(bus: EventBus): SyncEmitter {
         reason: event.payload.reason,
       }
       bus.emit(`${event.payload.table}:insert`, payload)
+      return
+    }
+    if (event.type === 'batch-complete') {
+      // Both event families are emitted, and they serve different
+      // consumers: `{table}:insert` drives cache invalidation, which wants
+      // to refresh as early as possible, while `batch:complete` drives rule
+      // evaluation, which must not run until every table has landed
+      // (Sprint 5 item (a)).
+      const payload: BatchCompletePayload = {
+        batchId: event.payload.batchId,
+        affectedTables: event.payload.affectedTables,
+        affectedUserIds: event.payload.affectedUserIds,
+        brand: event.payload.brand,
+        familyId: event.payload.familyId,
+        rowCounts: event.payload.rowCounts,
+      }
+      bus.emit('batch:complete', payload)
     }
   }
 }

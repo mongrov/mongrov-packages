@@ -45,3 +45,16 @@ export {
   getInsightsInputSchema,
   type GetInsightsInput,
 } from './impls/insights'
+
+// Copy guardrails (Sprint 5 T-29, principle 37). Exported so app-side
+// formatters and registry `transform` functions can apply the same
+// contract to text they generate.
+export {
+  applyPreferredLanguage,
+  assertNoBanTerms,
+  BANNED_MEDICAL_VOCABULARY,
+  type BannedTerm,
+  findBanTerms,
+  FormatterCopyError,
+  PREFERRED_LANGUAGE,
+} from './formatters'

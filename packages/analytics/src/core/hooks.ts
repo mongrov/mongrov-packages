@@ -181,7 +181,7 @@ export function useInsight(id: string): UseInsightResult {
   const engine = useAnalyticsEngine()
   const catalog = engine.catalog
   const sql = catalog
-    ? `SELECT * FROM ${catalog}.insight WHERE id = $id LIMIT 1`
+    ? `SELECT * FROM ${catalog}.insight WHERE insight_id = $id LIMIT 1`
     : ''
   const params = useMemo(() => ({ id }), [id])
   const { data, loading } = useTimeseries<Insight>(

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { formatBytes } from '../formatters'
+import { assertNoBanTerms, formatBytes } from '../formatters'
 import type { ToolImpl, ToolResult } from '../types'
 
 export const getSleepSummaryInputSchema = z.object({
@@ -27,7 +27,7 @@ export const getSleepSummary: ToolImpl<GetSleepSummaryInput> = async (
             SUM(deep_minutes)::INTEGER AS deep_minutes,
             SUM(rem_minutes)::INTEGER AS rem_minutes,
             SUM(light_minutes)::INTEGER AS light_minutes
-     FROM sleep_session
+     FROM v_sleep_session
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts_start >= now() - INTERVAL ($days) DAY
      GROUP BY night_of ORDER BY night_of`,
@@ -62,5 +62,9 @@ export const getSleepSummary: ToolImpl<GetSleepSummaryInput> = async (
 }
 
 function finalize(text: string, rowCount: number): ToolResult {
+  // principle 37 — every formatter's return path is guarded, not
+  // just the SpO2 one. Tool text lands in an LLM's context, and the
+  // model repeats whatever register it finds there.
+  assertNoBanTerms(text, 'getSleepSummary')
   return { text, rowCount, bytes: formatBytes(text) }
 }

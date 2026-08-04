@@ -15,6 +15,30 @@ Status: shipped in `@mongrov/analytics@0.1.0-alpha.10` under the
 guard + `sideEffects: false` make sure prod React Native bundles
 strip it out.
 
+## Gating (principle 41 — enforced)
+
+MCP is dev-only. Two layers:
+
+1. **Enforced runtime guard.** `createMcpServer(...)` and
+   `createHttpTransport(...)` call `assertMcpAllowed()`, which
+   **throws `McpDisabledError`** unless BOTH hold:
+   - `__DEV__ === true` (dev-build signal), **and**
+   - `process.env.ENABLE_MCP_SERVER === '1'` (explicit opt-in).
+
+   A production runtime cannot wire an MCP transport — the throw is
+   not advisory. Node entries (there is no bundler-injected `__DEV__`
+   under Node) must set both signals explicitly:
+
+   ```js
+   globalThis.__DEV__ = true // this IS a dev entry point
+   // plus ENABLE_MCP_SERVER=1 in the environment
+   ```
+
+2. **Advisory tree-shake flag.** `shouldStartMcpServer()` returns
+   `true` when *either* signal is present. Use it to gate SDK imports
+   so prod RN bundles drop the subpath entirely; it never replaces
+   the enforced guard.
+
 ## Install
 
 ```bash
@@ -40,9 +64,14 @@ import {
   shouldStartMcpServer,
 } from '@mongrov/analytics/tools/mcp'
 
+// Node has no bundler-injected __DEV__; this entry declares itself a
+// dev entry point. `createMcpServer` still throws unless
+// ENABLE_MCP_SERVER=1 is also set (principle 41: dev AND flag).
+globalThis.__DEV__ = true
+
 if (!shouldStartMcpServer()) {
-  // Wired for RN dev builds + Node `ENABLE_MCP_SERVER=1`. Refuse
-  // to boot without one of those signals.
+  // Advisory early-exit so SDK-touching code below is never reached
+  // without at least one dev signal.
   process.exit(0)
 }
 
@@ -148,15 +177,23 @@ to `process.stdin` / `process.stdout`.
 Returns `{ transport, server, port, close() }`. `close()` shuts down
 both the Node HTTP server and the underlying MCP transport.
 
+### `assertMcpAllowed(): void`
+
+Enforced production guard (principle 41). Throws `McpDisabledError`
+unless `__DEV__ === true` **and** `process.env.ENABLE_MCP_SERVER === '1'`.
+Called internally by `createMcpServer` and `createHttpTransport`;
+exported for callers wiring custom entry points.
+
 ### `shouldStartMcpServer(): boolean`
 
-Cross-runtime dev flag. `true` iff:
+Cross-runtime **advisory** dev flag (tree-shaking aid). `true` iff:
 
 - `__DEV__ === true` (React Native dev build), **or**
 - `process.env.ENABLE_MCP_SERVER === '1'` (Node).
 
-Consumers call this before `createMcpServer(...)`. The helper is
-intentionally pure — importing it does not import the SDK.
+Consumers call this before importing SDK-touching modules. The helper
+is intentionally pure — importing it does not import the SDK. It does
+not gate anything at runtime; `assertMcpAllowed()` does.
 
 ### `toMcpTools(handle): McpTool[]`
 

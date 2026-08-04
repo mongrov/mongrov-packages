@@ -14,6 +14,7 @@ export type AnalyticsErrorCode =
   | 'token_vendor_failed'
   | 'migration_failed'
   | 'retention_failed'
+  | 'family_members_failed'
   | 'query_failed'
   | 'not_attached'
   | 'not_ready'

@@ -53,7 +53,13 @@ export type {
 export { allowedWindowsFor, validateRule } from './validator'
 
 // R3 — compiler + cache
-export { compileRule, sanitizeIdent } from './compiler'
+export {
+  createBaselineReader,
+  type Baseline,
+  type BaselineReader,
+  type BaselineReaderConfig,
+} from './baseline-reader'
+export { USER_SETTING_PARAM, emitContextJoin, viewFor, compileRule, sanitizeIdent } from './compiler'
 export { createCompilerCache, type CompilerCache } from './compiler-cache'
 
 // R4-R6 — registry / throttle / emitter (exposed for advanced composition

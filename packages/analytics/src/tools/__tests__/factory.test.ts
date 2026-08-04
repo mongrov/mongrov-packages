@@ -17,7 +17,7 @@ describe('createAnalyticsTools', () => {
     vi.useRealTimers()
   })
 
-  it('returns six AI SDK tools with description + parameters + execute', () => {
+  it('returns seven AI SDK tools with description + parameters + execute', () => {
     const engine = createFakeEngine()
     const handle = createAnalyticsTools({ analytics: engine })
     const names = Object.keys(handle.tools).sort()
@@ -28,6 +28,7 @@ describe('createAnalyticsTools', () => {
       'getHRV',
       'getInsights',
       'getSleepSummary',
+      'getSpO2',
     ])
     for (const name of names) {
       const t = (handle.tools as Record<string, unknown>)[name] as {
@@ -43,7 +44,7 @@ describe('createAnalyticsTools', () => {
 
   it('end-to-end: setContext + invoke getHRV writes audit success row', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [
+    engine.queueRows('FROM v_hrv', [
       { day: '2026-07-10', avg_hrv: 42.5 },
       { day: '2026-07-11', avg_hrv: 44.0 },
     ])
@@ -94,7 +95,7 @@ describe('createAnalyticsTools', () => {
 
   it('familyMembersProvider bypasses SQL for authorize', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
+    engine.queueRows('FROM v_hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
     const provider = vi.fn(async () => ['alice', 'bob'])
     const handle = createAnalyticsTools({
       analytics: engine,
@@ -119,7 +120,7 @@ describe('createAnalyticsTools', () => {
   it('rateLimit: false disables limiter entirely (unlimited invocations)', async () => {
     const engine = createFakeEngine()
     for (let i = 0; i < 50; i++) {
-      engine.queueRows('FROM hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
+      engine.queueRows('FROM v_hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
     }
     const handle = createAnalyticsTools({
       analytics: engine,
@@ -141,7 +142,7 @@ describe('createAnalyticsTools', () => {
 
   it('audit.enabled: false suppresses all INSERTs', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
+    engine.queueRows('FROM v_hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
     const handle = createAnalyticsTools({
       analytics: engine,
       rateLimit: false,
@@ -161,7 +162,7 @@ describe('createAnalyticsTools', () => {
 
   it('custom authorize hook is used when supplied', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
+    engine.queueRows('FROM v_hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
     const authorize = vi.fn(async () => false)
     const handle = createAnalyticsTools({
       analytics: engine,
@@ -184,7 +185,7 @@ describe('createAnalyticsTools', () => {
 
   it('close() flushes pending audit and stops the timer', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
+    engine.queueRows('FROM v_hrv', [{ day: '2026-07-10', avg_hrv: 42.5 }])
     const handle = createAnalyticsTools({
       analytics: engine,
       rateLimit: false,

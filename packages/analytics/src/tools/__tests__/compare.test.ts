@@ -12,8 +12,8 @@ describe('compareTrend', () => {
   it('renders current vs prior HRV window with delta', async () => {
     const engine = createFakeEngine()
     // Both queries hit the hrv table; first match wins per queue order.
-    engine.queueRows('FROM hrv', [{ value: 44.9 }])
-    engine.queueRows('FROM hrv', [{ value: 47.2 }])
+    engine.queueRows('FROM v_hrv', [{ value: 44.9 }])
+    engine.queueRows('FROM v_hrv', [{ value: 47.2 }])
 
     const res = await compareTrend(
       {
@@ -33,8 +33,8 @@ describe('compareTrend', () => {
 
   it('dispatches to sleep_session for sleep metric', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM sleep_session', [{ value: 420 }])
-    engine.queueRows('FROM sleep_session', [{ value: 400 }])
+    engine.queueRows('FROM v_sleep_session', [{ value: 420 }])
+    engine.queueRows('FROM v_sleep_session', [{ value: 400 }])
     const res = await compareTrend(
       {
         userId: 'alice',
@@ -51,8 +51,8 @@ describe('compareTrend', () => {
 
   it('handles both windows empty', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [])
-    engine.queueRows('FROM hrv', [])
+    engine.queueRows('FROM v_hrv', [])
+    engine.queueRows('FROM v_hrv', [])
     const res = await compareTrend(
       {
         userId: 'alice',
@@ -68,8 +68,8 @@ describe('compareTrend', () => {
 
   it('handles current present, prior missing', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [{ value: 50 }])
-    engine.queueRows('FROM hrv', [])
+    engine.queueRows('FROM v_hrv', [{ value: 50 }])
+    engine.queueRows('FROM v_hrv', [])
     const res = await compareTrend(
       {
         userId: 'alice',

@@ -8,6 +8,7 @@
 
 import type {
   AnalyticsEngine,
+  EventBus,
   FamilyMembersProvider,
   KVStore,
   Unsubscribe,
@@ -45,6 +46,14 @@ export interface CompiledRule {
   /** Statically-known params. Runtime binds `$userId`/`$brand`/`$familyId` on top. */
   params: Record<string, string | number>
   description: string
+  /**
+   * KVStore key the evaluator reads to bind `$userSettingValue`
+   * (Sprint 5 T-19/T-23). Present only for `target.type: 'user_setting'`.
+   * Full key is `analytics:{userId}:{userSettingKey}`.
+   */
+  userSettingKey?: string
+  /** Fallback threshold when the user has never set the value. */
+  userSettingDefault?: number
 }
 
 /** Structured violation delivered to `on('violation', handler)` subscribers. */
@@ -80,6 +89,13 @@ export interface RulesEngineConfig {
   brand: string
   /** Family id for `onSchedule` — v0.1.0 single-user apps pass the userId. */
   familyId: string
+  /**
+   * Optional app event bus (structural type from core — no runtime dep on
+   * @mongrov/data-access). When set, the evaluator emits
+   * `threshold:violation` + `insight:insert` after persisting a violation
+   * to the `insight` table (principle 35 fire-and-forget).
+   */
+  eventBus?: EventBus
   logger?: RulesLogger
   clock?: Clock
 }

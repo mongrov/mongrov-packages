@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { formatBytes, popStddev } from '../formatters'
+import { assertNoBanTerms, formatBytes, popStddev } from '../formatters'
 import type { ToolImpl, ToolResult } from '../types'
 
 export const detectAnomalyInputSchema = z.object({
@@ -26,7 +26,7 @@ const METRIC_SPECS: Record<DetectAnomalyInput['metric'], MetricSpec> = {
   hrv_ms: {
     sql: lookbackDays =>
       `SELECT date_trunc('day', ts)::VARCHAR AS day, AVG(hrv_ms)::DOUBLE AS value
-       FROM hrv
+       FROM v_hrv
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND hrv_ms IS NOT NULL
          AND ts >= now() - INTERVAL (${lookbackDays}) DAY
@@ -37,7 +37,7 @@ const METRIC_SPECS: Record<DetectAnomalyInput['metric'], MetricSpec> = {
   sleep_total_minutes: {
     sql: lookbackDays =>
       `SELECT night_of::VARCHAR AS day, SUM(total_minutes)::DOUBLE AS value
-       FROM sleep_session
+       FROM v_sleep_session
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND ts_start >= now() - INTERVAL (${lookbackDays}) DAY
        GROUP BY night_of ORDER BY night_of`,
@@ -47,7 +47,7 @@ const METRIC_SPECS: Record<DetectAnomalyInput['metric'], MetricSpec> = {
   activity_steps: {
     sql: lookbackDays =>
       `SELECT date_trunc('day', ts)::VARCHAR AS day, SUM(steps)::DOUBLE AS value
-       FROM activity
+       FROM v_activity
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND ts >= now() - INTERVAL (${lookbackDays}) DAY
        GROUP BY 1 ORDER BY 1`,
@@ -103,5 +103,9 @@ export const detectAnomaly: ToolImpl<DetectAnomalyInput> = async (
 }
 
 function finalize(text: string, rowCount: number): ToolResult {
+  // principle 37 — every formatter's return path is guarded, not
+  // just the SpO2 one. Tool text lands in an LLM's context, and the
+  // model repeats whatever register it finds there.
+  assertNoBanTerms(text, 'detectAnomaly')
   return { text, rowCount, bytes: formatBytes(text) }
 }

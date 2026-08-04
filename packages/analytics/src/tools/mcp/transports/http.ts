@@ -32,6 +32,7 @@ import type { AddressInfo } from 'node:net'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { ToolsLogger } from '../../types'
+import { assertMcpAllowed } from '../guard'
 
 export interface CreateHttpTransportConfig {
   /** Listening port. `0` picks an ephemeral port (tests). Default `0`. */
@@ -91,6 +92,10 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 export async function createHttpTransport(
   config: CreateHttpTransportConfig = {},
 ): Promise<HttpTransportHandle> {
+  // Principle 41: this entry binds a listening socket, so it enforces the
+  // dev-only guard itself — not only via `createMcpServer`.
+  assertMcpAllowed()
+
   const port = config.port ?? 0
   const path = config.path ?? '/mcp'
   const authToken = config.authToken

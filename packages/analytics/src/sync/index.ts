@@ -6,6 +6,14 @@
  */
 
 // Buffer + overflow (Phase B).
+export {
+  buildBaselineSql,
+  createBaselineComputer,
+  type BaselineComputeConfig,
+  type BaselineComputeContext,
+  type BaselineComputeResult,
+  type BaselineComputer,
+} from './baseline-compute'
 export { SensorBuffer, type SensorBufferConfig } from './buffer'
 export { OverflowStore } from './overflow'
 export type {
@@ -38,6 +46,7 @@ export {
 // Flusher + triggers (Phase C).
 export {
   BACKOFF_SEQUENCE_MS,
+  type BatchCompleteEvent,
   BatchFlusher,
   type BatchFlusherConfig,
   FLUSH_TIMEOUT_MS,
@@ -47,6 +56,7 @@ export {
   type FlusherState,
   type SyncEmitter,
 } from './flusher'
+export type { BatchCompletePayload } from './events'
 export { SyncError, type SyncErrorCode } from './errors'
 export {
   DEFAULT_MAX_AGE_MS,

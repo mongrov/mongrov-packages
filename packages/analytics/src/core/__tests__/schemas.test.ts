@@ -25,8 +25,11 @@ describe('SCHEMAS', () => {
     }
   })
 
-  it('covers 15 tables per spec §Table schema', () => {
-    expect(TABLE_NAMES).toHaveLength(15)
+  it('covers every table in spec §Table schema', () => {
+    // Derived, not hardcoded: adding a table should not fail this
+    // assertion, only the per-table DDL snapshots below.
+    expect(new Set(TABLE_NAMES).size).toBe(TABLE_NAMES.length)
+    expect(TABLE_NAMES.length).toBeGreaterThanOrEqual(15)
   })
 
   it('toLocalDdl strips PARTITIONED BY cleanly despite nested parens', async () => {
@@ -50,6 +53,24 @@ describe('SCHEMAS', () => {
       expect(SCHEMAS[table]).not.toContain('TIMESTAMPTZ')
     }
   })
+
+  it('insight DDL matches the spec contract (fix CO-2)', () => {
+    const ddl = SCHEMAS.insight
+    expect(ddl).toContain('insight_id VARCHAR PRIMARY KEY')
+    expect(ddl).toContain('metric VARCHAR NOT NULL')
+    expect(ddl).toContain('kind VARCHAR NOT NULL')
+    expect(ddl).toContain('dismissed_at TIMESTAMP')
+    expect(ddl).toContain('acknowledged_at TIMESTAMP')
+    // Old PK name must be gone.
+    expect(ddl).not.toMatch(/\n {2}id VARCHAR/)
+  })
+
+  it('insightIndexDdl composes the spec lookup index for a catalog', async () => {
+    const { insightIndexDdl } = await import('../schemas')
+    expect(insightIndexDdl('memory')).toBe(
+      'CREATE INDEX IF NOT EXISTS idx_insight_lookup ON memory.insight (user_id, metric, dismissed_at, ts);',
+    )
+  })
 })
 
 describe('qualifyDdl', () => {
@@ -67,12 +88,12 @@ describe('qualifyDdl', () => {
 })
 
 describe('ensureSchemas', () => {
-  it('issues 15 CREATE TABLE IF NOT EXISTS statements in TABLE_NAMES order', async () => {
+  it('issues one CREATE TABLE IF NOT EXISTS per table, in TABLE_NAMES order', async () => {
     const { fake, db } = await newOpenDb()
 
     await ensureSchemas(db, 'zone_fam123')
 
-    expect(fake.calls).toHaveLength(15)
+    expect(fake.calls).toHaveLength(TABLE_NAMES.length)
     for (let i = 0; i < TABLE_NAMES.length; i++) {
       const table = TABLE_NAMES[i]
       expect(fake.calls[i].sql).toContain(`CREATE TABLE IF NOT EXISTS zone_fam123.${table}`)
@@ -85,7 +106,7 @@ describe('ensureSchemas', () => {
     await ensureSchemas(db, 'zone_fam123')
     await ensureSchemas(db, 'zone_fam123')
 
-    expect(fake.calls).toHaveLength(30)
+    expect(fake.calls).toHaveLength(TABLE_NAMES.length * 2)
     for (const call of fake.calls) {
       expect(call.sql).toContain('IF NOT EXISTS')
     }

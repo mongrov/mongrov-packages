@@ -27,6 +27,7 @@ describe('toMcpTools', () => {
       'getHRV',
       'getInsights',
       'getSleepSummary',
+      'getSpO2',
     ])
     for (const tool of mcp) {
       expect(typeof tool.description).toBe('string')

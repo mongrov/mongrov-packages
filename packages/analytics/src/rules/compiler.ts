@@ -17,6 +17,21 @@
  *   observed_value NUMERIC, threshold_value NUMERIC
  * so the evaluator can build `RuleViolation` without dispatching per
  * target type.
+ *
+ * ## v0.2.0 additions (Sprint 5 §4)
+ *
+ * - **`context`** (T-17) — an INNER JOIN, not a post-filter. "SpO₂ during
+ *   sleep" must aggregate over sleep samples only; computing over
+ *   everything and labelling the result would report a number nobody asked
+ *   for.
+ * - **`consecutive: n`** (T-18) — run-length detection via gaps-and-islands.
+ *   `n <= 1` stays on the aggregate path, because "any single breach" is
+ *   already expressible as `aggregation: 'min'` + `less_than`.
+ * - **`target.type: 'user_setting'`** (T-19) — emits a `$userSettingValue`
+ *   placeholder the evaluator binds from KVStore at eval time. The compiled
+ *   SQL is threshold-agnostic and therefore cacheable across users.
+ * - **Views** (T-20) — all generated SQL reads `v_{table}`, never
+ *   `local.{table}` or `r2.default.{table}` (principle 19).
  */
 
 import { METRIC_METADATA } from '../core/metric_metadata'
@@ -26,6 +41,7 @@ import {
   type Aggregation,
   type Compare,
   type Rule,
+  type RuleContext,
   RuleValidationError,
   type Target,
   type Window,
@@ -34,6 +50,15 @@ import {
 /** Sanitize an identifier for direct interpolation. */
 export function sanitizeIdent(raw: string): string {
   return raw.replace(/[^A-Za-z0-9_]/g, '_')
+}
+
+/**
+ * Union-view name for a table (T-20, principle 19). Reading the view is
+ * what makes a rule see rows flushed locally but not yet pushed to R2 —
+ * i.e. this morning's sync, which is exactly the data a rule fires on.
+ */
+export function viewFor(table: string): string {
+  return `v_${sanitizeIdent(table)}`
 }
 
 /** Timestamp column per table — `sleep_session` uses `ts_start`. */
@@ -79,6 +104,38 @@ function compareClause(compare: Compare, lhs: string, rhs: string): string {
   }
 }
 
+/**
+ * T-17 — INNER JOIN restricting samples to a physiological context.
+ *
+ * Aliased `m` for the metric relation throughout. Both joins carry the
+ * full tenant triple, not just `user_id`: a join on user alone would match
+ * another brand's sleep sessions for the same person on a multi-brand
+ * install.
+ */
+export function emitContextJoin(context: RuleContext): string {
+  switch (context) {
+    case 'any':
+      return ''
+    case 'asleep':
+      return `
+INNER JOIN ${viewFor('sleep_session')} s
+   ON s.user_id = m.user_id
+  AND s.brand = m.brand
+  AND s.family_id = m.family_id
+  AND m.ts BETWEEN s.ts_start AND s.ts_end`
+    case 'resting':
+      // Activity rows are 1-minute after unnest, so a sample is "resting"
+      // when its own minute recorded zero steps.
+      return `
+INNER JOIN ${viewFor('activity')} a
+   ON a.user_id = m.user_id
+  AND a.brand = m.brand
+  AND a.family_id = m.family_id
+  AND a.ts = date_trunc('minute', m.ts)
+  AND a.steps = 0`
+  }
+}
+
 const ALLOWED_RAW_PLACEHOLDERS = new Set(['userId', 'brand', 'familyId'])
 
 /** Extract every `$name` placeholder from a SQL string. */
@@ -94,13 +151,18 @@ function placeholdersOf(sql: string): string[] {
   return out
 }
 
+/**
+ * Placeholder the evaluator binds from KVStore for `user_setting` targets
+ * (T-19/T-23). Exported so the evaluator and its tests agree on the name.
+ */
+export const USER_SETTING_PARAM = 'userSettingValue'
+
 /** Compile a validated rule to a `CompiledRule`. */
 export function compileRule(rule: Rule): CompiledRule {
   const meta = METRIC_METADATA[rule.metric]
   const rawTable = meta.table
-  const rawColumn = meta.column
-  const table = sanitizeIdent(rawTable)
-  const column = sanitizeIdent(rawColumn)
+  const column = sanitizeIdent(meta.column)
+  const view = viewFor(rawTable)
 
   if (rule.rawSql) {
     return compileRawSql(rule, rule.rawSql)
@@ -108,27 +170,29 @@ export function compileRule(rule: Rule): CompiledRule {
 
   const ts = tsColumn(rawTable as TableName)
   const interval = windowInterval(rule.window)
+  const join = emitContextJoin(rule.context)
 
-  const filter
-    = `WHERE user_id = $userId AND brand = $brand AND family_id = $familyId `
-    + `AND ${ts} > NOW() - ${interval}`
+  const description
+    = `${rule.metric} ${rule.aggregation} over ${rule.window} ${rule.compare} `
+      + `${describeTarget(rule.target)}`
+      + (rule.context === 'any' ? '' : ` [${rule.context}]`)
+      + (rule.consecutive && rule.consecutive > 1 ? ` x${rule.consecutive} consecutive` : '')
 
-  const agg = aggExpr(rule.aggregation, column, ts)
-  const params: Record<string, string | number> = {}
-
-  const description = `${rule.metric} ${rule.aggregation} over ${rule.window} ${rule.compare} ${describeTarget(rule.target)}`
-
-  const { sql, params: extraParams } = buildForTarget({
-    table,
+  const args: BuildArgs = {
+    view,
+    join,
     ts,
     interval,
     column,
-    agg,
-    filter,
+    agg: aggExpr(rule.aggregation, `m.${column}`, `m.${ts}`),
     target: rule.target,
     compare: rule.compare,
-  })
-  Object.assign(params, extraParams)
+    consecutive: rule.consecutive,
+  }
+
+  const { sql, params } = rule.consecutive && rule.consecutive > 1
+    ? buildConsecutive(args)
+    : buildForTarget(args)
 
   return {
     ruleId: rule.id,
@@ -136,6 +200,9 @@ export function compileRule(rule: Rule): CompiledRule {
     sql,
     params,
     description,
+    /** Evaluator binds `$userSettingValue` from this key when present. */
+    userSettingKey: rule.target.type === 'user_setting' ? rule.target.key : undefined,
+    userSettingDefault: rule.target.type === 'user_setting' ? rule.target.defaultValue : undefined,
   }
 }
 
@@ -145,33 +212,56 @@ function describeTarget(target: Target): string {
     case 'baseline_percent': return `${target.percent}% of ${target.windowDays}d baseline`
     case 'baseline_stddev': return `${target.stddevs} stddev over ${target.windowDays}d baseline`
     case 'range': return `[${target.min}, ${target.max}]`
+    case 'user_setting': return `user setting ${target.key} (default ${target.defaultValue})`
   }
 }
 
 interface BuildArgs {
-  table: string
+  view: string
+  join: string
   ts: string
   interval: string
   column: string
   agg: string
-  filter: string
   target: Target
   compare: Compare
+  consecutive?: number
+}
+
+/** Tenant + window predicate, shared by both paths. */
+function whereClause(ts: string, interval: string): string {
+  return (
+    `WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId\n`
+    + `  AND m.${ts} > NOW() - ${interval}`
+  )
 }
 
 function buildForTarget(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>
 } {
-  const { table, ts, column, agg, filter, target, compare } = args
+  const { view, join, ts, interval, column, agg, target, compare } = args
+  const where = whereClause(ts, interval)
+  const from = `FROM ${view} m${join}`
 
   if (target.type === 'absolute') {
     const params = { threshold_absolute: target.value }
     const sql = `SELECT ${agg} AS observed_value, $threshold_absolute AS threshold_value
-FROM ${table}
-${filter}
+${from}
+${where}
 HAVING ${compareClause(compare, 'observed_value', '$threshold_absolute')};`
     return { sql, params }
+  }
+
+  if (target.type === 'user_setting') {
+    // T-19: threshold is a bound param resolved at eval time, so the same
+    // compiled SQL serves every user in the family and survives the user
+    // changing their setting — no cache invalidation needed.
+    const sql = `SELECT ${agg} AS observed_value, $${USER_SETTING_PARAM} AS threshold_value
+${from}
+${where}
+HAVING ${compareClause(compare, 'observed_value', `$${USER_SETTING_PARAM}`)};`
+    return { sql, params: {} }
   }
 
   if (target.type === 'range') {
@@ -184,8 +274,8 @@ HAVING ${compareClause(compare, 'observed_value', '$threshold_absolute')};`
         ? `NOT (observed_value BETWEEN $range_min AND $range_max)`
         : compareClause(compare, 'observed_value', '$range_min')
     const sql = `SELECT ${agg} AS observed_value, $range_min AS threshold_value
-FROM ${table}
-${filter}
+${from}
+${where}
 HAVING ${outside};`
     return { sql, params }
   }
@@ -194,43 +284,119 @@ HAVING ${outside};`
   // DuckDB can't parametrize inside an INTERVAL literal, but it can
   // multiply a static unit interval by a bound integer.
   const baselineDaysBind = `(INTERVAL 1 DAY) * $baselineDays`
+  const baselineFrom = `FROM ${view} m${join}`
+  const baselineWhere
+    = `WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId\n`
+      + `    AND m.${ts} > NOW() - ${baselineDaysBind}`
 
   if (target.type === 'baseline_percent') {
-    const params = {
-      baselineDays: target.windowDays,
-      pct: target.percent,
-    }
+    const params = { baselineDays: target.windowDays, pct: target.percent }
     const sql = `WITH baseline AS (
-  SELECT AVG(${column}) AS mean
-  FROM ${table}
-  WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-    AND ${ts} > NOW() - ${baselineDaysBind}
+  SELECT AVG(m.${column}) AS mean
+  ${baselineFrom}
+  ${baselineWhere}
 )
 SELECT ${agg} AS observed_value,
        (SELECT mean FROM baseline) * ($pct / 100.0) AS threshold_value
-FROM ${table}
-${filter}
+${from}
+${where}
 HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
     return { sql, params }
   }
 
   // baseline_stddev
-  const params = {
-    baselineDays: target.windowDays,
-    stddevs: target.stddevs,
-  }
+  const params = { baselineDays: target.windowDays, stddevs: target.stddevs }
   const sql = `WITH baseline AS (
-  SELECT AVG(${column}) AS mean, stddev_pop(${column}) AS sd
-  FROM ${table}
-  WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-    AND ${ts} > NOW() - ${baselineDaysBind}
+  SELECT AVG(m.${column}) AS mean, stddev_pop(m.${column}) AS sd
+  ${baselineFrom}
+  ${baselineWhere}
 )
 SELECT ${agg} AS observed_value,
        (SELECT mean + $stddevs * sd FROM baseline) AS threshold_value
-FROM ${table}
-${filter}
+${from}
+${where}
 HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
   return { sql, params }
+}
+
+/**
+ * T-18 — `consecutive: n` via gaps-and-islands.
+ *
+ * A run of adjacent breaching samples is identified by the classic
+ * difference of two row numbers: one over all samples in time order, one
+ * partitioned by the breach flag. Within a maximal run of same-flag rows
+ * that difference is constant, so it serves as a group key.
+ *
+ * The rule fires when ANY breaching run reaches length `n`. `observed_value`
+ * is the run's extreme in the direction of the comparison — the worst
+ * reading in the run, which is what a user-facing card should quote.
+ *
+ * Only supported for the threshold-style targets. Baseline targets would
+ * need the baseline resolved per-sample rather than per-window, which is a
+ * different query shape and has no consumer in v0.2.0 — the validator
+ * rejects the combination rather than silently emitting something subtly
+ * wrong.
+ */
+function buildConsecutive(args: BuildArgs): {
+  sql: string
+  params: Record<string, string | number>
+} {
+  const { view, join, ts, interval, column, target, compare, consecutive } = args
+  const where = whereClause(ts, interval)
+  const from = `FROM ${view} m${join}`
+
+  let thresholdExpr: string
+  let params: Record<string, string | number> = {}
+  if (target.type === 'absolute') {
+    thresholdExpr = '$threshold_absolute'
+    params = { threshold_absolute: target.value }
+  }
+  else if (target.type === 'user_setting') {
+    thresholdExpr = `$${USER_SETTING_PARAM}`
+  }
+  else if (target.type === 'range') {
+    thresholdExpr = '$range_min'
+    params = { range_min: target.min, range_max: target.max }
+  }
+  else {
+    throw new RuleValidationError(
+      `consecutive is not supported with target.type '${target.type}' — `
+      + `baseline targets resolve per-window, not per-sample. Use an absolute `
+      + `or user_setting target, or drop consecutive.`,
+    )
+  }
+
+  // Worst reading in the run, in the direction of the comparison.
+  const extreme = compare === 'greater_than' ? 'MAX' : 'MIN'
+  const breach
+    = compare === 'between'
+      ? `NOT (m.${column} BETWEEN $range_min AND $range_max)`
+      : compareClause(compare, `m.${column}`, thresholdExpr)
+
+  const sql = `WITH samples AS (
+  SELECT m.${ts} AS ts,
+         m.${column} AS value,
+         (${breach}) AS breached,
+         ${thresholdExpr} AS threshold_value
+  ${from}
+  ${where}
+),
+runs AS (
+  SELECT ts, value, breached, threshold_value,
+         ROW_NUMBER() OVER (ORDER BY ts)
+           - ROW_NUMBER() OVER (PARTITION BY breached ORDER BY ts) AS run_key
+  FROM samples
+)
+SELECT ${extreme}(value) AS observed_value,
+       ANY_VALUE(threshold_value) AS threshold_value
+FROM runs
+WHERE breached
+GROUP BY run_key
+HAVING COUNT(*) >= $consecutive
+ORDER BY observed_value ${compare === 'greater_than' ? 'DESC' : 'ASC'}
+LIMIT 1;`
+
+  return { sql, params: { ...params, consecutive: consecutive as number } }
 }
 
 /**

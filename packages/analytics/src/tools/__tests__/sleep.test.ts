@@ -11,7 +11,7 @@ const baseCtx = {
 describe('getSleepSummary', () => {
   it('formats per-night totals + stages + trend', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM sleep_session', [
+    engine.queueRows('FROM v_sleep_session', [
       {
         night_of: '2026-07-08',
         total_minutes: 420,
@@ -42,7 +42,7 @@ describe('getSleepSummary', () => {
 
   it('handles rows without stage data', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM sleep_session', [
+    engine.queueRows('FROM v_sleep_session', [
       {
         night_of: '2026-07-08',
         total_minutes: 420,
@@ -62,7 +62,7 @@ describe('getSleepSummary', () => {
 
   it('handles empty result', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM sleep_session', [])
+    engine.queueRows('FROM v_sleep_session', [])
     const res = await getSleepSummary(
       { userId: 'alice', days: 7 },
       { ...baseCtx, analytics: engine },

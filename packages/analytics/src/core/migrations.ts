@@ -22,7 +22,7 @@
 
 import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
-import { ensureSchemas, LOCAL_SCHEMAS, qualifyDdl, SCHEMAS } from './schemas'
+import { ensureSchemas, insightIndexDdl, LOCAL_SCHEMAS, qualifyDdl, SCHEMAS } from './schemas'
 import type { KVStore } from './types'
 
 export interface MigrationContext {
@@ -72,7 +72,12 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       // namespace explicitly — 2-part `zone_x.<table>` fails with
       // "Schema with name ... not found" on an attached Iceberg catalog.
       if (catalogs.remote) {
-        await ensureSchemas(db, `${catalogs.remote}.${REMOTE_NAMESPACE}`, SCHEMAS)
+        await ensureSchemas(
+          db,
+          `${catalogs.remote}.${REMOTE_NAMESPACE}`,
+          SCHEMAS,
+          { skipLocalOnly: true },
+        )
       }
     },
   },
@@ -90,6 +95,78 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       if (catalogs.remote) {
         await db.execute(qualifyDdl(SCHEMAS.device_battery, 'device_battery', `${catalogs.remote}.${REMOTE_NAMESPACE}`))
       }
+    },
+  },
+  {
+    version: 3,
+    name: 'insight v2 (insight_id / metric / kind / dismissed_at)',
+    // Fix CO-2: the pre-0.7.0 `insight` table used an `id` PK and lacked
+    // the spec's `metric`, `kind`, and `dismissed_at` columns, so the
+    // registry contract (queries.ts worthALookInsight) could never match.
+    // Recreates the LOCAL table to the spec shape, preserving rows:
+    //   id → insight_id, kind defaults to 'threshold', severity
+    //   'critical' → 'urgent' (spec enum is info|warn|urgent).
+    // Idempotent: skips the recreate when `metric` is already present
+    // (fresh installs get the new shape from the baseline ensureSchemas).
+    // The remote zone gets CREATE IF NOT EXISTS only — the client never
+    // destructively rewrites the attached Iceberg catalog; schema
+    // evolution of pre-existing remote tables is a server-side operation.
+    async up(db, catalogs) {
+      const cols = await db.execute<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns `
+        + `WHERE table_catalog = $catalog AND table_name = 'insight'`,
+        { catalog: catalogs.local },
+      )
+      const hasMetric = cols.some(c => c.column_name === 'metric')
+      if (!hasMetric) {
+        // Re-entrancy: a prior partially-failed run may have left the
+        // scratch table behind (KV only advances after full success).
+        await db.execute(`DROP TABLE IF EXISTS ${catalogs.local}.insight_v2;`)
+        const tmpDdl = LOCAL_SCHEMAS.insight.replace(
+          'CREATE TABLE insight',
+          `CREATE TABLE ${catalogs.local}.insight_v2`,
+        )
+        await db.execute(tmpDdl)
+        // Old rows had no metric column; the package never wrote rows
+        // pre-v2 (rules only emitted events), so 'unknown' only tags
+        // app-authored legacy rows.
+        await db.execute(
+          `INSERT INTO ${catalogs.local}.insight_v2 `
+          + `(insight_id, ts, brand, family_id, user_id, rule_id, metric, kind, `
+          + `severity, title, body, evidence, acknowledged_at, dismissed_at) `
+          + `SELECT id, ts, brand, family_id, user_id, rule_id, 'unknown', 'threshold', `
+          + `CASE WHEN severity = 'critical' THEN 'urgent' ELSE severity END, `
+          + `title, body, evidence, acknowledged_at, NULL `
+          + `FROM ${catalogs.local}.insight;`,
+        )
+        await db.execute(`DROP TABLE ${catalogs.local}.insight;`)
+        await db.execute(`ALTER TABLE ${catalogs.local}.insight_v2 RENAME TO insight;`)
+      }
+      await db.execute(insightIndexDdl(catalogs.local))
+      if (catalogs.remote) {
+        await db.execute(qualifyDdl(SCHEMAS.insight, 'insight', `${catalogs.remote}.${REMOTE_NAMESPACE}`))
+      }
+    },
+  },
+  {
+    version: 4,
+    name: 'user_baseline table (Sprint 5 §7)',
+    // Shared day-first baseline store for rules, tools, and screens.
+    //
+    // NOTE ON NUMBERING: the Sprint 5 spec (§33 / tasks T-03) calls this
+    // "migration v3". Versions 2 and 3 were already spent on the
+    // device_battery table and the insight v2 rebuild before Sprint 5
+    // started, so it lands at 4 instead. Same for the spec's "migration v4"
+    // (insight.dismissed_at), which is already satisfied — the column ships
+    // in the baseline DDL and step 3 backfills it, so no ALTER is needed.
+    //
+    // Local-only: baselines are derived from local+R2 union views and are
+    // cheap to recompute, so there is no value in pushing them to R2 and
+    // no correctness story for two devices racing to write the same row.
+    async up(db, catalogs) {
+      await db.execute(
+        qualifyDdl(LOCAL_SCHEMAS.user_baseline, 'user_baseline', catalogs.local),
+      )
     },
   },
 ])

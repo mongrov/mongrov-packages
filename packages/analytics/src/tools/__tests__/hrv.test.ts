@@ -11,7 +11,7 @@ const baseCtx = {
 describe('getHRV', () => {
   it('formats window with per-day values and baseline delta', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [
+    engine.queueRows('FROM v_hrv', [
       { day: '2026-07-08', avg_hrv: 45 },
       { day: '2026-07-09', avg_hrv: 42 },
       { day: '2026-07-10', avg_hrv: 51 },
@@ -34,7 +34,7 @@ describe('getHRV', () => {
 
   it('binds userId, brand, familyId, days params', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [])
+    engine.queueRows('FROM v_hrv', [])
     await getHRV(
       { userId: 'bob', days: 14 },
       { ...baseCtx, analytics: engine },
@@ -49,7 +49,7 @@ describe('getHRV', () => {
 
   it('handles empty result', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [])
+    engine.queueRows('FROM v_hrv', [])
     const res = await getHRV(
       { userId: 'alice', days: 7 },
       { ...baseCtx, analytics: engine },

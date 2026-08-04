@@ -471,3 +471,121 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     expect(remoteUpdate!.params?.data_type).toBe(1)
   })
 })
+
+describe('strictBatchOrdering (Sprint 5 item (a))', () => {
+  const makeRules = () => {
+    const evaluateOnBatch = vi.fn().mockResolvedValue([])
+    return {
+      evaluateOnBatch,
+      engine: {
+        register: vi.fn(),
+        enable: vi.fn(),
+        disable: vi.fn(),
+        list: vi.fn(() => []),
+        getActive: vi.fn(() => []),
+        evaluateOnBatch,
+        evaluateScheduled: vi.fn(),
+        on: vi.fn(() => () => {}),
+        subscribeRegistry: vi.fn(() => () => {}),
+      },
+    }
+  }
+
+  const pushRow = (mgr: ReturnType<typeof createSyncManager>, table: string, userId: string) =>
+    mgr.sink.push({
+      table,
+      brand: 'ziva',
+      familyId: 'fam_A',
+      userId,
+      deviceId: 'ring',
+      rows: [{ user_id: userId, device_id: 'ring', ts: 't1', rmssd_ms: 42, bpm: 60 }],
+    })
+
+  it('evaluates ONCE per batch with every landed table, not once per table', async () => {
+    const rules = makeRules()
+    const mgr = createSyncManager({ ...baseConfig(), rulesEngine: rules.engine })
+
+    await pushRow(mgr, 'hrv', 'u1')
+    await pushRow(mgr, 'heart_rate', 'u1')
+    await mgr.sink.flush()
+
+    // Two tables flushed, but rules wake once — with both tables — so a
+    // context-JOIN rule sees the complete write.
+    expect(rules.evaluateOnBatch).toHaveBeenCalledTimes(1)
+    const [arg] = rules.evaluateOnBatch.mock.calls[0]
+    expect([...arg.affectedTables].sort()).toEqual(['heart_rate', 'hrv'])
+    expect(arg.affectedUserIds).toEqual(['u1'])
+  })
+
+  it('reports only the tables that actually landed', async () => {
+    // The negative case that motivates the whole change: a batch carrying
+    // one table must not imply the others are present.
+    const rules = makeRules()
+    const mgr = createSyncManager({ ...baseConfig(), rulesEngine: rules.engine })
+
+    await pushRow(mgr, 'hrv', 'u1')
+    await mgr.sink.flush()
+
+    expect(rules.evaluateOnBatch).toHaveBeenCalledWith({
+      affectedUserIds: ['u1'],
+      affectedTables: ['hrv'],
+    })
+  })
+
+  it('opt-out restores the per-table trigger', async () => {
+    const rules = makeRules()
+    const mgr = createSyncManager({
+      ...baseConfig(),
+      rulesEngine: rules.engine,
+      strictBatchOrdering: false,
+    })
+
+    await pushRow(mgr, 'hrv', 'u1')
+    await pushRow(mgr, 'heart_rate', 'u1')
+    await mgr.sink.flush()
+
+    // One wake-up per table, each scoped to its own table — the 0.1.0
+    // behaviour, and the race it carries.
+    expect(rules.evaluateOnBatch).toHaveBeenCalledTimes(2)
+    expect(rules.evaluateOnBatch).toHaveBeenCalledWith({
+      affectedUserIds: ['u1'],
+      affectedTables: ['hrv'],
+    })
+    expect(rules.evaluateOnBatch).toHaveBeenCalledWith({
+      affectedUserIds: ['u1'],
+      affectedTables: ['heart_rate'],
+    })
+  })
+
+  it('emits batch:complete on the event bus with the batch summary', async () => {
+    const emitted: { name: string, payload: unknown }[] = []
+    const bus = { emit: (name: string, payload?: unknown) => emitted.push({ name, payload }) }
+    const mgr = createSyncManager({ ...baseConfig(), eventBus: bus })
+
+    await pushRow(mgr, 'hrv', 'u1')
+    await mgr.sink.flush()
+
+    const complete = emitted.find(e => e.name === 'batch:complete')
+    expect(complete).toBeDefined()
+    expect(complete!.payload).toMatchObject({
+      affectedTables: ['hrv'],
+      affectedUserIds: ['u1'],
+      brand: 'ziva',
+      familyId: 'fam_A',
+      rowCounts: { hrv: 1 },
+    })
+    // Per-table invalidation still fires — different consumer, different
+    // timing requirement.
+    expect(emitted.some(e => e.name === 'hrv:insert')).toBe(true)
+  })
+
+  it('emits no batch:complete when the flush drained nothing', async () => {
+    const emitted: string[] = []
+    const bus = { emit: (name: string) => { emitted.push(name) } }
+    const mgr = createSyncManager({ ...baseConfig(), eventBus: bus })
+
+    await mgr.sink.flush()
+
+    expect(emitted).not.toContain('batch:complete')
+  })
+})

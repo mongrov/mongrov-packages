@@ -21,11 +21,28 @@ import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
 import type { AnalyticsMode } from './types'
 
-/** Extensions required for R2 Iceberg attach, in load order. */
-export const REQUIRED_EXTENSIONS = ['httpfs', 'iceberg', 'parquet'] as const
+/**
+ * Extensions required for R2 Iceberg attach, in load order.
+ *
+ * `icu` sits between `httpfs` and `iceberg` per Sprint 5 T-01. It is not
+ * optional: every registry query and every baseline computation groups by
+ * local day via `timezone($tz, ts)` / `date_trunc('day', timezone(...))`,
+ * and DuckDB's `timezone()` with a named IANA zone resolves only when
+ * `icu` is loaded. Without it those queries fail at parse time rather than
+ * silently returning UTC-grouped rows.
+ */
+export const REQUIRED_EXTENSIONS = ['httpfs', 'icu', 'iceberg', 'parquet'] as const
 
-/** Extensions required for local-only mode (no remote sync, no iceberg). */
-export const LOCAL_EXTENSIONS = ['parquet'] as const
+/**
+ * Extensions required for local-only mode (no remote sync, no iceberg).
+ *
+ * `icu` is here too, and deliberately so: local mode skips `httpfs` +
+ * `iceberg` to avoid the AWSSDK/vcpkg build burden, but it does NOT skip
+ * timezone-aware queries — a local-only install still renders day charts
+ * and computes day-first baselines. Omitting `icu` here would make those
+ * paths work on R2 installs and fail on local ones.
+ */
+export const LOCAL_EXTENSIONS = ['icu', 'parquet'] as const
 
 export type RequiredExtension = (typeof REQUIRED_EXTENSIONS)[number]
 

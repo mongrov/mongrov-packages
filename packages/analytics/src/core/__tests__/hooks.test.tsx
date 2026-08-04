@@ -191,18 +191,22 @@ describe('useInsight', () => {
   it('reads insight row when engine is attached', async () => {
     const fake = createFakeEngine({ state: 'attached', catalog: 'zone_fam123' })
     const row: Insight = {
-      id: 'ins-1',
+      insightId: 'ins-1',
+      ts: new Date(),
       brand: 'brandA',
       familyId: 'fam123',
       userId: 'user-1',
+      metric: 'hrv_ms',
+      kind: 'threshold',
       severity: 'info',
-      observedAt: new Date(),
+      title: 'HRV below baseline',
     }
     fake.setExecuteImpl(async () => [row])
 
     const { result } = renderHook(() => useInsight('ins-1'), { wrapper: wrap(fake.engine) })
     await waitFor(() => expect(result.current.insight).toEqual(row))
     expect(fake.executeCalls[0].sql).toContain('zone_fam123.insight')
+    expect(fake.executeCalls[0].sql).toContain('insight_id = $id')
     expect(fake.executeCalls[0].params).toEqual({ id: 'ins-1' })
   })
 

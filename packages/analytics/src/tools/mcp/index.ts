@@ -12,7 +12,7 @@
 export { toMcpTools } from './adapter'
 export type { McpTool } from './adapter'
 
-export { shouldStartMcpServer } from './guard'
+export { assertMcpAllowed, McpDisabledError, shouldStartMcpServer } from './guard'
 
 export { createMcpServer } from './server'
 export type {

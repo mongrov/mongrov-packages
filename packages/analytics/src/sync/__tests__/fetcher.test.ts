@@ -127,7 +127,8 @@ describe('R2Fetcher.fetchOnDemand', () => {
   it('honours since/until/limit and bypasses watermark', async () => {
     const { fetcher, fake, kvStore } = newFetcher(['hrv'])
     fake.mockNext([]) // INSERT
-    fake.mockNext([{ c: 7 }]) // COUNT
+    // Un-truncated: 7 rows < limit 100.
+    fake.mockNext([{ max_ts: '2026-06-10T00:00:00.000Z', row_count: 7 }])
 
     const result = await fetcher.fetchOnDemand(ctx, {
       table: 'hrv',
@@ -137,13 +138,111 @@ describe('R2Fetcher.fetchOnDemand', () => {
     })
     expect(result).toEqual({ table: 'hrv', rowsFetched: 7, ok: true })
     expect(fake.calls[0]!.sql).toContain('LIMIT 100')
+    // LIMIT must be ordered by the time column so a truncated fetch is a
+    // contiguous prefix (SY-1).
+    expect(fake.calls[0]!.sql).toContain('ORDER BY ts ASC LIMIT 100')
     expect(fake.calls[0]!.sql).toContain('ts <= $until')
     // hrv declares no PRIMARY KEY → no ON CONFLICT clause (DuckDB ≥1.5
     // rejects it on key-less tables).
     expect(fake.calls[0]!.sql).not.toContain('ON CONFLICT')
-    // Watermark advanced to `until` (must be after default watermark to move).
+    // Un-truncated → the full range was covered → watermark = `until`
+    // (must be after default watermark to move).
     expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
       .toBe('2026-06-15T00:00:00.000Z')
+  })
+
+  it('truncated fetch advances watermark only to the max fetched ts (SY-1)', async () => {
+    const { fetcher, fake, kvStore } = newFetcher(['hrv'])
+    fake.mockNext([]) // INSERT
+    // Truncated: row_count == limit; max inserted ts well before `until`.
+    fake.mockNext([{ max_ts: '2026-06-05T00:00:00.000Z', row_count: 50 }])
+
+    const result = await fetcher.fetchOnDemand(ctx, {
+      table: 'hrv',
+      since: new Date('2026-05-25T00:00:00Z'),
+      until: new Date('2026-06-15T00:00:00Z'),
+      limit: 50,
+    })
+    expect(result).toEqual({ table: 'hrv', rowsFetched: 50, ok: true })
+    // NOT `until` — rows in (max_ts, until] were never inserted and must
+    // stay visible to fetchIncremental.
+    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+      .toBe('2026-06-05T00:00:00.000Z')
+  })
+
+  it('follow-up incremental after a truncated fetch picks up the remainder', async () => {
+    const { fetcher, fake } = newFetcher(['hrv'])
+    // Truncated on-demand fetch up to 2026-06-05.
+    fake.mockNext([]) // INSERT
+    fake.mockNext([{ max_ts: '2026-06-05T00:00:00.000Z', row_count: 50 }])
+    await fetcher.fetchOnDemand(ctx, {
+      table: 'hrv',
+      since: new Date('2026-05-25T00:00:00Z'),
+      until: new Date('2026-06-15T00:00:00Z'),
+      limit: 50,
+    })
+
+    // Incremental must query strictly after the truncated cursor, so the
+    // skipped (2026-06-05, 2026-06-15] remainder is still in range.
+    fake.mockNext([]) // INSERT
+    fake.mockNext([{ max_ts: '2026-06-15T00:00:00.000Z', row_count: 12 }])
+    const results = await fetcher.fetchIncremental(ctx)
+    expect(results[0]!).toMatchObject({ ok: true, rowsFetched: 12 })
+    const incrementalInsert = fake.calls.filter(
+      c => c.sql.startsWith('INSERT INTO main.hrv') && c.sql.includes('$watermark'),
+    )[0]!
+    expect(incrementalInsert.params).toMatchObject({
+      watermark: '2026-06-05T00:00:00.000Z',
+    })
+  })
+
+  it('empty un-truncated fetch advances watermark to until', async () => {
+    const { fetcher, fake, kvStore } = newFetcher(['hrv'])
+    fake.mockNext([]) // INSERT
+    fake.mockNext([{ max_ts: null, row_count: 0 }])
+
+    const result = await fetcher.fetchOnDemand(ctx, {
+      table: 'hrv',
+      since: new Date('2026-05-25T00:00:00Z'),
+      until: new Date('2026-06-15T00:00:00Z'),
+      limit: 50,
+    })
+    expect(result).toEqual({ table: 'hrv', rowsFetched: 0, ok: true })
+    // Zero rows below the limit → range fully covered (it's just empty);
+    // advancing to `until` prevents refetching the empty range.
+    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+      .toBe('2026-06-15T00:00:00.000Z')
+  })
+
+  it('truncated fetch with no anchor ts does not advance (defensive edge)', async () => {
+    const { fetcher, fake, kvStore } = newFetcher(['hrv'])
+    fake.mockNext([]) // INSERT
+    // Degenerate engine response: claims a full page but no max ts.
+    fake.mockNext([{ max_ts: null, row_count: 50 }])
+
+    const result = await fetcher.fetchOnDemand(ctx, {
+      table: 'hrv',
+      since: new Date('2026-05-25T00:00:00Z'),
+      until: new Date('2026-06-15T00:00:00Z'),
+      limit: 50,
+    })
+    expect(result.ok).toBe(true)
+    // Nothing to anchor to — watermark untouched.
+    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+      .toBeUndefined()
+  })
+
+  it('un-truncated fetch without until advances to now()', async () => {
+    const { fetcher, fake, kvStore } = newFetcher(['hrv'])
+    fake.mockNext([]) // INSERT
+    fake.mockNext([{ max_ts: '2026-05-30T00:00:00.000Z', row_count: 3 }])
+
+    await fetcher.fetchOnDemand(ctx, {
+      table: 'hrv',
+      since: new Date('2026-05-25T00:00:00Z'),
+    })
+    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+      .toBe(now().toISOString())
   })
 })
 
@@ -178,7 +277,7 @@ describe('R2Fetcher time column resolution', () => {
   it('fetchOnDemand uses ts_start for sleep_session', async () => {
     const { fetcher, fake } = newFetcher(['sleep_session'])
     fake.mockNext([]) // INSERT
-    fake.mockNext([{ c: 3 }]) // COUNT
+    fake.mockNext([{ max_ts: '2026-06-10T00:00:00.000Z', row_count: 3 }]) // stats
     await fetcher.fetchOnDemand(ctx, {
       table: 'sleep_session',
       since: new Date('2026-05-25T00:00:00Z'),

@@ -1,9 +1,30 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createFakeEngine } from '../../__fakes__/engine'
 import { createAnalyticsTools, type AnalyticsToolsHandle } from '../../factory'
 import type { ToolContext } from '../../types'
 import { createMcpServer, type McpServerHandle } from '../server'
 import { createHttpTransport, type HttpTransportHandle } from '../transports/http'
+
+// Both `createMcpServer` and `createHttpTransport` enforce the principle-41
+// guard: dev build AND flag. Satisfy both for the suite; restore afterwards.
+const originalDev = (globalThis as Record<string, unknown>).__DEV__
+const originalFlag = process.env.ENABLE_MCP_SERVER
+
+beforeAll(() => {
+  ;(globalThis as Record<string, unknown>).__DEV__ = true
+  process.env.ENABLE_MCP_SERVER = '1'
+})
+
+afterAll(() => {
+  if (originalDev === undefined) {
+    delete (globalThis as Record<string, unknown>).__DEV__
+  }
+  else {
+    ;(globalThis as Record<string, unknown>).__DEV__ = originalDev
+  }
+  if (originalFlag === undefined) delete process.env.ENABLE_MCP_SERVER
+  else process.env.ENABLE_MCP_SERVER = originalFlag
+})
 
 const baseCtx: ToolContext = {
   requesterUserId: 'alice',

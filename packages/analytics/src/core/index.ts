@@ -30,6 +30,61 @@ export type { AnalyticsErrorCode } from './errors'
 export { isSyncable, TABLE_METADATA, timeColumnFor } from './table_metadata'
 export type { TableSyncMetadata } from './table_metadata'
 
+// Device event enum + payload schemas (Sprint 5 §6). Re-exported from
+// @mongrov/types so @mongrov/device can emit typed events without a
+// runtime dependency on the analytics engine.
+export {
+  decodeDeviceEventPayload,
+  DEVICE_EVENT_PAYLOAD_SCHEMAS,
+  DEVICE_EVENT_TYPES,
+  encodeDeviceEventPayload,
+  isDeviceEventType,
+  SyncTrigger,
+} from './device-events'
+export type {
+  DeviceEventPayload,
+  DeviceEventType,
+  SyncTriggerValue,
+} from './device-events'
+
+// Watermark cache (Sprint 5 T-07). Disabled by default — measurement-gated
+// on Ziva pilot p95 latency; the instrument runs regardless.
+export {
+  createWatermarkCache,
+  WATERMARK_CACHE_TTL_MS,
+} from './watermark-cache'
+export type {
+  WatermarkCache,
+  WatermarkCacheOptions,
+  WatermarkCacheStats,
+} from './watermark-cache'
+
+// Insight dismissal (Sprint 5 §7b / T-15c).
+export { dismissInsight } from './insight'
+export type { DismissInsightArgs, DismissInsightDeps } from './insight'
+
+// Baseline metadata (Sprint 5 §7).
+export {
+  baselineAggregateFor,
+  BASELINE_MIN_DAYS,
+  BASELINE_WINDOW_DAYS,
+  getBaselineMetricIds,
+} from './metric_metadata'
+export type {
+  BaselineDailyAggregate,
+  BaselineWindowDays,
+} from './metric_metadata'
+
+// Union views (Sprint 5 §3). Registry/rule/tool SQL targets `v_{table}`,
+// never `local.{table}` or `r2.default.{table}` (principle 19).
+export {
+  dropViewDdl,
+  generateViewDdl,
+  VIEWED_TABLES,
+  watermarkColumnFor,
+} from './schemas'
+export type { ViewedTable } from './schemas'
+
 // Types
 export type {
   AnalyticsAppender,
@@ -41,6 +96,8 @@ export type {
   EventBus,
   FamilyMembersProvider,
   Insight,
+  InsightKind,
+  InsightSeverity,
   KVStore,
   TenantScope,
   TokenContext,

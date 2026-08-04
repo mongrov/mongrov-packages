@@ -16,20 +16,20 @@ describe('familyScopeAuthorize', () => {
     expect(engine.calls).toHaveLength(0)
   })
 
-  it('allows target found in family_member', async () => {
+  it('allows target in the engine roster, without touching SQL', async () => {
+    // Membership comes from the engine's FamilyMembersProvider
+    // (principle 39), never from a DuckDB table — there is no
+    // `family_member` table in any DDL this package ships.
     const engine = createFakeEngine()
-    engine.queueRows('FROM family_member', [{ one: 1 }])
+    engine.setFamilyMembers(['alice', 'bob'])
     const auth = familyScopeAuthorize(engine)
     expect(await auth('getHRV', { userId: 'bob' }, baseCtx)).toBe(true)
-    expect(engine.calls[0].params).toEqual({
-      familyId: 'fam-1',
-      userId: 'bob',
-    })
+    expect(engine.calls).toHaveLength(0)
   })
 
-  it('denies target not in family_member', async () => {
+  it('denies target absent from the engine roster', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM family_member', [])
+    engine.setFamilyMembers(['alice', 'bob'])
     const auth = familyScopeAuthorize(engine)
     expect(await auth('getHRV', { userId: 'eve' }, baseCtx)).toBe(false)
   })
@@ -71,21 +71,17 @@ describe('orgScopeAuthorize', () => {
     expect(engine.calls).toHaveLength(0)
   })
 
-  it('queries org_member with orgId bound from ctx.familyId (v0.1.0 shim)', async () => {
+  it('uses the engine roster as the org shim (v0.1.0)', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM org_member', [{ one: 1 }])
+    engine.setFamilyMembers(['alice', 'bob'])
     const auth = orgScopeAuthorize(engine)
     expect(await auth('getHRV', { userId: 'bob' }, baseCtx)).toBe(true)
-    expect(engine.calls[0].sql).toContain('FROM org_member')
-    expect(engine.calls[0].params).toEqual({
-      orgId: 'fam-1',
-      userId: 'bob',
-    })
+    expect(engine.calls).toHaveLength(0)
   })
 
-  it('denies target not in org_member', async () => {
+  it('denies target absent from the org roster', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM org_member', [])
+    engine.setFamilyMembers(['alice', 'bob'])
     const auth = orgScopeAuthorize(engine)
     expect(await auth('getHRV', { userId: 'eve' }, baseCtx)).toBe(false)
   })
@@ -133,13 +129,13 @@ describe('familyScopeAuthorize with familyMembersProvider', () => {
 
   it('provider path takes precedence when both engine + provider present', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM family_member', [{ one: 1 }])
+    engine.setFamilyMembers(['alice', 'bob'])
     const provider = async () => [] // provider says no
     const auth = familyScopeAuthorize(engine, {
       familyMembersProvider: provider,
     })
     // provider says bob is not a member, so authorize denies even
-    // though SQL would say yes — provider wins.
+    // though the engine roster would say yes — explicit provider wins.
     expect(await auth('getHRV', { userId: 'bob' }, baseCtx)).toBe(false)
     expect(engine.calls).toHaveLength(0)
   })

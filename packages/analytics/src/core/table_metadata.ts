@@ -38,6 +38,9 @@ export const TABLE_METADATA: Readonly<Record<TableName, TableSyncMetadata>> = Ob
   device_config: { timeColumn: 'valid_from', syncable: true },
   insight: { timeColumn: 'ts', syncable: true },
   sync_watermark: { timeColumn: 'updated_at', syncable: false },
+  // Derived, local-only, and UPSERTed in place — never pushed, and its
+  // `computed_at` is a recompute stamp rather than a sync cursor.
+  user_baseline: { timeColumn: 'computed_at', syncable: false },
   tool_call_audit: { timeColumn: 'ts', syncable: false },
 })
 

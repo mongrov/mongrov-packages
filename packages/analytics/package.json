@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/analytics",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "sideEffects": false,
   "description": "DuckDB + R2 Iceberg local analytics for @mongrov apps",
   "license": "MIT",
@@ -71,7 +71,7 @@
   "peerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.20.0",
     "@mongrov/db": "workspace:*",
-    "@mongrov/types": "^0.4.0",
+    "@mongrov/types": "^0.5.0",
     "ai": ">=4",
     "react": ">=19",
     "react-native": ">=0.81",
@@ -94,8 +94,10 @@
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "date-fns-tz": "^3.2.0",
+    "nanoid": "^5.0.9",
     "p-queue": "^8.0.1",
     "xstate": "^5.30.0",
+    "zod": "^3.23.8 || ^4.0.0",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {

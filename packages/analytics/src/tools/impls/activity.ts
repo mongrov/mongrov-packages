@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { formatBytes } from '../formatters'
+import { assertNoBanTerms, formatBytes } from '../formatters'
 import type { ToolImpl, ToolResult } from '../types'
 
 export const getActivityTotalInputSchema = z.object({
@@ -35,7 +35,7 @@ export const getActivityTotal: ToolImpl<GetActivityTotalInput> = async (
 
   const steps = await ctx.analytics.execute<StepsRow>(
     `SELECT date_trunc('day', ts)::VARCHAR AS day, SUM(steps)::INTEGER AS steps
-     FROM activity
+     FROM v_activity
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL ($days) DAY
      GROUP BY 1 ORDER BY 1`,
@@ -46,7 +46,7 @@ export const getActivityTotal: ToolImpl<GetActivityTotalInput> = async (
     `SELECT date_trunc('day', ts)::VARCHAR AS day,
             SUM(calories)::DOUBLE AS calories,
             SUM(distance_km)::DOUBLE AS distance_km
-     FROM activity_bucket
+     FROM v_activity_bucket
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL ($days) DAY
      GROUP BY 1 ORDER BY 1`,
@@ -90,5 +90,9 @@ export const getActivityTotal: ToolImpl<GetActivityTotalInput> = async (
 }
 
 function finalize(text: string, rowCount: number): ToolResult {
+  // principle 37 — every formatter's return path is guarded, not
+  // just the SpO2 one. Tool text lands in an LLM's context, and the
+  // model repeats whatever register it finds there.
+  assertNoBanTerms(text, 'getActivityTotal')
   return { text, rowCount, bytes: formatBytes(text) }
 }
