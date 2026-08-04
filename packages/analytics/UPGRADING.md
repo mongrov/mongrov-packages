@@ -319,6 +319,17 @@ handle. The existing `Device` is unchanged.
 is what lets `@mongrov/device` emit events the analytics engine will store
 without depending on the engine.
 
+**Packaging change: dual CJS/ESM emit.** `dist/` is now `dist/esm` +
+`dist/cjs`, each with its own `type` marker, and every export declares
+`import` / `require` / `types` conditions. Previously the package emitted
+ESM only and declared no `require` condition — which nothing noticed,
+because every cross-package import was type-only and therefore erased at
+compile. The first *value* import from a subpath (`device-events`,
+`analytics-queries`) failed to resolve under CommonJS.
+
+If you deep-imported `@mongrov/types/dist/...` — don't; use the subpath
+exports. `main` / `module` / `types` now point into the split trees.
+
 ---
 
 ## 11. Migrations
@@ -355,10 +366,5 @@ Documented so you do not go looking:
 - **`@mongrov/device` sync events are emitter-only.** `createSyncEventEmitter`
   and the `DeviceEventSink` port ship and are usable stand-alone, but the sync
   machine that would call them is D5 work and does not exist yet.
-- **`@mongrov/types` subpaths emit ESM with no `require` condition.**
-  Type-only imports are erased so nothing hit this before; a cross-package
-  *value* import from `@mongrov/types/device-events` or `/analytics-queries`
-  needs a resolver mapping under CJS (see `packages/device/jest.config.js`).
-  Dual emit is the proper fix.
 - **`transform` is declared but not resolved** by the data-access dispatcher.
   Queries declaring it will not produce derived output fields yet.

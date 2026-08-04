@@ -11,27 +11,34 @@
   "engines": {
     "node": ">=18"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/cjs/index.js",
+  "types": "dist/esm/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "default": "./dist/esm/index.js"
     },
     "./analytics-queries": {
-      "types": "./dist/analytics-queries.d.ts",
-      "import": "./dist/analytics-queries.js"
+      "types": "./dist/esm/analytics-queries.d.ts",
+      "import": "./dist/esm/analytics-queries.js",
+      "require": "./dist/cjs/analytics-queries.js",
+      "default": "./dist/esm/analytics-queries.js"
     },
     "./device-events": {
-      "types": "./dist/device-events.d.ts",
-      "import": "./dist/device-events.js"
-    }
+      "types": "./dist/esm/device-events.d.ts",
+      "import": "./dist/esm/device-events.js",
+      "require": "./dist/cjs/device-events.js",
+      "default": "./dist/esm/device-events.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.cjs.json && node scripts/write-dist-manifests.mjs",
     "clean": "rm -rf dist",
     "prebuild": "pnpm run clean",
     "test": "jest",
@@ -48,5 +55,6 @@
     "ts-jest": "^29.1.2",
     "typescript": "^5.9.3",
     "zod": "^3.23.8"
-  }
+  },
+  "module": "dist/esm/index.js"
 }
