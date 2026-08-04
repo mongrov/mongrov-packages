@@ -21,6 +21,7 @@ import { z } from 'zod'
 
 import type { HybridDuckDB } from '../core/engine'
 import type { AnalyticsEngine, AttachContext, KVStore } from '../core/types'
+import { createBaselineComputer } from './baseline-compute'
 import { SensorBuffer } from './buffer'
 import { bindFlushEvents, bindPushEvents } from './events'
 import type { EventBus } from './events'
@@ -118,12 +119,33 @@ export interface CreateSyncManagerConfig {
     taskName?: string
   }
   /**
-   * Optional rules engine wired into the flush pipeline. After a successful
-   * flush the manager calls `rulesEngine.evaluateOnBatch({ affectedUserIds,
-   * affectedTables: [table] })`. Fire-and-forget: the evaluator swallows its
-   * own errors, so we never block a sync cycle on rules.
+   * Optional rules engine wired into the flush pipeline. Evaluation is
+   * driven by `batch:complete` (see `strictBatchOrdering`). Fire-and-forget:
+   * the evaluator swallows its own errors, so we never block a sync cycle
+   * on rules.
    */
   rulesEngine?: RulesEngine
+  /**
+   * When true (default), rules evaluate once per batch on `batch:complete`
+   * rather than per table on each `{table}:insert` (Sprint 5 item (a)).
+   *
+   * This is the fix for a real race: a `context: 'asleep'` rule JOINs
+   * `v_sleep_session`, and firing it the moment `spo2` flushes lets it
+   * evaluate against a night whose sleep rows are still buffered. Set
+   * false only for a consumer that wants lower evaluation latency and
+   * ships no context-JOIN or consecutive rules.
+   */
+  strictBatchOrdering?: boolean
+  /**
+   * Resolve a user's IANA timezone for day-first baseline bucketing
+   * (Sprint 5 §7). `User.timezone` lives in auth/RxDB, so it has to be
+   * injected rather than read here. Falls back to the device zone when
+   * omitted or when it resolves undefined — wrong-but-close beats
+   * refusing to compute a baseline at all.
+   */
+  userTimezoneProvider?: (userId: string) => Promise<string | undefined>
+  /** Disable the per-cycle baseline recompute (Sprint 5 T-15). */
+  computeBaselines?: boolean
   logger?: SchedulerLogger
   /**
    * Consumer-provided translation between firmware ring-config semantics
@@ -165,24 +187,87 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // never stalls sync.
   const rulesEngine = config.rulesEngine
   const rulesLogger = config.logger
+  // Sprint 5 item (a): rules evaluate on `batch-complete`, never per-table.
+  // `strictBatchOrdering` (default true) is the escape hatch — setting it
+  // false restores the 0.1.0 per-table trigger for a consumer that needs
+  // lower latency and has no context-JOIN rules to race against.
+  const strictBatchOrdering = config.strictBatchOrdering ?? true
+
+  const evaluateRules = (
+    affectedTables: TableName[],
+    affectedUserIds: string[],
+    label: string,
+  ): void => {
+    if (!rulesEngine || affectedUserIds.length === 0 || affectedTables.length === 0) {
+      return
+    }
+    // Fire-and-forget: a slow or throwing evaluator must never stall sync
+    // (principle 35).
+    rulesEngine.evaluateOnBatch({ affectedUserIds, affectedTables })
+      .catch((err: unknown) => {
+        rulesLogger?.warn('sync.factory: rulesEngine.evaluateOnBatch threw', {
+          trigger: label,
+          err: err instanceof Error ? err.message : String(err),
+        })
+      })
+  }
+
   const flushEmitter: SyncEmitter = (event) => {
     if (event.type === 'flushed') {
       progress.pendingByTable[event.payload.table] = 0
       progress.lastFlushAt = Date.now()
-      if (rulesEngine && event.payload.affectedUserIds.length > 0) {
-        rulesEngine.evaluateOnBatch({
-          affectedUserIds: event.payload.affectedUserIds,
-          affectedTables: [event.payload.table as TableName],
-        }).catch((err: unknown) => {
-          rulesLogger?.warn('sync.factory: rulesEngine.evaluateOnBatch threw', {
-            table: event.payload.table,
-            err: err instanceof Error ? err.message : String(err),
-          })
-        })
+      if (!strictBatchOrdering) {
+        evaluateRules(
+          [event.payload.table as TableName],
+          event.payload.affectedUserIds,
+          `table:${event.payload.table}`,
+        )
       }
+    }
+    if (event.type === 'batch-complete' && strictBatchOrdering) {
+      // Every table in the batch has landed, so a `context: 'asleep'` rule
+      // can now JOIN v_sleep_session and see the whole night.
+      evaluateRules(
+        event.payload.affectedTables as TableName[],
+        event.payload.affectedUserIds,
+        `batch:${event.payload.batchId}`,
+      )
     }
     busFlushEmit?.(event)
   }
+
+  /**
+   * Device timezone, used when the app supplies no `userTimezoneProvider`
+   * or the provider has no profile for a user. `Intl` is present on every
+   * RN runtime we target (Hermes with intl enabled); the `catch` covers
+   * bare JS hosts in CI.
+   */
+  function deviceTimezone(): string {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    }
+    catch {
+      return 'UTC'
+    }
+  }
+
+  async function resolveTimezone(userId: string): Promise<string> {
+    if (!config.userTimezoneProvider) return deviceTimezone()
+    try {
+      return (await config.userTimezoneProvider(userId)) ?? deviceTimezone()
+    }
+    catch {
+      // A profile lookup failure must not skip the baseline entirely —
+      // a baseline in the device zone is far better than none.
+      return deviceTimezone()
+    }
+  }
+
+  const baselineComputer = createBaselineComputer({
+    analytics: config.analytics,
+    eventBus: config.eventBus as never,
+    logger: config.logger,
+  })
 
   const engineAsHybrid = config.analytics as unknown as HybridDuckDB
 
@@ -237,7 +322,21 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     constraints: config.constraints ?? alwaysAllowedConstraints(),
     coordinator: {
       flushAll: async () => {
-        await Promise.all(config.tables.map(t => flusher.flush(t, 'scheduled')))
+        // One batch per scheduler cycle: rules see the whole cycle's write
+        // as a single unit rather than one wake-up per table.
+        const batchId = flusher.beginBatch('scheduled')
+        try {
+          await Promise.all(
+            config.tables.map(t => flusher.flush(t, 'scheduled', batchId)),
+          )
+        }
+        finally {
+          // `finally` so a partial failure still closes the batch — the
+          // tables that DID land are real writes and their consumers
+          // should be woken. Leaving it open would leak the record and
+          // silently suppress the next cycle's evaluation.
+          flusher.endBatch(batchId)
+        }
       },
       pushAll: isLocal
         ? async () => []
@@ -268,6 +367,31 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       fetchIncremental: isLocal
         ? async () => []
         : async ctx => fetcher.fetchIncremental(ctx),
+      computeBaselines: config.computeBaselines === false
+        ? undefined
+        : async () => {
+            // Fan out over the family so every member's baselines refresh
+            // on the device that synced — not just the signed-in user's.
+            // Empty roster (org scope, local mode, unattached) falls back
+            // to the attach ctx's own user.
+            let members: string[] = []
+            try {
+              members = await config.analytics.getFamilyMembers()
+            }
+            catch {
+              members = []
+            }
+            const userIds = members.length > 0 ? members : [config.ctx.userId]
+            for (const userId of userIds) {
+              const tz = await resolveTimezone(userId)
+              await baselineComputer.computeAll({
+                brand: config.ctx.brand,
+                familyId: config.ctx.tenantId,
+                userId,
+                userTimezone: tz,
+              })
+            }
+          },
       // Scheduled rules pass runs after the cycle's flush/push/fetch. Fire-
       // and-forget — a throw here would surface as a cycle error, but the
       // catch keeps the scheduler idle.
@@ -393,7 +517,6 @@ async function fetchActivePriorConfigs(
   for (const r of rows) {
     const dataType = Number(r.data_type)
     map.set(dataType, {
-      ts: new Date(String(r.valid_from ?? '')),
       brand: String(r.brand ?? ''),
       family_id: String(r.family_id ?? ''),
       user_id: String(r.user_id ?? ''),
@@ -490,10 +613,19 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       }
     },
     flush: async () => {
+      // A user-initiated flush is one batch too — otherwise a manual sync
+      // would evaluate rules per table and reintroduce the race that
+      // strictBatchOrdering exists to close.
+      const batchId = flusher.beginBatch('manual')
       const results: FlushResult[] = []
-      for (const table of tables) {
-        results.push(await flusher.flush(table, 'manual'))
-        triggers.noteDrain(table)
+      try {
+        for (const table of tables) {
+          results.push(await flusher.flush(table, 'manual', batchId))
+          triggers.noteDrain(table)
+        }
+      }
+      finally {
+        flusher.endBatch(batchId)
       }
       return results
     },

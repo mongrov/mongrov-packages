@@ -18,16 +18,26 @@ export interface FakeEngine extends AnalyticsEngine {
   readonly calls: { sql: string, params: Record<string, unknown> }[]
   queueRows: (sqlSubstring: string, rows: unknown[]) => void
   setError: (err: Error | null) => void
+  /** Seed the roster returned by `getFamilyMembers()`. */
+  setFamilyMembers: (ids: string[]) => void
 }
 
 export function createFakeEngine(): FakeEngine {
   const queues: { substring: string, rows: unknown[] }[] = []
+  let familyMembers: string[] = []
   const calls: { sql: string, params: Record<string, unknown> }[] = []
   let error: Error | null = null
 
   const engine: FakeEngine = {
     async attach() {},
     async detach() {},
+    async dismissInsight() {},
+    async getFamilyMembers() {
+      // Honour `setError` so fail-closed tests exercise a real throw from
+      // the membership path, not an incidental empty roster.
+      if (error) throw error
+      return familyMembers
+    },
     async execute<T>(sql: string, params?: Record<string, unknown>): Promise<T[]> {
       calls.push({ sql, params: params ?? {} })
       if (error) throw error
@@ -53,6 +63,7 @@ export function createFakeEngine(): FakeEngine {
     calls,
     queueRows(substring, rows) { queues.push({ substring, rows }) },
     setError(err) { error = err },
+    setFamilyMembers(ids) { familyMembers = ids },
   }
   return engine
 }

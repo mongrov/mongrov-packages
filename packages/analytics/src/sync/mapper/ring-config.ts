@@ -86,7 +86,7 @@ function toRow(
 ): DeviceConfigRow {
   const fields = translator.windowToSchemaFields(window)
   return {
-    ts: now,
+    // No `ts` — device_config's time axis is valid_from / valid_to (SCD-2).
     brand: ctx.brand,
     family_id: ctx.familyId,
     user_id: ctx.userId,

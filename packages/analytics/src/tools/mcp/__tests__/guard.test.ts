@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { shouldStartMcpServer } from '../guard'
+import { assertMcpAllowed, McpDisabledError, shouldStartMcpServer } from '../guard'
 
 const originalDev = (globalThis as Record<string, unknown>).__DEV__
 const originalFlag = process.env.ENABLE_MCP_SERVER
@@ -54,5 +54,41 @@ describe('shouldStartMcpServer', () => {
     expect(shouldStartMcpServer()).toBe(false)
     process.env.ENABLE_MCP_SERVER = 'yes'
     expect(shouldStartMcpServer()).toBe(false)
+  })
+})
+
+describe('assertMcpAllowed (principle 41 — enforced guard)', () => {
+  afterEach(() => {
+    restoreGlobals()
+  })
+
+  it('throws McpDisabledError in a prod-like env (no __DEV__, no flag)', () => {
+    delete (globalThis as Record<string, unknown>).__DEV__
+    delete process.env.ENABLE_MCP_SERVER
+    expect(() => assertMcpAllowed()).toThrow(McpDisabledError)
+  })
+
+  it('throws with only __DEV__ set (flag missing)', () => {
+    (globalThis as Record<string, unknown>).__DEV__ = true
+    delete process.env.ENABLE_MCP_SERVER
+    expect(() => assertMcpAllowed()).toThrow(McpDisabledError)
+  })
+
+  it('throws with only the flag set (__DEV__ missing) — AND, not OR', () => {
+    delete (globalThis as Record<string, unknown>).__DEV__
+    process.env.ENABLE_MCP_SERVER = '1'
+    expect(() => assertMcpAllowed()).toThrow(McpDisabledError)
+  })
+
+  it('throws when __DEV__ is explicitly false even with the flag', () => {
+    (globalThis as Record<string, unknown>).__DEV__ = false
+    process.env.ENABLE_MCP_SERVER = '1'
+    expect(() => assertMcpAllowed()).toThrow(McpDisabledError)
+  })
+
+  it('passes with __DEV__ true AND ENABLE_MCP_SERVER=1', () => {
+    (globalThis as Record<string, unknown>).__DEV__ = true
+    process.env.ENABLE_MCP_SERVER = '1'
+    expect(() => assertMcpAllowed()).not.toThrow()
   })
 })

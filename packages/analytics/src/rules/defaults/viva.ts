@@ -6,6 +6,13 @@ import { parseCatalog } from './loader'
 import type { Rule } from '../schema'
 
 const TOML = `
+# Viva brand default rules (placeholder set for v0.1.0).
+#
+# Viva is asset-focused; rules mirror the LuminX asset-threshold pattern
+# for battery + connectivity. Refined once product surfaces land.
+#
+# See \`viva.ts\` — this file is the source of truth.
+
 [[rule]]
 id = "viva.battery-low"
 brand = "viva"

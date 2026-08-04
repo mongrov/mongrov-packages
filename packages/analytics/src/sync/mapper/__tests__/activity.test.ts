@@ -46,11 +46,14 @@ describe('mapActivity', () => {
     }
     expect(activity_bucket).toHaveLength(1)
     expect(activity_bucket[0].ts.toISOString()).toBe('2026-06-17T10:00:00.000Z')
+    // Bucket carries calories/distance only — steps live on `activity` at
+    // 1-min resolution (spec §Table schema; activity_bucket has no steps
+    // column, so carrying one here would double-count downstream).
     expect(activity_bucket[0]).toMatchObject({
-      steps: 45,
       calories: 5,
       distance_km: 0.03,
     })
+    expect(activity_bucket[0]).not.toHaveProperty('steps')
   })
 
   it('emits per-row bucket + activity for every input row', () => {
@@ -92,11 +95,12 @@ describe('mapActivity', () => {
         arraySteps: [5, 5, 5, 5, 5, 5, 5, 5, 5, 10], // sums to 55, close but not equal
       },
     ]
-    // Mapper must not throw. Bucket carries firmware's `step`, activity carries
-    // the per-minute breakdown. Downstream tally-by-minute is the ground truth.
+    // Mapper must not throw. `activity` carries the per-minute breakdown and
+    // is the ground truth for step tallies; the firmware's own `step` total
+    // (which disagrees by ~1.3%) has no column to land in, so the mismatch
+    // simply doesn't propagate.
     const { activity, activity_bucket } = mapActivity(fw, ctx)
-    expect(activity_bucket[0].steps).toBe(100)
-    expect(activity_bucket[1].steps).toBe(60)
+    expect(activity_bucket).toHaveLength(2)
     const sumFirst = activity.slice(0, 10).reduce((a, r) => a + r.steps, 0)
     const sumSecond = activity.slice(10, 20).reduce((a, r) => a + r.steps, 0)
     expect(sumFirst).toBe(100)

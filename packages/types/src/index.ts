@@ -40,6 +40,37 @@ export type {
   SearchOpts,
 } from './common'
 
+// Multi-brand tenancy (v0.5.0 — Sprint 3 precondition)
+export type {
+  Brand,
+  Family,
+  User,
+  AnalyticsDevice,
+} from './tenancy'
+
+// Cross-package data-plane contracts (v0.5.0 — Sprint 3 precondition).
+// Implementations live in @mongrov/analytics + @mongrov/data-access; these
+// are the seams, so neither package needs a runtime dep on the other.
+export type {
+  Unsubscribe as AnalyticsUnsubscribe,
+  FirmwareExport,
+  FirmwareTimestamp,
+  FirmwareHRRow,
+  FirmwareHRVRow,
+  FirmwareSpO2Row,
+  FirmwareTempRow,
+  FirmwareActivityRow,
+  FirmwareSleepRow,
+  FirmwareBatteryRow,
+  FirmwareRingConfig,
+  FirmwareMonitoringWindow,
+  MapperContext,
+  SensorBatch,
+  SensorSink,
+  FlushResult,
+  EventBus,
+} from './analytics-contracts'
+
 // Device types (v0.4.0)
 export type {
   JsonValue,

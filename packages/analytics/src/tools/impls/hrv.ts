@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { deltaPct, formatBytes } from '../formatters'
+import { assertNoBanTerms, deltaPct, formatBytes } from '../formatters'
 import type { ToolImpl, ToolResult } from '../types'
 
 export const getHRVInputSchema = z.object({
@@ -17,7 +17,7 @@ interface Row {
 export const getHRV: ToolImpl<GetHRVInput> = async (input, ctx) => {
   const rows = await ctx.analytics.execute<Row>(
     `SELECT date_trunc('day', ts)::VARCHAR AS day, AVG(hrv_ms)::DOUBLE AS avg_hrv
-     FROM hrv
+     FROM v_hrv
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL ($days) DAY
        AND hrv_ms IS NOT NULL
@@ -50,5 +50,9 @@ export const getHRV: ToolImpl<GetHRVInput> = async (input, ctx) => {
 }
 
 function finalize(text: string, rowCount: number): ToolResult {
+  // principle 37 — every formatter's return path is guarded, not
+  // just the SpO2 one. Tool text lands in an LLM's context, and the
+  // model repeats whatever register it finds there.
+  assertNoBanTerms(text, 'getHRV')
   return { text, rowCount, bytes: formatBytes(text) }
 }

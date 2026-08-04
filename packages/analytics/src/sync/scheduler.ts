@@ -43,6 +43,13 @@ export interface SyncCoordinator {
    */
   pushClosesForDeviceConfig?: (ctx: AttachContext) => Promise<void>
   fetchIncremental: (ctx: AttachContext) => Promise<Array<{ ok: boolean }>>
+  /**
+   * Day-first baseline recompute (Sprint 5 T-15). Runs AFTER fetch so the
+   * quantiles see rows that just arrived from R2, not just locally-flushed
+   * ones — a baseline computed before the fetch would be short a day on
+   * every multi-device family. Optional; failures never fail the cycle.
+   */
+  computeBaselines?: () => Promise<void>
   onCycleComplete?: () => Promise<void>
 }
 
@@ -170,6 +177,20 @@ export class SyncScheduler {
       await this.#config.coordinator.pushAll(this.#config.tables, this.#config.ctx)
       await this.#config.coordinator.pushClosesForDeviceConfig?.(this.#config.ctx)
       await this.#config.coordinator.fetchIncremental(this.#config.ctx)
+      // Baselines are derived data — a failure here leaves the previous
+      // (still-valid) rows in place and must not mark the cycle failed,
+      // which would otherwise strand the scheduler in `error` and stop
+      // future flushes over a stale percentile.
+      if (this.#config.coordinator.computeBaselines) {
+        try {
+          await this.#config.coordinator.computeBaselines()
+        }
+        catch (cause) {
+          this.#config.logger.warn('scheduler.cycle.baselines_failed', {
+            error: String(cause),
+          })
+        }
+      }
       await this.#config.coordinator.onCycleComplete?.()
       this.#config.logger.debug('scheduler.cycle.ok')
       this.#setState('idle')

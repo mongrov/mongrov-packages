@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { AnalyticsError } from '../errors'
+import { LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
 import { LAST_ATTACH_TTL_MS } from '../persistence'
 import { createAnalytics } from '../factory'
 import type { AnalyticsConfig, AnalyticsEngine, AnalyticsLogger, AnalyticsState, AttachContext, TokenResponse } from '../types'
@@ -118,12 +119,23 @@ describe('createAnalytics — attach / detach lifecycle', () => {
     await engine.attach(ATTACH_CTX)
     expect(engine.state).toBe('attached')
 
-    // Warehouse SECRET + ATTACH + baseline 15 local + 15 remote + step-2
-    // device_battery (1 local + 1 remote) = 32 schema DDLs (0.5.0 creates
-    // local + remote tables; 0.6.0 adds the device_battery migration).
+    // Warehouse SECRET + ATTACH + every migration's CREATE TABLE IF NOT
+    // EXISTS. Derived from TABLE_NAMES so adding a table doesn't require
+    // retuning this number:
+    //   baseline  = all tables locally + all-but-local-only remotely
+    //   step-2    = device_battery re-ensured in both catalogs
+    //   step-3    = remote insight (CREATE IF NOT EXISTS)
+    //   step-4    = user_baseline, local only
+    const expectedCreateTables
+      = TABLE_NAMES.length
+        + (TABLE_NAMES.length - LOCAL_ONLY_TABLES.size)
+        + 2
+        + 1
+        + 1
     expect(fakeDb.calls.some(c => c.sql.includes('CREATE OR REPLACE SECRET'))).toBe(true)
     expect(fakeDb.calls.some(c => c.sql.includes('ATTACH'))).toBe(true)
-    expect(fakeDb.calls.filter(c => c.sql.includes('CREATE TABLE IF NOT EXISTS')).length).toBe(32)
+    expect(fakeDb.calls.filter(c => c.sql.includes('CREATE TABLE IF NOT EXISTS')).length)
+      .toBe(expectedCreateTables)
 
     await engine.close()
   })
@@ -240,22 +252,51 @@ describe('createAnalytics — retention + persistence (Phase 6)', () => {
     await engine.close()
   })
 
-  it('attach runs retention sweep when brand default is set', async () => {
+  it('attach sweep targets the LOCAL catalog and skips pushed tables with no push watermark', async () => {
     const { config, fakeDb } = buildHarness()
     const brandCfg: AnalyticsConfig = { ...config, retention: { [ATTACH_CTX.brand]: { days: 90 } } }
     const engine = createAnalytics(brandCfg, { duckdbFactory: fakeDb.factory })
     await waitForState(engine, ['ready'])
     await engine.attach(ATTACH_CTX)
 
-    // 12 DELETE statements — one per retention-managed table.
     const deletes = fakeDb.calls.filter(c => c.sql.startsWith('DELETE FROM'))
-    expect(deletes.length).toBeGreaterThanOrEqual(12)
-    // Sensor tables should use the 90d effective retention.
-    expect(deletes.some(c => c.sql.includes('DELETE FROM') && c.sql.includes('hrv') && c.sql.includes(`INTERVAL '90 days'`))).toBe(true)
+    // No KVStore push watermarks exist → every pushed (syncable) table is
+    // skipped; only the never-pushed tool_call_audit gets its 30d cutoff.
+    expect(deletes).toHaveLength(1)
+    expect(deletes[0].sql).toContain('DELETE FROM memory.tool_call_audit')
+    expect(deletes[0].sql).toContain(`INTERVAL '30 days'`)
+    // Never the remote zone — device-side compaction is local-only.
+    expect(deletes.some(c => c.sql.includes('zone_fam123'))).toBe(false)
+
+    await engine.close()
+  })
+
+  it('attach sweep bounds pushed tables by their KVStore push watermark when present', async () => {
+    const { config, fakeDb, kvStore } = buildHarness()
+    const brandCfg: AnalyticsConfig = { ...config, retention: { [ATTACH_CTX.brand]: { days: 90 } } }
+    const wm = new Date('2026-07-01T00:00:00.000Z')
+    // Exact key format written by sync/watermark.ts.
+    kvStore.set(
+      `analytics:watermark:${ATTACH_CTX.brand}:${ATTACH_CTX.tenantId}:hrv:push`,
+      wm.toISOString(),
+    )
+    kvStore.set(
+      `analytics:watermark:${ATTACH_CTX.brand}:${ATTACH_CTX.tenantId}:insight:push`,
+      wm.toISOString(),
+    )
+    const engine = createAnalytics(brandCfg, { duckdbFactory: fakeDb.factory })
+    await waitForState(engine, ['ready'])
+    await engine.attach(ATTACH_CTX)
+
+    const deletes = fakeDb.calls.filter(c => c.sql.startsWith('DELETE FROM'))
+    // hrv + insight (watermarked) + tool_call_audit (never pushed).
+    expect(deletes).toHaveLength(3)
+    const hrvDelete = deletes.find(c => c.sql.includes('memory.hrv'))
+    expect(hrvDelete?.sql).toContain(`LEAST(now() - INTERVAL '90 days', CAST($pushWatermark AS TIMESTAMP))`)
+    expect(hrvDelete?.params).toEqual({ pushWatermark: wm.toISOString() })
     // Insight uses fixed 90d.
-    expect(deletes.some(c => c.sql.includes('.insight') && c.sql.includes(`INTERVAL '90 days'`))).toBe(true)
-    // Audit uses fixed 30d.
-    expect(deletes.some(c => c.sql.includes('.tool_call_audit') && c.sql.includes(`INTERVAL '30 days'`))).toBe(true)
+    const insightDelete = deletes.find(c => c.sql.includes('memory.insight'))
+    expect(insightDelete?.sql).toContain(`INTERVAL '90 days'`)
 
     await engine.close()
   })
@@ -277,6 +318,11 @@ describe('createAnalytics — retention + persistence (Phase 6)', () => {
   it('setRetention persists override and re-runs the sweep with the effective value', async () => {
     const { config, fakeDb, kvStore } = buildHarness()
     const brandCfg: AnalyticsConfig = { ...config, retention: { [ATTACH_CTX.brand]: { days: 60 } } }
+    // Watermark present so the hrv sweep actually issues a DELETE.
+    kvStore.set(
+      `analytics:watermark:${ATTACH_CTX.brand}:${ATTACH_CTX.tenantId}:hrv:push`,
+      new Date('2026-07-01T00:00:00.000Z').toISOString(),
+    )
     const engine = createAnalytics(brandCfg, { duckdbFactory: fakeDb.factory })
     await waitForState(engine, ['ready'])
     await engine.attach(ATTACH_CTX)
@@ -510,6 +556,75 @@ describe('createAnalytics — duckdb tuning (T-22)', () => {
     expect(engine.lastError).toBeInstanceOf(AnalyticsError)
     expect((engine.lastError as AnalyticsError).message).toContain(
       'invalid duckdb.threads',
+    )
+    await engine.close()
+  })
+})
+
+describe('engine.getFamilyMembers (principle 39)', () => {
+  it('delegates to familyMembersProvider and caches for 60s', async () => {
+    const { config, fakeDb } = buildHarness()
+    let calls = 0
+    const engine = createAnalytics(
+      {
+        ...config,
+        familyMembersProvider: async () => {
+          calls += 1
+          return ['alice', 'bob']
+        },
+      } as AnalyticsConfig,
+      { duckdbFactory: fakeDb.factory },
+    )
+    await waitForState(engine, ['ready'])
+    await engine.attach(ATTACH_CTX)
+    await waitForState(engine, ['attached'])
+
+    // attach() itself resolves the roster once (step 5, for retention
+    // math) and the machine does not surface that result, so the first
+    // getFamilyMembers() is the second provider call.
+    const afterAttach = calls
+    expect(await engine.getFamilyMembers()).toEqual(['alice', 'bob'])
+    expect(calls).toBe(afterAttach + 1)
+    // Second read inside the 60s TTL is served from cache.
+    expect(await engine.getFamilyMembers()).toEqual(['alice', 'bob'])
+    expect(calls).toBe(afterAttach + 1)
+
+    await engine.close()
+  })
+
+  it('returns [] when not attached (no tenant to resolve)', async () => {
+    const { config, fakeDb } = buildHarness()
+    const engine = createAnalytics(config, { duckdbFactory: fakeDb.factory })
+    await waitForState(engine, ['ready'])
+
+    expect(await engine.getFamilyMembers()).toEqual([])
+    await engine.close()
+  })
+
+  it('throws rather than caching or allowing when the provider fails', async () => {
+    // Membership is an authorization input — a provider failure must never
+    // resolve to a permissive or stale answer.
+    const { config, fakeDb } = buildHarness()
+    let attempts = 0
+    const engine = createAnalytics(
+      {
+        ...config,
+        familyMembersProvider: async () => {
+          attempts += 1
+          if (attempts === 1) return ['alice']
+          throw new Error('rxdb offline')
+        },
+      } as AnalyticsConfig,
+      { duckdbFactory: fakeDb.factory },
+    )
+    await waitForState(engine, ['ready'])
+    await engine.attach(ATTACH_CTX)
+    await waitForState(engine, ['attached'])
+
+    // attach() primes members via the provider (call 1); the engine cache
+    // is separate, so the first getFamilyMembers() is call 2 → throws.
+    await expect(engine.getFamilyMembers()).rejects.toBeInstanceOf(
+      AnalyticsError,
     )
     await engine.close()
   })

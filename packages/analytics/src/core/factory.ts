@@ -20,7 +20,8 @@ import { bootstrapExtensions } from './extensions'
 import { resolveLogger } from './logger'
 import type { MachineActors } from './machine'
 import { analyticsMachine } from './machine'
-import { ensureMigrations, REMOTE_NAMESPACE } from './migrations'
+import { dismissInsight as dismissInsightImpl } from './insight'
+import { ensureMigrations } from './migrations'
 import {
   clearLastAttach,
   loadLastAttach,
@@ -41,8 +42,10 @@ import type {
 import {
   attachLocal,
   attachWarehouse,
+  createViews,
   detachLocal,
   detachWarehouse,
+  dropViews,
   probeLocalCatalog,
   warehouseSecretName,
 } from './warehouse'
@@ -195,6 +198,7 @@ export function createAnalytics(
       }
 
       const localCatalog = await probeLocalCatalog(db)
+      localCatalogName = localCatalog
 
       await ensureMigrations(
         db,
@@ -202,12 +206,30 @@ export function createAnalytics(
         { brand: ctx.brand, tenantId: ctx.tenantId },
         { local: localCatalog, remote: remoteCatalog },
       )
+
+      // Union views last — they read the tables migrations just ensured,
+      // and DuckDB validates a view's body at CREATE time, so this must
+      // not run before the schema exists. View bodies inline brand +
+      // family_id (see generateViewDdl), which is why they are recreated
+      // on every attach rather than created once: a brand switch that
+      // reused the previous views would serve the previous tenant's rows.
+      await createViews(db, {
+        brand: ctx.brand,
+        familyId: ctx.tenantId,
+        localCatalog,
+        remoteCatalog,
+      })
       return {
         warehouseSecret: attach.warehouseSecret,
         tokenExpiresAt: attach.tokenExpiresAt.getTime(),
       }
     },
     async detachEngine({ ctx }) {
+      // Views first: they reference the remote catalog, so dropping them
+      // after DETACH would leave definitions pointing at a catalog that no
+      // longer exists. Best-effort inside dropViews, so a failure here can
+      // never strand the machine in `detaching`.
+      await dropViews(db)
       if (isLocal) {
         await detachLocal(db, ctx.tenantId)
       }
@@ -273,21 +295,109 @@ export function createAnalytics(
   let currentCtx: AttachContext | undefined
 
   /**
-   * Load user override (if any), resolve effective retention against the
-   * brand default from `AnalyticsConfig.retention`, run one sweep. Errors
-   * are re-thrown; callers may choose to swallow (attach-time sweep does).
+   * Local DuckDB catalog name, probed during attach. The retention sweep
+   * targets this catalog in BOTH modes — device-side compaction prunes
+   * local data only; the remote R2 zone is never swept by the client
+   * (principles 17/53 — server-side retention is R2 snapshot expiration).
    */
-  async function sweep(ctx: AttachContext, catalog: string): Promise<void> {
+  let localCatalogName: string | undefined
+
+  /**
+   * Family-membership cache backing `engine.getFamilyMembers()`
+   * (analytics-core/spec.md §Family membership resolution — "cached
+   * in-engine for 60 seconds, invalidated on `family:update`"). Keyed by
+   * `${brand}:${familyId}` so a brand switch can never serve the previous
+   * tenant's roster.
+   */
+  const FAMILY_MEMBERS_TTL_MS = 60_000
+  let familyMembersCache:
+    | { key: string, members: string[], expiresAt: number }
+    | undefined
+
+  config.eventBus?.subscribe('family:update', () => {
+    familyMembersCache = undefined
+  })
+
+  async function getFamilyMembers(): Promise<string[]> {
+    // Org tenants + local mode have no family fanout; unattached has no
+    // tenant at all. Empty means "no fanout", never "denied".
+    if (!currentCtx || currentCtx.tenantScope !== 'family') return []
+    const r2 = config as Partial<R2AnalyticsConfig>
+    if (typeof r2.familyMembersProvider !== 'function') return []
+
+    const key = `${currentCtx.brand}:${currentCtx.tenantId}`
+    const now = Date.now()
+    if (familyMembersCache?.key === key && familyMembersCache.expiresAt > now) {
+      return familyMembersCache.members
+    }
+
+    try {
+      const members = await r2.familyMembersProvider({
+        brand: currentCtx.brand,
+        familyId: currentCtx.tenantId,
+      })
+      familyMembersCache = {
+        key,
+        members,
+        expiresAt: now + FAMILY_MEMBERS_TTL_MS,
+      }
+      return members
+    }
+    catch (cause) {
+      // Membership is an authorization input — a provider failure must not
+      // be cached, and must not resolve to a permissive answer.
+      log.error('analytics.getFamilyMembers: provider failed', {
+        familyId: currentCtx.tenantId,
+        err: (cause as Error).message,
+      })
+      familyMembersCache = undefined
+      throw new AnalyticsError(
+        'family_members_failed',
+        `familyMembersProvider failed for ${currentCtx.tenantId}`,
+        cause,
+      )
+    }
+  }
+
+  /**
+   * Resolve the push watermark the pusher persists for `table`. Key format
+   * must match sync/watermark.ts exactly:
+   * `analytics:watermark:{brand}:{familyId}:{table}:push` → ISO string.
+   * Reads the raw KVStore key (not WatermarkStore) because the sweep needs
+   * "missing" to mean "nothing pushed — delete nothing", whereas
+   * WatermarkStore.get substitutes a fresh-install horizon.
+   */
+  async function readPushWatermark(ctx: AttachContext, table: string): Promise<Date | null> {
+    const iso = await config.storage.get<string>(
+      `analytics:watermark:${ctx.brand}:${ctx.tenantId}:${table}:push`,
+    )
+    if (typeof iso === 'string') {
+      const parsed = new Date(iso)
+      if (!Number.isNaN(parsed.getTime())) return parsed
+    }
+    return null
+  }
+
+  /**
+   * Load user override (if any), resolve effective retention against the
+   * brand default from `AnalyticsConfig.retention`, run one sweep over the
+   * LOCAL catalog. Errors are re-thrown; callers may choose to swallow
+   * (attach-time sweep does).
+   */
+  async function sweep(ctx: AttachContext): Promise<void> {
     const brandCfg = config.retention[ctx.brand]
     const brandDefault = brandCfg?.days ?? 0
     const userOverride = (await loadRetentionOverride(config.storage, ctx)) ?? undefined
     const effectiveDays = resolveEffectiveRetention({ brandDefault, userOverride })
     if (effectiveDays <= 0) return
-    // R2 mode: the swept catalog is the attached Iceberg zone, whose
-    // tables live under the explicit namespace (no `USE` since 0.5.0).
-    // Local mode: 2-part `<catalog>.<table>` resolves implicitly.
-    const target = isLocal ? catalog : `${catalog}.${REMOTE_NAMESPACE}`
-    await runRetentionSweep(db, target, { effectiveDays })
+    const target = localCatalogName ?? await probeLocalCatalog(db)
+    await runRetentionSweep(db, target, {
+      effectiveDays,
+      mode,
+      // Local mode: no push exists (or ever will) — data is local-forever
+      // by design, so the plain retention cutoff applies unguarded.
+      getPushWatermark: isLocal ? undefined : table => readPushWatermark(ctx, table),
+    })
   }
 
   /**
@@ -325,6 +435,12 @@ export function createAnalytics(
         throw actor.getSnapshot().context.lastError ?? new AnalyticsError('attach_failed', 'attach failed')
       }
       currentCtx = ctx
+      // A previous tenant's roster must never survive a re-attach; the
+      // cache key guards this too, but clearing here keeps brand-switch
+      // isolation obvious. (Attach step 5 also resolves members, for
+      // retention math, but the machine does not surface that result —
+      // so the first getFamilyMembers() pays one provider call.)
+      familyMembersCache = undefined
       log.info('analytics.attached', {
         brand: ctx.brand,
         tenantId: ctx.tenantId,
@@ -338,14 +454,11 @@ export function createAnalytics(
       catch (cause) {
         log.warn('analytics.persist.last_attach_failed', { cause })
       }
-      const catalog = actor.getSnapshot().context.warehouseSecret
-      if (catalog) {
-        try {
-          await sweep(ctx, catalog)
-        }
-        catch (cause) {
-          log.warn('analytics.retention.sweep_failed', { cause })
-        }
+      try {
+        await sweep(ctx)
+      }
+      catch (cause) {
+        log.warn('analytics.retention.sweep_failed', { cause })
       }
     },
     async detach() {
@@ -402,16 +515,20 @@ export function createAnalytics(
       publicSubscribers.add(listener)
       return () => publicSubscribers.delete(listener) as unknown as void
     },
+    getFamilyMembers,
+    async dismissInsight(args) {
+      assertAttached(currentState(actor), 'dismissInsight')
+      await dismissInsightImpl(args, {
+        analytics: engine,
+        eventBus: config.eventBus,
+      })
+    },
     async setRetention(days) {
       if (!currentCtx) {
         throw new AnalyticsError('not_attached', 'setRetention requires an attached engine')
       }
-      const catalog = actor.getSnapshot().context.warehouseSecret
-      if (!catalog) {
-        throw new AnalyticsError('not_attached', 'setRetention: no warehouse catalog')
-      }
       await saveRetentionOverride(config.storage, currentCtx, days)
-      await sweep(currentCtx, catalog)
+      await sweep(currentCtx)
     },
     async getLastAttach(brand: string) {
       return loadLastAttach(config.storage, brand)

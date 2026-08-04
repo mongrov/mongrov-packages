@@ -23,6 +23,7 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
     familyMembersProvider,
     brand,
     familyId,
+    eventBus,
     logger,
     clock = () => new Date(),
   } = config
@@ -45,7 +46,11 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
     familyId,
     familyMembersProvider,
     clock,
+    eventBus,
     logger,
+    // Sprint 5 T-23 — same KVStore the throttle uses; user_setting
+    // thresholds live under `analytics:{userId}:{key}`.
+    storage,
   })
 
   let closed = false

@@ -31,8 +31,8 @@ describe('compileRule — absolute target', () => {
     expect(compiled.sql).toContain('$userId')
     expect(compiled.sql).toContain('$brand')
     expect(compiled.sql).toContain('$familyId')
-    expect(compiled.sql).toContain('AVG(hrv_ms)')
-    expect(compiled.sql).toContain('FROM hrv')
+    expect(compiled.sql).toContain('AVG(m.hrv_ms)')
+    expect(compiled.sql).toContain('FROM v_hrv m')
     expect(compiled.sql).toContain(`INTERVAL '24 hours'`)
     expect(compiled.params.threshold_absolute).toBe(40)
   })
@@ -49,7 +49,7 @@ describe('compileRule — baseline_percent', () => {
       make({ target: { type: 'baseline_percent', windowDays: 7, percent: 70 } }),
     )
     expect(compiled.sql).toContain('WITH baseline AS')
-    expect(compiled.sql).toContain('AVG(hrv_ms)')
+    expect(compiled.sql).toContain('AVG(m.hrv_ms)')
     expect(compiled.sql).toContain('$pct / 100.0')
     expect(compiled.sql).toContain('(INTERVAL 1 DAY) * $baselineDays')
     expect(compiled.params.baselineDays).toBe(7)
@@ -90,7 +90,7 @@ describe('compileRule — sleep_session uses ts_start', () => {
       }),
     )
     expect(compiled.sql).toContain('ts_start >')
-    expect(compiled.sql).toContain('FROM sleep_session')
+    expect(compiled.sql).toContain('FROM v_sleep_session m')
   })
 })
 

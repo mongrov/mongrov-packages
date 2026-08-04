@@ -6,6 +6,13 @@ import { parseCatalog } from './loader'
 import type { Rule } from '../schema'
 
 const TOML = `
+# YogaRing brand default rules (placeholder set for v0.1.0).
+#
+# YogaRing focuses on session-adjacent metrics; v0.1.0 ships a stress
+# nudge + a low-activity nudge derived from the shared metric surface.
+#
+# See \`yogaring.ts\` — this file is the source of truth.
+
 [[rule]]
 id = "yogaring.stress-elevated"
 brand = "yogaring"

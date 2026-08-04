@@ -1,10 +1,32 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createFakeEngine } from '../../__fakes__/engine'
 import { createAnalyticsTools, type AnalyticsToolsHandle } from '../../factory'
+import { McpDisabledError } from '../guard'
 import type { ToolContext } from '../../types'
 import { createMcpServer, type McpServerHandle } from '../server'
+
+// `createMcpServer` enforces the principle-41 guard: dev build AND flag.
+// Satisfy both for the suite; restore afterwards.
+const originalDev = (globalThis as Record<string, unknown>).__DEV__
+const originalFlag = process.env.ENABLE_MCP_SERVER
+
+beforeAll(() => {
+  ;(globalThis as Record<string, unknown>).__DEV__ = true
+  process.env.ENABLE_MCP_SERVER = '1'
+})
+
+afterAll(() => {
+  if (originalDev === undefined) {
+    delete (globalThis as Record<string, unknown>).__DEV__
+  }
+  else {
+    ;(globalThis as Record<string, unknown>).__DEV__ = originalDev
+  }
+  if (originalFlag === undefined) delete process.env.ENABLE_MCP_SERVER
+  else process.env.ENABLE_MCP_SERVER = originalFlag
+})
 
 const baseCtx: ToolContext = {
   requesterUserId: 'alice',
@@ -66,7 +88,7 @@ describe('createMcpServer', () => {
     await wired.dispose()
   })
 
-  it('list_tools returns all six analytics tools with JSON Schemas', async () => {
+  it('list_tools returns all seven analytics tools with JSON Schemas', async () => {
     const res = await wired.client.listTools()
     const names = res.tools.map(t => t.name).sort()
     expect(names).toEqual([
@@ -76,6 +98,7 @@ describe('createMcpServer', () => {
       'getHRV',
       'getInsights',
       'getSleepSummary',
+      'getSpO2',
     ])
     for (const t of res.tools) {
       expect(typeof t.description).toBe('string')
@@ -122,5 +145,37 @@ describe('createMcpServer', () => {
     expect(content[0].text).toContain('context not set')
     // Wrapper wrote a text result (not a JSON-RPC error) — isError falsy.
     expect(res.isError).toBeFalsy()
+  })
+})
+
+describe('createMcpServer — production guard (principle 41)', () => {
+  it('throws McpDisabledError in a prod-like env (no __DEV__, no flag)', () => {
+    delete (globalThis as Record<string, unknown>).__DEV__
+    delete process.env.ENABLE_MCP_SERVER
+    try {
+      const engine = createFakeEngine()
+      const handle = createAnalyticsTools({
+        analytics: engine,
+        rateLimit: false,
+        audit: { enabled: false },
+      })
+      expect(() => createMcpServer({ toolsHandle: handle }))
+        .toThrow(McpDisabledError)
+    }
+    finally {
+      // Restore the suite-level dev+flag state for subsequent tests.
+      ;(globalThis as Record<string, unknown>).__DEV__ = true
+      process.env.ENABLE_MCP_SERVER = '1'
+    }
+  })
+
+  it('works with __DEV__ true AND ENABLE_MCP_SERVER=1 (suite state)', () => {
+    const engine = createFakeEngine()
+    const handle = createAnalyticsTools({
+      analytics: engine,
+      rateLimit: false,
+      audit: { enabled: false },
+    })
+    expect(() => createMcpServer({ toolsHandle: handle })).not.toThrow()
   })
 })

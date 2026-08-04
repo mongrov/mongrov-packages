@@ -67,8 +67,9 @@ describe('mapFirmwareExport', () => {
     expect(batch.activity_bucket).toHaveLength(2)
     // Only one qualifying primary session; the 14:00 nap is dropped.
     expect(batch.sleep_session).toHaveLength(1)
-    // 2 stage blocks live under the qualifying session.
-    expect(batch.sleep_stage).toHaveLength(2)
+    // 1 stage block under the qualifying session — the `primary` block is
+    // the session envelope, not a stage (DDL stage enum has no code for it).
+    expect(batch.sleep_stage).toHaveLength(1)
     // Every input sleep row lives in raw.
     expect(batch.sleep_raw).toHaveLength(3)
     // 2 battery samples → device_battery (0.6.0 fix B2); the generic
@@ -86,9 +87,10 @@ describe('mapFirmwareExport', () => {
     expect(batch.hrv[1].vascular_aging).toBeNull()
     expect(batch.hrv[1].hrv_ms).toBe(45)
 
-    // Sleep session id + night_of correctness.
-    expect(batch.sleep_session[0].session_id).toBe(
-      `user_alice:${new Date('2026-06-18T05:00:00Z').toISOString()}`,
+    // Sleep session id shape (principle 25: nanoid(24) + '_' + fnv1a32hex)
+    // + night_of correctness.
+    expect(batch.sleep_session[0].session_id).toMatch(
+      /^[A-Za-z0-9_-]{24}_[0-9a-f]{8}$/,
     )
     // 2026-06-18 05:00 UTC = 2026-06-17 22:00 LA → night_of = 2026-06-17.
     expect(batch.sleep_session[0].night_of.toISOString()).toBe(

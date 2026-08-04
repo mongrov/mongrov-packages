@@ -25,6 +25,7 @@ import {
 import type { AnalyticsToolsHandle } from '../factory'
 import type { ToolsLogger } from '../types'
 import { type McpTool, toMcpTools } from './adapter'
+import { assertMcpAllowed } from './guard'
 
 export interface CreateMcpServerConfig {
   toolsHandle: AnalyticsToolsHandle
@@ -47,6 +48,10 @@ export interface McpServerHandle {
 export function createMcpServer(
   config: CreateMcpServerConfig,
 ): McpServerHandle {
+  // Principle 41: MCP is dev-only. Enforced here (not just advisory via
+  // `shouldStartMcpServer`) so a prod runtime can never wire a server.
+  assertMcpAllowed()
+
   const mcpTools: McpTool[] = toMcpTools(config.toolsHandle)
   const byName = new Map(mcpTools.map(t => [t.name, t] as const))
 

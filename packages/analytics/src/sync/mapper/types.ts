@@ -21,6 +21,13 @@ export interface MapperContext {
   deviceId: string
   /** IANA timezone string, e.g. 'America/Los_Angeles'. */
   userTimezone: string
+  /**
+   * Random-id source for session ids (principle 25). Defaults to
+   * `() => nanoid(24)`. Injectable so tests can keep the mapper
+   * deterministic — the hash suffix of a session id is always
+   * deterministic regardless of this generator.
+   */
+  idGenerator?: () => string
 }
 
 // -------------------- firmware input --------------------
@@ -62,9 +69,21 @@ export interface FirmwareActivityRow {
 export interface FirmwareSleepRow {
   start: string // session start
   end: string
-  block_type: string // 'primary' | 'light' | 'deep' | 'rem' | ...
+  block_type: string // 'primary' | 'light' | 'deep' | 'rem' | 'awake'
   confidence: number
   timestamp: string // block instant
+  /**
+   * Raw per-block quality score, when the firmware revision carries one.
+   * Passed through verbatim to `sleep_raw.quality`. Revisions that omit it
+   * fall back to `round(confidence * 100)` — see `mapper/sleep.ts`.
+   */
+  quality?: number
+  /**
+   * Block width in minutes, when the firmware revision carries one.
+   * Passed through verbatim to `sleep_raw.unit_length`; drives stage-minute
+   * accumulation. Defaults to `DEFAULT_BLOCK_MINUTES` (1) when absent.
+   */
+  unit_length?: number
 }
 
 export interface FirmwareBatteryRow {
@@ -96,12 +115,21 @@ export interface FirmwareExport {
 
 // -------------------- mapped output --------------------
 
-interface BaseRow {
-  ts: Date
+/**
+ * Tenant columns every warehouse row carries (spec §Table schema —
+ * "every sensor row carries brand, family_id, user_id"). Split out from
+ * `BaseRow` because `sleep_session` has no `ts` column: its time axis is
+ * `ts_start` / `ts_end`.
+ */
+interface TenantRow {
   brand: string
   family_id: string
   user_id: string
   device_id: string
+}
+
+interface BaseRow extends TenantRow {
+  ts: Date
 }
 
 export interface HrvRow extends BaseRow {
@@ -128,27 +156,56 @@ export interface ActivityRow extends BaseRow {
   steps: number
 }
 
+/**
+ * `activity_bucket` warehouse row — 10-min calories/distance. Steps are NOT
+ * carried here: they live in `activity` at 1-min resolution after unnest
+ * (spec §Table schema). A `steps` field here would silently double-count.
+ */
 export interface ActivityBucketRow extends BaseRow {
-  steps: number
   calories: number
   distance_km: number
 }
 
-export interface SleepSessionRow extends BaseRow {
+/**
+ * `sleep_session` warehouse row. Column names + nullability mirror the DDL
+ * in `core/schemas.ts` exactly, so `row[c]` keyed by
+ * `columnOrder.sleep_session` yields correct positional appender input.
+ *
+ * No `ts` — the DDL partitions on `day(ts_start)`.
+ */
+export interface SleepSessionRow extends TenantRow {
   session_id: string
-  start_ts: Date
-  end_ts: Date
+  ts_start: Date
+  ts_end: Date
+  total_minutes: number
+  deep_minutes: number | null
+  rem_minutes: number | null
+  light_minutes: number | null
+  awake_minutes: number | null
+  avg_confidence: number | null
   night_of: Date
 }
 
+/**
+ * `sleep_stage` warehouse row. `stage` is the DDL's integer code
+ * (`SLEEP_STAGE_CODES`), never the raw firmware `block_type` string —
+ * principle 20: firmware enums do not reach our schema.
+ */
 export interface SleepStageRow extends BaseRow {
   session_id: string
-  stage: string
-  confidence: number
+  stage: number
+  confidence: number | null
 }
 
+/**
+ * `sleep_raw` warehouse row (`collected_only`). Preserves each firmware
+ * block for reprocessing, flattened onto the DDL's columns rather than
+ * stashed as an opaque payload blob.
+ */
 export interface SleepRawRow extends BaseRow {
-  payload: FirmwareSleepRow
+  ts_session_start: Date
+  quality: number
+  unit_length: number | null
 }
 
 export interface DeviceEventRow extends BaseRow {
@@ -174,7 +231,7 @@ export interface DeviceBatteryRow extends BaseRow {
  * (`data_type`, `start_time`, `end_time`, `weeks`) are produced by a
  * consumer-provided `RingConfigTranslator` (see below).
  */
-export interface DeviceConfigRow extends BaseRow {
+export interface DeviceConfigRow extends TenantRow {
   data_type: number
   interval_minutes: number
   start_time: string | null

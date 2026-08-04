@@ -18,9 +18,20 @@ export type Engine = 'duckdb' | 'rxdb' | 'kv'
  * active session (see spec.md §Tenant auto-binding).
  */
 export interface RequestContext {
-  requesterUserId: string
+  /** Canonical requester identity (spec.md §Tenant auto-binding). */
+  userId: string
+  /**
+   * @deprecated Use `userId`. Kept as a read-only alias so pre-rename
+   * consumers keep working; the provider populates both.
+   */
+  readonly requesterUserId?: string
   brand: string
   familyId: string
+  /**
+   * IANA timezone of the active session (e.g. "America/New_York").
+   * Auto-bound into DuckDB params as `$tz` by mergeTenantParams.
+   */
+  timezone: string
   now: () => Date
 }
 
@@ -63,6 +74,20 @@ export interface DuckdbQueryConfig<TInput, TOutput>
   extends QueryConfigBase<TInput, TOutput> {
   engine: 'duckdb'
   sql: string
+  /**
+   * Repo-relative path to an app-owned pure post-query derivation module
+   * (e.g. "apps/zivaone/src/features/spo2/utils/derive-day.ts").
+   * Documentation / registry metadata only — the package never resolves
+   * or imports this path at runtime; the app applies the derivation.
+   */
+  transform?: string
+  /**
+   * T-34 — explicit background-fetch override (principle 57).
+   * When set, it wins outright. When omitted, asyncFetch is inferred per
+   * execution: true when the caller's `input.days` is numeric and exceeds
+   * the provider's `brandRetentionDays`. See resolveAsyncFetch in ./define.
+   */
+  asyncFetch?: boolean
 }
 
 export interface RxdbQueryConfig<TInput, TOutput>
@@ -98,10 +123,35 @@ export interface QueryDefinition<TInput, TOutput> {
   readonly __types?: { input: TInput; output: TOutput }
 }
 
+/**
+ * Extended context passed to mutation `exec` (spec.md §Tenant
+ * auto-binding). Grants engine write access so mutations can cross
+ * storage tiers; the surfaces are structural (type-only) so this
+ * package never imports @mongrov/analytics or @mongrov/db at runtime.
+ * Authorize hooks still receive only RequestContext.
+ */
+export interface MutationContext extends RequestContext {
+  /** KV write access (MMKV/SecureStore via the provider's kv engine). */
+  kv: {
+    get(key: string): Promise<unknown>
+    set(key: string, value: unknown): Promise<void>
+    delete?(key: string): Promise<void>
+  }
+  /** Analytics engine access — for internal mutations like dismissInsight. */
+  analytics: {
+    dismissInsight(args: { insightId: string; userId: string }): Promise<void>
+    execute?(sql: string, params?: Record<string, unknown>): Promise<unknown[]>
+  }
+  /** RxDB write access — for collab mutations. Opaque handle. */
+  rxdb?: unknown
+  /** Emit an event manually (in addition to auto-emit from `invalidates`). */
+  emit(event: string, payload?: unknown): void
+}
+
 export interface MutationConfig<TInput, TOutput> {
   input?: z.ZodType<TInput>
   output?: z.ZodType<TOutput>
-  exec: (input: TInput, ctx: RequestContext) => Promise<TOutput>
+  exec: (input: TInput, ctx: MutationContext) => Promise<TOutput>
   invalidates?: string[]
   authorize?: (
     input: TInput,
@@ -128,7 +178,11 @@ export interface EventDefinition<TPayload> {
 export interface Registry {
   queries: Record<string, QueryDefinition<unknown, unknown>>
   mutations: Record<string, MutationDefinition<unknown, unknown>>
-  events: Record<string, EventDefinition<unknown>>
+  /**
+   * `undefined` marks an untyped event — a valid registry entry whose
+   * name is subscribable but whose payload carries no schema.
+   */
+  events: Record<string, EventDefinition<unknown> | undefined>
 }
 
 /**
@@ -145,5 +199,11 @@ export interface DataAccessProviderProps {
   engines: unknown
   context: () => RequestContext
   bus?: EventBus
+  /**
+   * T-34 — brand data-retention horizon in days. Queries whose
+   * `input.days` exceeds this are implicitly asyncFetch (principle 57).
+   * Omitted → asyncFetch is never inferred (explicit flags still apply).
+   */
+  brandRetentionDays?: number
   children?: unknown
 }

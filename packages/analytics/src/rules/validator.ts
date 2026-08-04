@@ -74,6 +74,9 @@ function samplingLabel(metric: MetricId): string {
  * When rawSql is present with `exposureOverride: true`, emits a warn via `logger`.
  */
 export function validateRule(rule: Rule, logger?: RulesLogger): void {
+  validateConsecutive(rule)
+  validateContext(rule)
+
   const allowed = allowedWindowsFor(rule.metric)
   if (!allowed.includes(rule.window)) {
     throw new RuleValidationError(
@@ -96,6 +99,69 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
         columns: references,
       })
     }
+  }
+}
+
+/**
+ * T-21 — `consecutive x effective_sampling_minutes` must fit the window.
+ *
+ * A rule asking for 3 consecutive HRV samples (60-min cadence) inside a 1h
+ * window is unsatisfiable: the window holds at most one sample, so the
+ * rule can never fire and the author gets silence instead of an error.
+ *
+ * `effective` sampling comes from `device_config.interval_minutes` at eval
+ * time when a row exists (principle 22); at register time only the
+ * `metric_metadata` fallback is known, so this check uses the fallback and
+ * is deliberately permissive — a denser real device only makes a rule MORE
+ * satisfiable, never less.
+ */
+function validateConsecutive(rule: Rule): void {
+  const n = rule.consecutive
+  if (n === undefined || n <= 1) return
+
+  // Baseline targets resolve per-window, not per-sample; the compiler has
+  // no correct query shape for the combination.
+  if (rule.target.type === 'baseline_percent' || rule.target.type === 'baseline_stddev') {
+    throw new RuleValidationError(
+      `Rule ${rule.id}: consecutive is not supported with target.type `
+      + `'${rule.target.type}' — baseline targets resolve per-window, not `
+      + `per-sample. Use absolute or user_setting, or drop consecutive.`,
+    )
+  }
+
+  const cadence = METRIC_METADATA[rule.metric].sampling_minutes
+  if (cadence === 'per_session') {
+    // One value per night; "consecutive samples" means consecutive nights,
+    // which the window already bounds.
+    return
+  }
+
+  const needed = n * cadence
+  const available = WINDOW_MINUTES[rule.window]
+  if (needed > available) {
+    throw new RuleValidationError(
+      `Rule ${rule.id}: consecutive ${n} x ${cadence}min sampling needs `
+      + `${needed}min but window ${rule.window} is only ${available}min. `
+      + `The rule could never fire. Widen the window or lower consecutive.`,
+    )
+  }
+}
+
+/**
+ * T-21 — context compatibility.
+ *
+ * `context: 'asleep'` JOINs `v_sleep_session` on the metric's `ts`, so a
+ * metric whose own time axis IS the sleep session (sleep_total_minutes)
+ * would self-join meaninglessly.
+ */
+function validateContext(rule: Rule): void {
+  if (rule.context === 'any') return
+  const table = METRIC_METADATA[rule.metric].table
+  if (table === 'sleep_session') {
+    throw new RuleValidationError(
+      `Rule ${rule.id}: context '${rule.context}' is redundant for metric `
+      + `${rule.metric} — it is already a per-session measure. Use context 'any'.`,
+    )
   }
 }
 

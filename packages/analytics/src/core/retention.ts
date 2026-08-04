@@ -9,9 +9,18 @@
  *      that would preserve data wins.
  *
  *   2. **Sweep** the warehouse via `runRetentionSweep` — issues one DELETE
- *      per retention-managed table, guarded by the per-table push watermark
- *      from `sync_watermark` so rows still awaiting server sync are never
- *      dropped (spec Fix 9).
+ *      per retention-managed table in the LOCAL catalog. The client never
+ *      sweeps the remote R2 zone (principles 17/53): device-side compaction
+ *      prunes local data only; server-side retention is R2 snapshot
+ *      expiration, configured externally.
+ *
+ * Watermark guard (fix CO-1): tables the pusher pushes (`syncable` in
+ * `table_metadata.ts`) are bounded by their KVStore push watermark —
+ * `ts < LEAST(now() - retention, $pushWatermark)` — so rows still awaiting
+ * R2 push are never dropped. No watermark yet (nothing pushed) means the
+ * table is skipped entirely. In `'local'` mode there is no push and never
+ * will be — data is local-forever by design — so the plain retention
+ * cutoff applies without any watermark guard.
  *
  * Internal tables have fixed defaults independent of brand/user config:
  *   - `insight`          → 90 days
@@ -24,6 +33,8 @@
 import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
 import type { TableName } from './schemas'
+import { isSyncable } from './table_metadata'
+import type { AnalyticsMode } from './types'
 
 // -------------------- precedence resolution --------------------
 
@@ -61,15 +72,13 @@ export function resolveEffectiveRetention(input: EffectiveRetentionInput): numbe
  *   - `insight` → uses fixed 90d
  *   - `audit`   → uses fixed 30d
  *
- * `tsColumn` names the timestamp column the DELETE uses; `watermarkKind`
- * is the `kind` filter for the `sync_watermark` lookup (spec uses
- * per-metric `kind` per table).
+ * `tsColumn` names the timestamp column the DELETE uses. Whether a table
+ * gets the push-watermark guard comes from `table_metadata.ts` `syncable`
+ * — the guard covers exactly the tables the pusher pushes.
  */
 interface TableRetention {
   tsColumn: string
   kind: 'sensor' | 'insight' | 'audit'
-  /** Filter used against `sync_watermark.kind`; defaults to the table name. */
-  watermarkKind?: string
 }
 
 const TABLE_RETENTION: Readonly<Record<TableName, TableRetention | null>> = Object.freeze({
@@ -90,6 +99,11 @@ const TABLE_RETENTION: Readonly<Record<TableName, TableRetention | null>> = Obje
   insight: { tsColumn: 'ts', kind: 'insight' },
   sync_watermark: null,
   tool_call_audit: { tsColumn: 'ts', kind: 'audit' },
+  // Never swept: one row per (user, metric, window) that the baseline
+  // job UPSERTs in place. There is no growth to reclaim, and deleting
+  // by `computed_at` would drop live baselines for any metric whose
+  // recompute is stale.
+  user_baseline: null,
 })
 
 // -------------------- constants --------------------
@@ -101,9 +115,29 @@ export const AUDIT_RETENTION_DAYS = 30
 
 // -------------------- sweep --------------------
 
+/**
+ * Push-watermark accessor injected by the factory. Resolves the highest
+ * `ts` successfully pushed to R2 for `table` — read from the KVStore key
+ * the pusher writes (`analytics:watermark:{brand}:{familyId}:{table}:push`,
+ * see sync/watermark.ts). `null` means nothing pushed yet.
+ */
+export type PushWatermarkAccessor = (table: TableName) => Promise<Date | null>
+
 export interface RetentionSweepInput {
   /** Effective retention days for sensor tables (see `resolveEffectiveRetention`). */
   effectiveDays: number
+  /**
+   * Attach mode. `'local'` applies plain retention cutoffs — there is no
+   * push in local mode, so nothing ever "reaches R2" and the watermark
+   * guard would block deletion forever. Defaults to `'r2'`.
+   */
+  mode?: AnalyticsMode
+  /**
+   * Required in r2 mode to sweep syncable tables. Missing accessor or a
+   * `null` watermark ⇒ the table is skipped (spec: no data deleted before
+   * it reaches R2).
+   */
+  getPushWatermark?: PushWatermarkAccessor
 }
 
 export interface RetentionSweepEntry {
@@ -113,25 +147,25 @@ export interface RetentionSweepEntry {
 
 export interface RetentionSweepResult {
   swept: RetentionSweepEntry[]
+  /** Syncable tables left untouched because no push watermark exists yet. */
+  skipped: TableName[]
 }
 
 /**
- * Delete expired rows across every retention-managed table under `catalog`,
- * bounded by each table's push watermark (`sync_watermark.cursor_ts`).
+ * Delete expired rows across every retention-managed table under `catalog`
+ * (the LOCAL DuckDB catalog — never the attached R2 zone).
  *
  * SQL shape per table:
  *
  * ```sql
+ * -- pushed (syncable) tables, r2 mode:
  * DELETE FROM {catalog}.{table}
- *  WHERE {tsCol} < LEAST(
- *    now() - INTERVAL '{days} days',
- *    (SELECT MAX(cursor_ts) FROM {catalog}.sync_watermark
- *      WHERE table_name = '{table}')
- *  );
+ *  WHERE {tsCol} < LEAST(now() - INTERVAL '{days} days',
+ *                        CAST($pushWatermark AS TIMESTAMP));
+ * -- non-pushed tables, and every table in local mode:
+ * DELETE FROM {catalog}.{table}
+ *  WHERE {tsCol} < now() - INTERVAL '{days} days';
  * ```
- *
- * When no watermark exists, `MAX` returns NULL, `LEAST` becomes NULL and the
- * comparison drops to false — safest default (no deletion on unsynced data).
  *
  * Failure at any table surfaces as `AnalyticsError('retention_failed', …)`;
  * the caller decides whether to swallow-and-log or bubble.
@@ -141,16 +175,31 @@ export async function runRetentionSweep(
   catalog: string,
   input: RetentionSweepInput,
 ): Promise<RetentionSweepResult> {
+  const mode = input.mode ?? 'r2'
   const swept: RetentionSweepEntry[] = []
+  const skipped: TableName[] = []
   const tableNames = Object.keys(TABLE_RETENTION) as TableName[]
   for (const table of tableNames) {
     const cfg = TABLE_RETENTION[table]
     if (!cfg) continue
 
     const days = daysForKind(cfg.kind, input.effectiveDays)
-    const sql = buildDeleteSql({ catalog, table, tsCol: cfg.tsColumn, days })
+    const guarded = mode !== 'local' && isSyncable(table)
+    let params: Record<string, unknown> | undefined
+    if (guarded) {
+      const watermark = (await input.getPushWatermark?.(table)) ?? null
+      if (!watermark) {
+        // Nothing pushed yet — deleting would lose data that never
+        // reached R2. Leave the table alone until the pusher advances.
+        skipped.push(table)
+        continue
+      }
+      params = { pushWatermark: watermark.toISOString() }
+    }
+
+    const sql = buildDeleteSql({ catalog, table, tsCol: cfg.tsColumn, days, watermarkBound: guarded })
     try {
-      await db.execute(sql)
+      await db.execute(sql, params)
       swept.push({ table, days })
     }
     catch (cause) {
@@ -161,7 +210,7 @@ export async function runRetentionSweep(
       )
     }
   }
-  return { swept }
+  return { swept, skipped }
 }
 
 function daysForKind(kind: TableRetention['kind'], effective: number): number {
@@ -180,6 +229,8 @@ interface DeleteSqlInput {
   table: TableName
   tsCol: string
   days: number
+  /** Bound by `$pushWatermark` (ISO string param, cast to TIMESTAMP). */
+  watermarkBound?: boolean
 }
 
 /**
@@ -187,12 +238,10 @@ interface DeleteSqlInput {
  * the exact SQL issued without a live engine.
  */
 export function buildDeleteSql(input: DeleteSqlInput): string {
-  const { catalog, table, tsCol, days } = input
-  return (
-    `DELETE FROM ${catalog}.${table} `
-    + `WHERE ${tsCol} < LEAST(`
-    + `now() - INTERVAL '${days} days', `
-    + `(SELECT MAX(cursor_ts) FROM ${catalog}.sync_watermark WHERE table_name = '${table}')`
-    + `);`
-  )
+  const { catalog, table, tsCol, days, watermarkBound } = input
+  const cutoff = `now() - INTERVAL '${days} days'`
+  const bound = watermarkBound
+    ? `LEAST(${cutoff}, CAST($pushWatermark AS TIMESTAMP))`
+    : cutoff
+  return `DELETE FROM ${catalog}.${table} WHERE ${tsCol} < ${bound};`
 }

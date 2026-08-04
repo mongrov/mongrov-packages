@@ -42,9 +42,25 @@ export const TABLE_NAMES = [
   'insight',
   'sync_watermark',
   'tool_call_audit',
+  'user_baseline',
 ] as const
 
 export type TableName = (typeof TABLE_NAMES)[number]
+
+/**
+ * Tables that exist only in the local catalog and are never created in the
+ * attached R2 zone.
+ *
+ * `user_baseline` is derived data: it is recomputed from the union views
+ * after each sync cycle and is cheap to rebuild, so pushing it would add an
+ * Iceberg table nobody reads and invite two devices in the same family to
+ * race on the same composite PK. `sync_watermark` is per-device sync
+ * bookkeeping and meaningless outside the device that wrote it.
+ */
+export const LOCAL_ONLY_TABLES: ReadonlySet<TableName> = new Set<TableName>([
+  'user_baseline',
+  'sync_watermark',
+])
 
 /**
  * Frozen DDL for every warehouse table. Copied verbatim from spec §Table
@@ -184,17 +200,20 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
 );`,
 
   insight: `CREATE TABLE insight (
-  id VARCHAR PRIMARY KEY,
+  insight_id VARCHAR PRIMARY KEY,
   ts TIMESTAMP NOT NULL,
   brand VARCHAR NOT NULL,
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
   rule_id VARCHAR,
+  metric VARCHAR NOT NULL,
+  kind VARCHAR NOT NULL,
   severity VARCHAR NOT NULL,
   title VARCHAR NOT NULL,
   body TEXT,
   evidence VARCHAR,
-  acknowledged_at TIMESTAMP
+  acknowledged_at TIMESTAMP,
+  dismissed_at TIMESTAMP
 ) PARTITIONED BY (day(ts));`,
 
   sync_watermark: `CREATE TABLE sync_watermark (
@@ -220,7 +239,150 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   outcome VARCHAR NOT NULL,
   error_message VARCHAR
 ) PARTITIONED BY (day(ts));`,
+
+  // Sprint 5 §7 — shared baseline source of truth for rules, tools, and
+  // screens. Quantiles are computed DAY-FIRST (principle 27): readings
+  // collapse to one value per local day, then quantiles run across days.
+  // `sample_count` therefore counts DAYS, not readings — a row is only
+  // written at >= 20 days (BASELINE_MIN_DAYS).
+  //
+  // Not partitioned: the table holds at most
+  // (metrics x windows) = 21 rows per user, and the composite PK is the
+  // only access path any consumer uses.
+  user_baseline: `CREATE TABLE user_baseline (
+  brand VARCHAR NOT NULL,
+  family_id VARCHAR NOT NULL,
+  user_id VARCHAR NOT NULL,
+  metric VARCHAR NOT NULL,
+  window_days SMALLINT NOT NULL,
+  p05 DOUBLE,
+  p10 DOUBLE,
+  p50 DOUBLE,
+  p90 DOUBLE,
+  p95 DOUBLE,
+  mean DOUBLE,
+  stddev DOUBLE,
+  sample_count INTEGER,
+  computed_at TIMESTAMP NOT NULL,
+  PRIMARY KEY (brand, family_id, user_id, metric, window_days)
+);`,
 })
+
+/**
+ * Lookup index for the `insight` table (spec §Table schema). Local catalog
+ * only — Iceberg has no CREATE INDEX; remote-side query pruning comes from
+ * the `day(ts)` partition instead. Issued by migration step 3.
+ */
+export function insightIndexDdl(catalog: string): string {
+  return `CREATE INDEX IF NOT EXISTS idx_insight_lookup ON ${catalog}.insight (user_id, metric, dismissed_at, ts);`
+}
+
+/**
+ * Sensor tables exposed through a `v_{table}` union view (Sprint 5 §3).
+ *
+ * Registry queries, rule SQL, and tool SQL all target `v_{table}` and never
+ * `local.{table}` or `r2.default.{table}` directly (principle 19). Internal
+ * tables are absent deliberately: `insight`, `sync_watermark`,
+ * `tool_call_audit`, `user_baseline` and `device_config` are local-authoritative
+ * or local-only, so a union would either duplicate rows or read a remote
+ * copy that is never authoritative.
+ */
+export const VIEWED_TABLES = [
+  'hrv',
+  'heart_rate',
+  'spo2',
+  'temperature',
+  'activity',
+  'activity_bucket',
+  'sleep_session',
+  'sleep_stage',
+  'device_event',
+  'device_battery',
+] as const
+
+export type ViewedTable = (typeof VIEWED_TABLES)[number]
+
+/** Timestamp column the watermark partitions on, per table. */
+export function watermarkColumnFor(table: ViewedTable): string {
+  return table === 'sleep_session' ? 'ts_start' : 'ts'
+}
+
+/**
+ * Build the `CREATE OR REPLACE VIEW v_{table}` DDL for one sensor table.
+ *
+ * The view is what makes freshness honest: rows the device has flushed
+ * locally but not yet pushed to R2 are invisible in `r2.default.{table}`,
+ * and rows already pushed exist in BOTH catalogs. The push watermark
+ * partitions the two sources exactly —
+ *
+ *   local:  rows strictly AFTER the watermark  (not yet pushed)
+ *   remote: everything                          (pushed)
+ *
+ * — so the union is complete with no duplicates at the boundary, and a row
+ * becomes remote-visible at the same instant it stops being local-visible.
+ *
+ * The watermark subquery reads `sync_watermark` rather than taking a bound
+ * parameter because DuckDB views cannot close over query-time params; the
+ * view must resolve the current cursor on every scan. `$brand` /
+ * `$family_id` are likewise unavailable inside a view body, so the tenant
+ * filter is baked in at creation time from the attach context — which is
+ * safe precisely because views are dropped and recreated on every attach
+ * (T-06), so a brand switch cannot leave a view scoped to the old tenant.
+ *
+ * `remoteCatalog` omitted (local mode) produces a local-only view with no
+ * UNION, so consumers write one SQL string that works in both modes.
+ */
+export function generateViewDdl(
+  table: ViewedTable,
+  ctx: { brand: string, familyId: string, localCatalog: string, remoteCatalog?: string },
+): string {
+  const tsCol = watermarkColumnFor(table)
+  const brand = sqlLiteral(ctx.brand)
+  const familyId = sqlLiteral(ctx.familyId)
+  const local = `${ctx.localCatalog}.${table}`
+
+  const watermark
+    = `COALESCE((SELECT cursor_ts FROM ${ctx.localCatalog}.sync_watermark `
+      + `WHERE table_name = '${table}' AND kind = 'push' `
+      + `AND brand = ${brand} AND family_id = ${familyId}), `
+      + `'1970-01-01'::TIMESTAMP)`
+
+  if (!ctx.remoteCatalog) {
+    // Local mode: nothing is ever pushed, so every local row is visible and
+    // the watermark filter would be a no-op that only costs a scan.
+    return `CREATE OR REPLACE VIEW v_${table} AS SELECT * FROM ${local};`
+  }
+
+  const remote = `${ctx.remoteCatalog}.${REMOTE_NAMESPACE_VIEW}.${table}`
+  return (
+    `CREATE OR REPLACE VIEW v_${table} AS\n`
+    + `  SELECT * FROM ${local}\n`
+    + `  WHERE ${tsCol} > ${watermark}\n`
+    + `  UNION ALL\n`
+    + `  SELECT * FROM ${remote};`
+  )
+}
+
+/**
+ * Iceberg namespace remote tables live under. Duplicated from
+ * `migrations.ts` rather than imported to keep `schemas.ts` free of a
+ * migrations dependency (migrations already imports schemas).
+ */
+const REMOTE_NAMESPACE_VIEW = 'default'
+
+/**
+ * Single-quote a SQL string literal. View bodies cannot take bound
+ * parameters, so brand/familyId are inlined — escaping is mandatory, not
+ * optional, even though both values are server-issued.
+ */
+function sqlLiteral(value: string): string {
+  return `'${value.replace(/'/g, `''`)}'`
+}
+
+/** `DROP VIEW IF EXISTS v_{table}` for detach + brand switch. */
+export function dropViewDdl(table: ViewedTable): string {
+  return `DROP VIEW IF EXISTS v_${table};`
+}
 
 /**
  * Rewrite one base DDL to `CREATE TABLE IF NOT EXISTS <catalog>.<table>`.
@@ -275,8 +437,14 @@ export async function ensureSchemas(
   db: HybridDuckDB,
   catalog: string,
   schemas: Readonly<Record<TableName, string>> = SCHEMAS,
+  opts: { skipLocalOnly?: boolean } = {},
 ): Promise<void> {
   for (const table of TABLE_NAMES) {
+    // Remote passes `skipLocalOnly` so derived/bookkeeping tables never get
+    // created in the user's R2 zone.
+    if (opts.skipLocalOnly && LOCAL_ONLY_TABLES.has(table)) {
+      continue
+    }
     const sql = qualifyDdl(schemas[table], table, catalog)
     try {
       await db.execute(sql)

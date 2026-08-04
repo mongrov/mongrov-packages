@@ -12,7 +12,7 @@ describe('detectAnomaly', () => {
   it('flags days > threshold * stddev from mean', async () => {
     const engine = createFakeEngine()
     // Baseline 45 ± ~1.5, planted 60 as clear outlier.
-    engine.queueRows('FROM hrv', [
+    engine.queueRows('FROM v_hrv', [
       { day: '2026-07-01', value: 45 },
       { day: '2026-07-02', value: 46 },
       { day: '2026-07-03', value: 44 },
@@ -40,7 +40,7 @@ describe('detectAnomaly', () => {
 
   it('reports no outliers when data is flat', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [
+    engine.queueRows('FROM v_hrv', [
       { day: '2026-07-01', value: 45 },
       { day: '2026-07-02', value: 45 },
       { day: '2026-07-03', value: 45 },
@@ -64,7 +64,7 @@ describe('detectAnomaly', () => {
 
   it('handles empty result', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM sleep_session', [])
+    engine.queueRows('FROM v_sleep_session', [])
     const res = await detectAnomaly(
       {
         userId: 'alice',

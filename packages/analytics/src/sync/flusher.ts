@@ -23,6 +23,7 @@
  * batch.
  */
 
+import { nanoid } from 'nanoid'
 import PQueue from 'p-queue'
 
 import type { HybridDuckDB } from '../core/engine'
@@ -75,12 +76,49 @@ export interface FlushedEvent {
    * `evaluateOnBatch`.
    */
   affectedUserIds: string[]
+  /** Tenant observed on the drained entries; undefined for an empty flush. */
+  brand?: string
+  familyId?: string
+}
+
+/**
+ * Emitted once after every table in a batch has flushed (Sprint 5 T-11 /
+ * item (a)).
+ *
+ * This exists because per-table `{table}:insert` is the wrong trigger for
+ * rule evaluation. A rule with `context: 'asleep'` JOINs `v_sleep_session`;
+ * if it fires the instant `spo2` flushes, the matching `sleep_session` rows
+ * may still be sitting in the buffer, and the rule silently evaluates
+ * against an incomplete night. Waiting for the batch boundary removes the
+ * race entirely rather than papering over it with a delay.
+ */
+export interface BatchCompleteEvent {
+  batchId: string
+  /** Tables that flushed at least one row in this batch. */
+  affectedTables: string[]
+  affectedUserIds: string[]
+  brand?: string
+  familyId?: string
+  /** Rows written per table; only tables that wrote rows appear. */
+  rowCounts: Record<string, number>
+  reason: FlushReason
 }
 
 export type SyncEmitter = (event:
   | { type: 'flushed', payload: FlushedEvent }
   | { type: 'flush-failed', payload: { table: string, error: SyncError } }
+  | { type: 'batch-complete', payload: BatchCompleteEvent }
 ) => void
+
+/** Accumulator for one in-flight batch. */
+interface BatchRecord {
+  reason: FlushReason
+  tables: Set<string>
+  userIds: Set<string>
+  rowCounts: Record<string, number>
+  brand?: string
+  familyId?: string
+}
 
 export interface BatchFlusherConfig {
   engine: HybridDuckDB
@@ -116,6 +154,7 @@ export class BatchFlusher {
   readonly #now: () => number
   readonly #emit: SyncEmitter | undefined
   readonly #tables = new Map<string, TableRuntimeState>()
+  readonly #batches = new Map<string, BatchRecord>()
 
   constructor(config: BatchFlusherConfig) {
     this.#engine = config.engine
@@ -125,6 +164,80 @@ export class BatchFlusher {
     this.#now = config.now ?? (() => Date.now())
     this.#emit = config.emit
     this.#queue = new PQueue({ concurrency: config.concurrency ?? 2 })
+  }
+
+  // -------------------- batch lifecycle (Sprint 5 T-11) --------------------
+
+  /**
+   * Open a batch. Every `flush(table, reason, batchId)` passing this id
+   * accumulates into it; `endBatch(batchId)` closes it and emits
+   * `batch-complete`.
+   *
+   * Batches are bookkeeping, not a lock: flushes still run concurrently
+   * through the p-queue, and a flush with no batchId is unaffected. The
+   * batch only decides *when* downstream consumers are told the write is
+   * settled.
+   */
+  beginBatch(reason: FlushReason = 'manual', batchId?: string): string {
+    const id = batchId ?? nanoid(12)
+    this.#batches.set(id, {
+      reason,
+      tables: new Set(),
+      userIds: new Set(),
+      rowCounts: {},
+    })
+    return id
+  }
+
+  /**
+   * Close a batch and emit `batch-complete`.
+   *
+   * Returns the event payload, or `null` when the batch wrote nothing —
+   * an empty cycle has no consumers to wake, and emitting would make rules
+   * re-evaluate on no new data. Unknown ids also return `null` rather than
+   * throwing, so a double-`endBatch` in a retry path is harmless.
+   */
+  endBatch(batchId: string): BatchCompleteEvent | null {
+    const record = this.#batches.get(batchId)
+    this.#batches.delete(batchId)
+    if (!record || record.tables.size === 0) return null
+
+    const payload: BatchCompleteEvent = {
+      batchId,
+      affectedTables: [...record.tables],
+      affectedUserIds: [...record.userIds],
+      brand: record.brand,
+      familyId: record.familyId,
+      rowCounts: record.rowCounts,
+      reason: record.reason,
+    }
+    this.#emit?.({ type: 'batch-complete', payload })
+    return payload
+  }
+
+  /** Open batch ids — diagnostics + leak detection in tests. */
+  openBatchIds(): string[] {
+    return [...this.#batches.keys()]
+  }
+
+  #recordInBatch(
+    batchId: string | undefined,
+    table: string,
+    rowsFlushed: number,
+    userIds: string[],
+    brand: string | undefined,
+    familyId: string | undefined,
+  ): void {
+    if (batchId === undefined) return
+    const record = this.#batches.get(batchId)
+    // A flush can outlive its batch if endBatch already ran (timeout, retry
+    // landing late). Dropping it is correct: the batch was already reported.
+    if (!record) return
+    record.tables.add(table)
+    record.rowCounts[table] = (record.rowCounts[table] ?? 0) + rowsFlushed
+    for (const id of userIds) record.userIds.add(id)
+    record.brand ??= brand
+    record.familyId ??= familyId
   }
 
   /** Runtime state for a table. `idle` if we've never touched it. */
@@ -148,6 +261,7 @@ export class BatchFlusher {
   async flush(
     table: string,
     reason: FlushReason = 'manual',
+    batchId?: string,
   ): Promise<FlushResult> {
     const state = this.#ensureState(table)
     state.state = 'flushing'
@@ -163,9 +277,12 @@ export class BatchFlusher {
       state.lastError = undefined
       state.state = 'idle'
       const affectedUserIds = distinctUserIds(drained)
+      const brand = drained[0]?.brand
+      const familyId = drained[0]?.familyId
+      this.#recordInBatch(batchId, table, rowsFlushed, affectedUserIds, brand, familyId)
       this.#emit?.({
         type: 'flushed',
-        payload: { table, rowsFlushed, reason, affectedUserIds },
+        payload: { table, rowsFlushed, reason, affectedUserIds, brand, familyId },
       })
       return { table, rowsFlushed, ok: true }
     }
@@ -187,9 +304,9 @@ export class BatchFlusher {
    * Enqueue a flush with retry orchestration. Non-blocking — returns the
    * promise for callers that want to await final resolution.
    */
-  scheduleFlush(table: string, reason: FlushReason): Promise<FlushResult> {
+  scheduleFlush(table: string, reason: FlushReason, batchId?: string): Promise<FlushResult> {
     const priority = PRIORITY_BY_REASON[reason]
-    return this.#queue.add(() => this.#runWithRetry(table, reason), { priority })
+    return this.#queue.add(() => this.#runWithRetry(table, reason, batchId), { priority })
       // p-queue's typings make add() return `Promise<T | void>`; we always
       // resolve with a FlushResult so this cast is safe.
       .then(r => r as FlushResult)
@@ -213,10 +330,11 @@ export class BatchFlusher {
   async #runWithRetry(
     table: string,
     reason: FlushReason,
+    batchId?: string,
   ): Promise<FlushResult> {
     let lastResult: FlushResult = { table, rowsFlushed: 0, ok: false }
     for (let attempt = 0; attempt < BACKOFF_SEQUENCE_MS.length; attempt++) {
-      const result = await this.#flushWithTimeout(table, reason)
+      const result = await this.#flushWithTimeout(table, reason, batchId)
       lastResult = result
       if (result.ok) return result
 
@@ -234,8 +352,9 @@ export class BatchFlusher {
   async #flushWithTimeout(
     table: string,
     reason: FlushReason,
+    batchId?: string,
   ): Promise<FlushResult> {
-    const attempt = this.flush(table, reason)
+    const attempt = this.flush(table, reason, batchId)
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<FlushResult>((resolve) => {
       timeoutId = setTimeout(() => {

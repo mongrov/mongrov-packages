@@ -16,7 +16,11 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { reconstructSleepSessions } from '../sleep'
+import {
+  fnv1a32hex,
+  reconstructSleepSessions,
+  SLEEP_STAGE_CODES,
+} from '../sleep'
 import type { FirmwareSleepRow, MapperContext } from '../types'
 
 const ctx: MapperContext = {
@@ -26,6 +30,9 @@ const ctx: MapperContext = {
   deviceId: 'ring_8047',
   userTimezone: 'America/Los_Angeles',
 }
+
+// Principle 25 shape: nanoid(24) + '_' + 8-hex-char fnv1a32 suffix.
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{24}_[0-9a-f]{8}$/
 
 describe('reconstructSleepSessions', () => {
   it('emits a session when a qualifying primary block is present', () => {
@@ -47,14 +54,165 @@ describe('reconstructSleepSessions', () => {
     ]
     const { sleep_session, sleep_stage } = reconstructSleepSessions(fw, ctx)
     expect(sleep_session).toHaveLength(1)
-    expect(sleep_stage).toHaveLength(2)
-    expect(sleep_session[0].session_id).toBe(
-      `user_alice:${new Date('2026-06-18T05:00:00Z').toISOString()}`,
-    )
+    // `primary` is the session envelope marker, not a stage — only the
+    // `deep` block yields a sleep_stage row (DDL stage enum has no
+    // code for 'primary').
+    expect(sleep_stage).toHaveLength(1)
+    expect(sleep_stage[0].stage).toBe(SLEEP_STAGE_CODES.deep)
+    expect(sleep_session[0].session_id).toMatch(SESSION_ID_RE)
     // Each stage links back to that same session_id.
     for (const stage of sleep_stage) {
       expect(stage.session_id).toBe(sleep_session[0].session_id)
     }
+  })
+
+  it('emits a DDL-shaped session row (T-06 / core spec §Table schema)', () => {
+    const fw: FirmwareSleepRow[] = [
+      {
+        start: '2026.06.18 05:00:00',
+        end: '2026.06.18 12:00:00',
+        block_type: 'primary',
+        confidence: 0.9,
+        timestamp: '2026.06.18 05:00:00',
+      },
+      {
+        start: '2026.06.18 05:00:00',
+        end: '2026.06.18 12:00:00',
+        block_type: 'deep',
+        confidence: 0.8,
+        timestamp: '2026.06.18 06:00:00',
+      },
+      {
+        start: '2026.06.18 05:00:00',
+        end: '2026.06.18 12:00:00',
+        block_type: 'rem',
+        confidence: 0.7,
+        timestamp: '2026.06.18 07:00:00',
+      },
+    ]
+    const [session] = reconstructSleepSessions(fw, ctx).sleep_session
+
+    // Envelope comes from the firmware's own start/end, not block instants.
+    expect(session.ts_start.toISOString()).toBe('2026-06-18T05:00:00.000Z')
+    expect(session.ts_end.toISOString()).toBe('2026-06-18T12:00:00.000Z')
+    expect(session.total_minutes).toBe(420)
+
+    // Stage minutes accumulate at the default 1-min block width.
+    expect(session.deep_minutes).toBe(1)
+    expect(session.rem_minutes).toBe(1)
+    expect(session.light_minutes).toBe(0)
+    expect(session.awake_minutes).toBe(0)
+
+    // avg_confidence spans every block in the group, envelope included.
+    expect(session.avg_confidence).toBeCloseTo((0.9 + 0.8 + 0.7) / 3, 10)
+
+    // No stray `ts` — the DDL partitions sleep_session on day(ts_start).
+    expect(session).not.toHaveProperty('ts')
+    // Tenant columns present on every row (spec §Table schema).
+    expect(session.brand).toBe('ziva')
+    expect(session.family_id).toBe('fam_test')
+    expect(session.user_id).toBe('user_alice')
+    expect(session.device_id).toBe('ring_8047')
+  })
+
+  it('translates firmware block_type to the DDL stage enum (principle 20)', () => {
+    const at = (type: string, minute: number): FirmwareSleepRow => ({
+      start: '2026.06.18 05:00:00',
+      end: '2026.06.18 06:00:00',
+      block_type: type,
+      confidence: 0.9,
+      timestamp: `2026.06.18 05:0${minute}:00`,
+    })
+    const fw: FirmwareSleepRow[] = [
+      at('primary', 0),
+      at('awake', 1),
+      at('light', 2),
+      at('deep', 3),
+      at('rem', 4),
+      at('some_future_firmware_type', 5),
+    ]
+    const { sleep_stage, sleep_raw } = reconstructSleepSessions(fw, ctx)
+
+    // primary + the unknown type are skipped; the four real stages map to
+    // 1 / 2 / 3 / 5 per the DDL comment.
+    expect(sleep_stage.map(s => s.stage)).toEqual([1, 2, 3, 5])
+    // Every stage code is an integer — no firmware strings reach the schema.
+    for (const stage of sleep_stage) {
+      expect(Number.isInteger(stage.stage)).toBe(true)
+    }
+    // Nothing is lost: skipped blocks still land in sleep_raw.
+    expect(sleep_raw).toHaveLength(6)
+  })
+
+  it('honours a firmware-supplied unit_length for stage minutes', () => {
+    const fw: FirmwareSleepRow[] = [
+      {
+        start: '2026.06.18 05:00:00',
+        end: '2026.06.18 06:00:00',
+        block_type: 'primary',
+        confidence: 0.9,
+        timestamp: '2026.06.18 05:00:00',
+      },
+      {
+        start: '2026.06.18 05:00:00',
+        end: '2026.06.18 06:00:00',
+        block_type: 'deep',
+        confidence: 0.9,
+        timestamp: '2026.06.18 05:10:00',
+        unit_length: 15,
+      },
+    ]
+    const [session] = reconstructSleepSessions(fw, ctx).sleep_session
+    expect(session.deep_minutes).toBe(15)
+  })
+
+  it('builds session ids per principle 25 with an injectable random source', () => {
+    const fw: FirmwareSleepRow[] = [
+      {
+        start: '2026.06.18 05:00:00',
+        end: '2026.06.18 12:00:00',
+        block_type: 'primary',
+        confidence: 0.9,
+        timestamp: '2026.06.18 05:00:00',
+      },
+    ]
+    const fixedRandom = 'A'.repeat(24)
+    const detCtx: MapperContext = { ...ctx, idGenerator: () => fixedRandom }
+    const { sleep_session } = reconstructSleepSessions(fw, detCtx)
+    const expectedHash = fnv1a32hex(
+      `ring_8047|user_alice|${new Date('2026-06-18T05:00:00Z').toISOString()}`,
+    )
+    expect(sleep_session[0].session_id).toBe(`${fixedRandom}_${expectedHash}`)
+
+    // The hash suffix is deterministic across runs...
+    const again = reconstructSleepSessions(fw, detCtx)
+    expect(again.sleep_session[0].session_id).toBe(sleep_session[0].session_id)
+
+    // ...and changes when any identifying component changes.
+    const otherDevice = reconstructSleepSessions(fw, {
+      ...detCtx,
+      deviceId: 'ring_9999',
+    })
+    expect(otherDevice.sleep_session[0].session_id.split('_').pop())
+      .not.toBe(expectedHash)
+  })
+
+  it('random prefix keeps ids distinct even with identical timestamps', () => {
+    const fw: FirmwareSleepRow[] = [
+      {
+        start: '2026.06.18 05:00:00',
+        end: '2026.06.18 12:00:00',
+        block_type: 'primary',
+        confidence: 0.9,
+        timestamp: '2026.06.18 05:00:00',
+      },
+    ]
+    // Two independent runs over the same (corrupted-duplicate) input must not
+    // collide — the nanoid prefix differs even though the hash suffix matches.
+    const a = reconstructSleepSessions(fw, ctx).sleep_session[0].session_id
+    const b = reconstructSleepSessions(fw, ctx).sleep_session[0].session_id
+    expect(a).not.toBe(b)
+    expect(a.split('_').pop()).toBe(b.split('_').pop())
   })
 
   it('drops sessions whose primary block confidence is below the floor', () => {
@@ -114,7 +272,7 @@ describe('reconstructSleepSessions', () => {
     )
   })
 
-  it('preserves every input row in sleep_raw verbatim', () => {
+  it('preserves every input row in sleep_raw, flattened onto DDL columns', () => {
     const fw: FirmwareSleepRow[] = [
       {
         start: '2026.06.18 05:00:00',
@@ -129,11 +287,30 @@ describe('reconstructSleepSessions', () => {
         block_type: 'deep',
         confidence: 0.85,
         timestamp: '2026.06.18 06:00:00',
+        // Firmware revision that carries native quality + block width.
+        quality: 73,
+        unit_length: 5,
       },
     ]
     const { sleep_raw } = reconstructSleepSessions(fw, ctx)
     expect(sleep_raw).toHaveLength(2)
-    expect(sleep_raw[0].payload).toEqual(fw[0])
-    expect(sleep_raw[1].payload).toEqual(fw[1])
+
+    // Row 0: no native quality → derived from confidence (0.9 → 90).
+    expect(sleep_raw[0].ts.toISOString()).toBe('2026-06-18T05:00:00.000Z')
+    expect(sleep_raw[0].ts_session_start.toISOString()).toBe(
+      '2026-06-18T05:00:00.000Z',
+    )
+    expect(sleep_raw[0].quality).toBe(90)
+    expect(sleep_raw[0].unit_length).toBeNull()
+
+    // Row 1: firmware-supplied values pass through verbatim.
+    expect(sleep_raw[1].ts.toISOString()).toBe('2026-06-18T06:00:00.000Z')
+    expect(sleep_raw[1].quality).toBe(73)
+    expect(sleep_raw[1].unit_length).toBe(5)
+
+    // quality is NOT NULL in the DDL — never undefined on any row.
+    for (const raw of sleep_raw) {
+      expect(typeof raw.quality).toBe('number')
+    }
   })
 })

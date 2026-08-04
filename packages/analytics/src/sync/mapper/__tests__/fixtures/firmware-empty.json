@@ -1,0 +1,11 @@
+{
+  "$comment": "Empty-sections edge case: every firmware section present but empty. The mapper must produce an all-empty MappedBatch without throwing.",
+  "heartrate": [],
+  "hrv_table": [],
+  "spo2": [],
+  "temperature_table": [],
+  "activitydetails": [],
+  "sleep_processed": [],
+  "battery_table": [],
+  "ring": { "automaticMonitoringData": [] }
+}

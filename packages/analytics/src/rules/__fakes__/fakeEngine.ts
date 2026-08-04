@@ -7,17 +7,22 @@ export interface FakeEngine extends AnalyticsEngine {
   __setError(err: Error | null): void
   /** Mutate the reported `state` for tests that exercise the attached-state guard. */
   __setState(state: AnalyticsState): void
+  /** Seed the roster returned by `getFamilyMembers()`. */
+  __setFamilyMembers(ids: string[]): void
 }
 
 export function createFakeEngine(): FakeEngine {
   let queued: unknown[] = []
   let queuedErr: Error | null = null
   let state: AnalyticsState = 'attached'
+  let familyMembers: string[] = []
   const calls: { sql: string, params: Record<string, unknown> }[] = []
 
   const engine: FakeEngine = {
     async attach() {},
     async detach() {},
+    async getFamilyMembers() { return familyMembers },
+    async dismissInsight() {},
     async execute<T>(sql: string, params?: Record<string, unknown>): Promise<T[]> {
       calls.push({ sql, params: params ?? {} })
       if (queuedErr) throw queuedErr
@@ -41,6 +46,7 @@ export function createFakeEngine(): FakeEngine {
     __setResult(rows) { queued = rows; queuedErr = null },
     __setError(err) { queuedErr = err },
     __setState(s) { state = s },
+    __setFamilyMembers(ids) { familyMembers = ids },
   }
   return engine
 }

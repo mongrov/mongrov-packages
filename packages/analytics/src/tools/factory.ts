@@ -49,6 +49,7 @@ import {
   type CompareTrendInput,
 } from './impls/compare'
 import { getHRV, getHRVInputSchema, type GetHRVInput } from './impls/hrv'
+import { getSpO2, getSpO2InputSchema, type GetSpO2Input } from './impls/spo2'
 import {
   getInsights,
   getInsightsInputSchema,
@@ -74,8 +75,11 @@ const DESCRIPTIONS = {
     + 'in a user\'s metric over the last lookbackDays. Args: userId, metric '
     + '(hrv_ms|sleep_total_minutes|activity_steps), lookbackDays (7..90), '
     + 'stddevThreshold (1..4, default 2).',
+  getSpO2: 'Return nightly blood-oxygen averages during sleep for a user, '
+    + 'with how many brief low moments occurred each night and how it '
+    + 'compares to their usual range. Args: userId, days (1..90).',
   getInsights: 'Return recent AI-generated insights for a user. Args: userId, '
-    + 'days (1..30, default 7), optional severity (info|warn|critical).',
+    + 'days (1..30, default 7), optional severity (info|warn|urgent).',
 } as const
 
 export interface AnalyticsToolMap {
@@ -84,6 +88,7 @@ export interface AnalyticsToolMap {
   getActivityTotal: ReturnType<typeof makeTool<GetActivityTotalInput>>
   compareTrend: ReturnType<typeof makeTool<CompareTrendInput>>
   detectAnomaly: ReturnType<typeof makeTool<DetectAnomalyInput>>
+  getSpO2: ReturnType<typeof makeTool<GetSpO2Input>>
   getInsights: ReturnType<typeof makeTool<GetInsightsInput>>
 }
 
@@ -139,6 +144,13 @@ export function createAnalyticsTools(
   }
 
   const tools: AnalyticsToolMap = {
+    getSpO2: makeTool({
+      ...shared,
+      name: 'getSpO2',
+      description: DESCRIPTIONS.getSpO2,
+      inputSchema: getSpO2InputSchema,
+      impl: getSpO2,
+    }),
     getHRV: makeTool({
       ...shared,
       name: 'getHRV',

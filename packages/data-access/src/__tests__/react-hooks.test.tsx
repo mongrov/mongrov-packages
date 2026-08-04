@@ -19,9 +19,10 @@ const noEngines: EngineAdapters = {}
 
 function makeCtx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
-    requesterUserId: 'u1',
+    userId: 'u1',
     brand: 'zivaone',
     familyId: 'f1',
+    timezone: 'UTC',
     now: () => new Date(0),
     ...overrides,
   }
@@ -102,6 +103,8 @@ describe('T-17 · useRequestContext', () => {
     })
     expect(result.current.familyId).toBe('famX')
     expect(result.current.brand).toBe('zivaone')
+    expect(result.current.userId).toBe('u1')
+    // Deprecated alias stays populated for pre-rename consumers.
     expect(result.current.requesterUserId).toBe('u1')
   })
 

@@ -8,38 +8,47 @@ import { mergeTenantParams } from '../tenant'
 import type { RequestContext } from '../types'
 
 const ctx: RequestContext = {
-  requesterUserId: 'u1',
+  userId: 'u1',
   brand: 'zivaone',
   familyId: 'f1',
+  timezone: 'America/New_York',
   now: () => new Date(1704067200000), // 2024-01-01T00:00Z
 }
 
 describe('T-08 · mergeTenantParams', () => {
-  it('appends brand + familyId to object input', () => {
+  it('appends brand + familyId + tz to object input', () => {
     const merged = mergeTenantParams({ userId: 'u1' }, ctx)
-    expect(merged).toEqual({ userId: 'u1', brand: 'zivaone', familyId: 'f1' })
-  })
-
-  it('supplies tenant pair even when input is undefined', () => {
-    expect(mergeTenantParams(undefined, ctx)).toEqual({
+    expect(merged).toEqual({
+      userId: 'u1',
       brand: 'zivaone',
       familyId: 'f1',
+      tz: 'America/New_York',
     })
   })
 
-  it('tenant fields win on collision (screens cannot forge brand/familyId)', () => {
+  it('supplies tenant fields even when input is undefined', () => {
+    expect(mergeTenantParams(undefined, ctx)).toEqual({
+      brand: 'zivaone',
+      familyId: 'f1',
+      tz: 'America/New_York',
+    })
+  })
+
+  it('tenant fields win on collision (screens cannot forge brand/familyId/tz)', () => {
     const merged = mergeTenantParams(
-      { userId: 'u1', brand: 'malicious', familyId: 'other' },
+      { userId: 'u1', brand: 'malicious', familyId: 'other', tz: 'Etc/GMT-14' },
       ctx
     )
     expect(merged.brand).toBe('zivaone')
     expect(merged.familyId).toBe('f1')
+    expect(merged.tz).toBe('America/New_York')
   })
 
   it('handles primitive input by dropping it (SQL author uses positional binds)', () => {
     expect(mergeTenantParams('raw', ctx)).toEqual({
       brand: 'zivaone',
       familyId: 'f1',
+      tz: 'America/New_York',
     })
   })
 })
@@ -89,7 +98,7 @@ describe('T-06 · executeQuery — duckdb path', () => {
     expect(out).toEqual({ hrv: 45 })
     expect(execute).toHaveBeenCalledWith(
       'SELECT hrv FROM hrv WHERE user_id = $userId',
-      { userId: 'u1', brand: 'zivaone', familyId: 'f1' }
+      { userId: 'u1', brand: 'zivaone', familyId: 'f1', tz: 'America/New_York' }
     )
   })
 
@@ -183,7 +192,7 @@ describe('T-07 · executeQuery — authorize gate at dispatch', () => {
     input: z.object({ userId: z.string() }),
     output: z.object({ hrv: z.number() }),
     sql: 'SELECT hrv FROM hrv',
-    authorize: (input, c) => input.userId === c.requesterUserId,
+    authorize: (input, c) => input.userId === c.userId,
   })
 
   it('runs authorize before executing engine', async () => {

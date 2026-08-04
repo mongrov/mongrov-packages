@@ -11,11 +11,11 @@ const baseCtx = {
 describe('getActivityTotal', () => {
   it('joins steps + buckets by day and reports totals', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM activity\n', [
+    engine.queueRows('FROM v_activity\n', [
       { day: '2026-07-08', steps: 8000 },
       { day: '2026-07-09', steps: 10000 },
     ])
-    engine.queueRows('FROM activity_bucket', [
+    engine.queueRows('FROM v_activity_bucket', [
       { day: '2026-07-08', calories: 400, distance_km: 6.5 },
       { day: '2026-07-09', calories: 520, distance_km: 8.1 },
     ])
@@ -34,10 +34,10 @@ describe('getActivityTotal', () => {
 
   it('handles days where only steps are present', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM activity\n', [
+    engine.queueRows('FROM v_activity\n', [
       { day: '2026-07-08', steps: 5000 },
     ])
-    engine.queueRows('FROM activity_bucket', [])
+    engine.queueRows('FROM v_activity_bucket', [])
     const res = await getActivityTotal(
       { userId: 'alice', days: 1 },
       { ...baseCtx, analytics: engine },
@@ -48,8 +48,8 @@ describe('getActivityTotal', () => {
 
   it('handles empty result', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM activity\n', [])
-    engine.queueRows('FROM activity_bucket', [])
+    engine.queueRows('FROM v_activity\n', [])
+    engine.queueRows('FROM v_activity_bucket', [])
     const res = await getActivityTotal(
       { userId: 'alice', days: 7 },
       { ...baseCtx, analytics: engine },

@@ -4,6 +4,7 @@ import { HybridDuckDB } from '../engine'
 import {
   bootstrapExtensions,
   getBootedExtensions,
+  LOCAL_EXTENSIONS,
   REQUIRED_EXTENSIONS,
 } from '../extensions'
 
@@ -17,19 +18,39 @@ async function newOpenDb() {
 }
 
 describe('bootstrapExtensions', () => {
-  it('issues INSTALL + LOAD for httpfs, iceberg, parquet in order', async () => {
+  it('issues INSTALL + LOAD in the order httpfs → icu → iceberg → parquet', async () => {
     const { fake, db } = await newOpenDb()
 
     await bootstrapExtensions(db)
 
+    // Order is load-bearing (Sprint 5 T-01): icu after httpfs, before iceberg.
     expect(fake.calls.map(c => c.sql)).toEqual([
       'INSTALL httpfs;',
       'LOAD httpfs;',
+      'INSTALL icu;',
+      'LOAD icu;',
       'INSTALL iceberg;',
       'LOAD iceberg;',
       'INSTALL parquet;',
       'LOAD parquet;',
     ])
+  })
+
+  it('loads icu in local mode too — timezone() is not an R2-only concern', async () => {
+    const { fake, db } = await newOpenDb()
+
+    await bootstrapExtensions(db, 'local')
+
+    // Local mode skips httpfs + iceberg (no AWSSDK/vcpkg build burden) but
+    // must keep icu: day-grouped charts and day-first baselines call
+    // timezone($tz, ts), which needs it.
+    expect(fake.calls.map(c => c.sql)).toEqual([
+      'INSTALL icu;',
+      'LOAD icu;',
+      'INSTALL parquet;',
+      'LOAD parquet;',
+    ])
+    expect(LOCAL_EXTENSIONS).toContain('icu')
   })
 
   it('maps native failure to AnalyticsError(extension_load_failed) with extension name', async () => {
@@ -65,7 +86,7 @@ describe('bootstrapExtensions', () => {
     expect(getBootedExtensions(db).size).toBe(REQUIRED_EXTENSIONS.length)
   })
 
-  it('records all three extensions in the booted set', async () => {
+  it('records every required extension in the booted set', async () => {
     const { db } = await newOpenDb()
 
     await bootstrapExtensions(db)

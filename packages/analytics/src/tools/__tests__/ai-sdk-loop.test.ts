@@ -46,7 +46,7 @@ describe('generateText loop against analytics tools handle', () => {
 
   it('single-tool loop: model → getHRV → model produces final text', async () => {
     const engine = createFakeEngine()
-    engine.queueRows('FROM hrv', [
+    engine.queueRows('FROM v_hrv', [
       { day: '2026-07-10', avg_hrv: 42.5 },
       { day: '2026-07-11', avg_hrv: 44.0 },
     ])
@@ -99,7 +99,7 @@ describe('generateText loop against analytics tools handle', () => {
     expect(String(result.steps[0].toolResults[0].result)).toContain('HRV')
 
     // Wrapper actually ran the HRV query against the fake engine.
-    const hrvCalls = engine.calls.filter(c => c.sql.includes('FROM hrv'))
+    const hrvCalls = engine.calls.filter(c => c.sql.includes('FROM v_hrv'))
     expect(hrvCalls).toHaveLength(1)
 
     // Audit row written (batchSize: 1 flushes eagerly).
@@ -118,13 +118,13 @@ describe('generateText loop against analytics tools handle', () => {
   it('multi-tool chain: getHRV then compareTrend then final text; both audit rows written in order', async () => {
     const engine = createFakeEngine()
     // getHRV query.
-    engine.queueRows('FROM hrv', [
+    engine.queueRows('FROM v_hrv', [
       { day: '2026-07-10', avg_hrv: 42.5 },
       { day: '2026-07-11', avg_hrv: 44.0 },
     ])
     // compareTrend runs two HRV window queries; enqueue both.
-    engine.queueRows('FROM hrv', [{ day: '2026-07-01', avg_hrv: 40 }])
-    engine.queueRows('FROM hrv', [{ day: '2026-07-10', avg_hrv: 45 }])
+    engine.queueRows('FROM v_hrv', [{ day: '2026-07-01', avg_hrv: 40 }])
+    engine.queueRows('FROM v_hrv', [{ day: '2026-07-10', avg_hrv: 45 }])
 
     const handle = createAnalyticsTools({
       analytics: engine,
@@ -206,7 +206,7 @@ describe('generateText loop against analytics tools handle', () => {
     const engine = createFakeEngine()
     // If the wrapper accidentally executed we would leak this row; test
     // asserts no HRV SELECT happened.
-    engine.queueRows('FROM hrv', [{ day: '2026-07-10', avg_hrv: 99 }])
+    engine.queueRows('FROM v_hrv', [{ day: '2026-07-10', avg_hrv: 99 }])
 
     const authorize = vi.fn(async () => false)
     const handle = createAnalyticsTools({

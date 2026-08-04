@@ -131,8 +131,21 @@ export class R2Fetcher {
   }
 
   /**
-   * T-21: caller-driven fetch that bypasses the watermark. Advances the
-   * fetch watermark only if the pulled range extends past the current one.
+   * T-21: caller-driven fetch that bypasses the watermark for the *read*
+   * but still advances it afterwards so incremental pulls stay bounded.
+   *
+   * Watermark rule (fix SY-1): the watermark may only cover rows that are
+   * actually in the local warehouse. When `limit` truncates the result,
+   * rows in `(watermark, until]` beyond the cut were never inserted —
+   * advancing to `until` would make them permanently invisible to
+   * `fetchIncremental`. So:
+   *   - truncated fetch (rowsFetched == limit) → advance only to the max
+   *     `ts` actually inserted; the remainder is picked up incrementally.
+   *   - un-truncated fetch (covered the full requested range, including
+   *     the zero-row case) → advancing to `until` (or now()) is safe and
+   *     prevents refetching empty ranges.
+   *   - truncated with no anchor ts (defensive edge) → no advance.
+   * `WatermarkStore.advance` still enforces never-regress on top.
    */
   async fetchOnDemand(
     ctx: AttachContext,
@@ -151,24 +164,44 @@ export class R2Fetcher {
         where += ` AND ${tsCol} <= $until`
         bindings.until = params.until.toISOString()
       }
-      const limitClause = params.limit ? ` LIMIT ${Math.max(1, Math.floor(params.limit))}` : ''
+      const limit = params.limit
+        ? Math.max(1, Math.floor(params.limit))
+        : undefined
+      // A LIMIT without ORDER BY picks arbitrary rows, which would leave
+      // holes *below* the max fetched ts. Ordering by the time column makes
+      // a truncated fetch a contiguous prefix, so max(ts) is a safe cursor.
+      const limitClause = limit ? ` ORDER BY ${tsCol} ASC LIMIT ${limit}` : ''
       const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${where}${limitClause}${conflictClause(params.table)}`
       await this.#engine.execute(sql, bindings)
 
-      const countRows = await this.#engine.execute(
-        `SELECT COUNT(*) AS c FROM ${remote} WHERE ${where}${limitClause}`,
-        bindings,
-      ) as Array<{ c?: number }>
-      const rowsFetched = Number(countRows[0]?.c ?? 0)
+      // Stats over the same (possibly truncated) selection the INSERT saw.
+      const statsSql = limit
+        ? `SELECT MAX(${tsCol}) AS max_ts, COUNT(*) AS row_count FROM (SELECT ${tsCol} FROM ${remote} WHERE ${where} ORDER BY ${tsCol} ASC LIMIT ${limit}) t`
+        : `SELECT MAX(${tsCol}) AS max_ts, COUNT(*) AS row_count FROM ${remote} WHERE ${where}`
+      const statsRows = await this.#engine.execute(statsSql, bindings) as
+        Array<{ max_ts?: string | null, row_count?: number }>
+      const stats = statsRows[0]
+      const rowsFetched = Number(stats?.row_count ?? 0)
 
-      const upperBound = params.until ?? this.#now()
-      await this.#watermark.advance(
-        ctx.brand,
-        ctx.tenantId,
-        params.table,
-        'fetch',
-        upperBound,
-      )
+      const truncated = limit !== undefined && rowsFetched >= limit
+      let nextWatermark: Date | undefined
+      if (truncated) {
+        const maxTs = stats?.max_ts ? new Date(stats.max_ts) : undefined
+        if (maxTs && !Number.isNaN(maxTs.getTime())) nextWatermark = maxTs
+        // else: truncated but nothing to anchor to — leave watermark alone.
+      }
+      else {
+        nextWatermark = params.until ?? this.#now()
+      }
+      if (nextWatermark) {
+        await this.#watermark.advance(
+          ctx.brand,
+          ctx.tenantId,
+          params.table,
+          'fetch',
+          nextWatermark,
+        )
+      }
       return { table: params.table, rowsFetched, ok: true }
     }
     catch (err) {

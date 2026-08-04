@@ -38,6 +38,20 @@ export type Compare = (typeof COMPARES)[number]
 export const SEVERITIES = ['info', 'warn', 'critical'] as const
 export type Severity = (typeof SEVERITIES)[number]
 
+/**
+ * Physiological context the rule restricts its samples to (Sprint 5 §4).
+ *
+ * - `any`     — every sample in the window
+ * - `asleep`  — samples falling inside a `v_sleep_session` interval
+ * - `resting` — samples in a minute with zero steps
+ *
+ * Context is a JOIN, not a post-filter: "SpO₂ during sleep" means the
+ * aggregate is computed over sleep samples only, not computed over
+ * everything and then labelled.
+ */
+export const CONTEXTS = ['any', 'asleep', 'resting'] as const
+export type RuleContext = (typeof CONTEXTS)[number]
+
 const TargetAbsolute = z.object({
   type: z.literal('absolute'),
   value: z.number(),
@@ -61,11 +75,34 @@ const TargetRange = z.object({
   max: z.number(),
 })
 
+/**
+ * v0.2.0 (Sprint 5 §4, Ziva #1) — threshold read from KVStore at eval time
+ * rather than baked into the rule.
+ *
+ * This is what makes the ⚙ sheet's promise real: the user drags a safe
+ * level, the mutation writes `user:spo2SafeLevel`, and the SAME shipped
+ * rule re-evaluates against the new number on the next batch. No recompile,
+ * no per-user rule rows.
+ *
+ * `compare` is a single-member enum rather than omitted: the comparison is
+ * fixed by the rule's own `compare` field, and a second knob here would let
+ * an author write a rule whose two comparison directions disagree.
+ */
+const TargetUserSetting = z.object({
+  type: z.literal('user_setting'),
+  /** KVStore key suffix, e.g. `user:spo2SafeLevel`. See the namespace registry. */
+  key: z.string().min(1),
+  /** Used when the user has never set the value. */
+  defaultValue: z.number(),
+  compare: z.enum(['as_configured']).default('as_configured'),
+})
+
 export const TargetSchema = z.discriminatedUnion('type', [
   TargetAbsolute,
   TargetBaselinePercent,
   TargetBaselineStddev,
   TargetRange,
+  TargetUserSetting,
 ])
 export type Target = z.infer<typeof TargetSchema>
 
@@ -87,6 +124,16 @@ export const RuleSchema = z.object({
   window: z.enum(WINDOWS),
   aggregation: z.enum(AGGREGATIONS).default('avg'),
   compare: z.enum(COMPARES),
+  /** Restrict samples to a physiological context. Default `any`. */
+  context: z.enum(CONTEXTS).default('any'),
+  /**
+   * Require `n` ADJACENT breaching samples before the rule fires.
+   *
+   * Omitted or `1` means "any breach in the window", which the aggregate
+   * path already expresses (e.g. `aggregation: 'min'` + `less_than`).
+   * `>= 2` switches the compiler to run-length detection.
+   */
+  consecutive: z.number().int().min(1).optional(),
   target: TargetSchema,
   severity: z.enum(SEVERITIES),
   throttle: ThrottleSchema,

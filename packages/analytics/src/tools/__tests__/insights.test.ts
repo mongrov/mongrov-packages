@@ -13,14 +13,14 @@ describe('getInsights', () => {
     const engine = createFakeEngine()
     engine.queueRows('FROM insight', [
       {
-        id: 'i-1',
+        insight_id: 'i-1',
         ts: '2026-07-10 08:00:00',
         severity: 'warn',
         title: 'HRV below baseline',
         body: '3-day drop of 15%',
       },
       {
-        id: 'i-2',
+        insight_id: 'i-2',
         ts: '2026-07-09 22:00:00',
         severity: 'info',
         title: 'Sleep goal met',
@@ -41,25 +41,36 @@ describe('getInsights', () => {
     expect(res.text).toContain('[info] 2026-07-09 22:00:00: Sleep goal met')
   })
 
-  it('threads severity filter into params + SQL', async () => {
+  it('threads severity filter into params + SQL and filters dismissed rows', async () => {
     const engine = createFakeEngine()
     engine.queueRows('FROM insight', [])
     await getInsights(
-      { userId: 'alice', days: 7, severity: 'critical' },
+      { userId: 'alice', days: 7, severity: 'urgent' },
       { ...baseCtx, analytics: engine },
     )
     expect(engine.calls[0].sql).toContain('severity = $severity')
-    expect(engine.calls[0].params.severity).toBe('critical')
+    expect(engine.calls[0].sql).toContain('dismissed_at IS NULL')
+    expect(engine.calls[0].params.severity).toBe('urgent')
   })
 
   it('handles empty result with severity in message', async () => {
     const engine = createFakeEngine()
     engine.queueRows('FROM insight', [])
     const res = await getInsights(
-      { userId: 'alice', days: 7, severity: 'critical' },
+      { userId: 'alice', days: 7, severity: 'urgent' },
       { ...baseCtx, analytics: engine },
     )
-    expect(res.text).toContain('No insights (critical) in the last 7 days')
+    expect(res.text).toContain('No insights (urgent) in the last 7 days')
     expect(res.rowCount).toBe(0)
+  })
+
+  it('rejects the retired critical severity at the schema boundary', async () => {
+    const { getInsightsInputSchema } = await import('../impls/insights')
+    const parsed = getInsightsInputSchema.safeParse({
+      userId: 'alice',
+      days: 7,
+      severity: 'critical',
+    })
+    expect(parsed.success).toBe(false)
   })
 })

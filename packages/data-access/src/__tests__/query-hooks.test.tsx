@@ -29,9 +29,10 @@ import type {
 
 function makeCtx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
-    requesterUserId: 'u1',
+    userId: 'u1',
     brand: 'zivaone',
     familyId: 'f1',
+    timezone: 'UTC',
     now: () => new Date(0),
     ...overrides,
   }

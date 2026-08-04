@@ -6,6 +6,14 @@ import { parseCatalog } from './loader'
 import type { Rule } from '../schema'
 
 const TOML = `
+# LuminX brand default rules.
+#
+# LuminX rules are asset-side: battery low, prolonged disconnect, and
+# firmware/status. All three run against the \`device_event\` table, whose
+# metric proxy \`device_battery\` gates evaluation on batch.
+#
+# See \`luminx.ts\` — this file is the source of truth.
+
 [[rule]]
 id = "luminx.battery-low"
 brand = "luminx"

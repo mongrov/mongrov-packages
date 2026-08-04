@@ -178,6 +178,28 @@ export interface AnalyticsEngine {
    */
   readonly mode: AnalyticsMode
   subscribe(listener: (s: AnalyticsState) => void): Unsubscribe
+  /**
+   * Family member userIds for the current attach context (principle 39 —
+   * "Rules engine and AI tools share the same source of truth").
+   *
+   * Delegates to the `familyMembersProvider` configured at
+   * `createAnalytics`, so rules + tools never reach for RxDB or auth state
+   * themselves. Result is cached in-engine for 60s and invalidated on
+   * `family:update` (analytics-core/spec.md §Family membership resolution).
+   *
+   * Returns `[]` when not attached, when `tenantScope === 'org'`, or in
+   * local mode (no family fanout) — callers treat empty as "no fanout",
+   * never as "denied".
+   */
+  getFamilyMembers(): Promise<string[]>
+  /**
+   * Stamp `dismissed_at` on one insight (Sprint 5 §7b). Backs the app
+   * registry's `insight.dismiss` mutation — `@mongrov/data-access` types
+   * this exact shape on `MutationContext.analytics`.
+   *
+   * Authorized by ownership: `userId` must match the insight's owner.
+   */
+  dismissInsight(args: { insightId: string, userId: string }): Promise<void>
   setRetention(days: number): Promise<void>
   /**
    * Return the last successfully-attached ctx (persisted via KVStore) if it
@@ -190,20 +212,32 @@ export interface AnalyticsEngine {
 
 // -------------------- insight (row in `insight` table) --------------------
 
+/** Insight categories per spec §Table schema (`insight.kind`). */
+export type InsightKind = 'threshold' | 'pattern' | 'baseline_shift' | 'factor'
+
+/** Insight severity per spec §Table schema (`insight.severity`). */
+export type InsightSeverity = 'info' | 'warn' | 'urgent'
+
 /**
- * Insight row shape as read from the `insight` DuckDB table.
- * The full schema is frozen in T-06 (schemas.ts); this stub matches the
- * columns needed by `useInsight()` in v0.1.0.
+ * Insight row shape as read from the `insight` DuckDB table — mirrors the
+ * DDL in schemas.ts (camelCase field names, snake_case columns).
  */
 export interface Insight {
-  id: string
+  insightId: string
+  /** fired_at semantic; adapters may surface TIMESTAMP as ISO string. */
+  ts: Date | string
   brand: string
   familyId: string
   userId: string
-  ruleId?: string
-  severity: 'info' | 'warn' | 'critical'
-  observedAt: Date
-  observedValue?: number
-  thresholdValue?: number
-  payload?: Record<string, unknown>
+  /** Nullable — non-rule insights (patterns, factors) carry no rule_id. */
+  ruleId?: string | null
+  metric: string
+  kind: InsightKind
+  severity: InsightSeverity
+  title: string
+  body?: string | null
+  /** JSON payload (readings, thresholds, …) serialized as VARCHAR. */
+  evidence?: string | null
+  acknowledgedAt?: Date | string | null
+  dismissedAt?: Date | string | null
 }

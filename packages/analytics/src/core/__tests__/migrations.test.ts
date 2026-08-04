@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { HybridDuckDB } from '../engine'
+import { LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
 import {
   CURRENT_VERSION,
   ensureMigrations,
@@ -18,6 +19,25 @@ async function newOpenDb() {
   return { fake, db }
 }
 
+/**
+ * DDL counts the baseline migration issues, derived from TABLE_NAMES so
+ * adding a table does not require retuning every count in this file.
+ * Local gets every table; remote skips the local-only ones.
+ */
+const LOCAL_DDL_COUNT = TABLE_NAMES.length
+const REMOTE_DDL_COUNT = TABLE_NAMES.length - LOCAL_ONLY_TABLES.size
+const BASELINE_DDL_COUNT = LOCAL_DDL_COUNT + REMOTE_DDL_COUNT
+/** step-2 re-ensures device_battery in both catalogs. */
+const STEP2_COUNT = 2
+/**
+ * step-3 issues 8 statements: the fake returns no columns for the
+ * information_schema probe, so the recreate path runs (probe + drop
+ * scratch + create scratch + copy + drop + rename + index + remote).
+ */
+const STEP3_COUNT = 8
+/** step-4 creates user_baseline in the local catalog only. */
+const STEP4_COUNT = 1
+
 const CTX = { brand: 'brandA', tenantId: 'fam123' }
 const CATALOG = 'zone_fam123'
 const KEY = schemaVersionKey(CTX.brand, CTX.tenantId)
@@ -31,17 +51,18 @@ describe('ensureMigrations', () => {
 
     expect(result).toEqual({ from: 0, to: CURRENT_VERSION })
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
-    // baseline issues LOCAL_SCHEMAS in local catalog + SCHEMAS in remote
-    // catalog = 15 + 15 = 30 DDLs (0.5.0 fix for "ensureSchemas never
-    // creates local.* tables"), then step-2 re-ensures device_battery in
-    // both catalogs = 2 more (no-op DDLs on fresh installs).
-    expect(fake.calls).toHaveLength(32)
+    // baseline issues LOCAL_SCHEMAS in the local catalog + SCHEMAS in the
+    // remote catalog (0.5.0 fix for "ensureSchemas never creates local.*
+    // tables"), minus the local-only tables remote-side; then steps 2-4.
+    expect(fake.calls).toHaveLength(
+      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT,
+    )
     // Local tables come first (baseline migration order).
     expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS memory.hrv')
     expect(fake.calls[0].sql).not.toContain('PARTITIONED BY')
     // Then remote tables with PARTITIONED BY.
-    expect(fake.calls[15].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.default.hrv')
-    expect(fake.calls[15].sql).toContain('PARTITIONED BY')
+    expect(fake.calls[LOCAL_DDL_COUNT].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.default.hrv')
+    expect(fake.calls[LOCAL_DDL_COUNT].sql).toContain('PARTITIONED BY')
   })
 
   it('same-version rerun: no DDL issued, KV unchanged', async () => {
@@ -88,7 +109,7 @@ describe('ensureMigrations', () => {
     expect(store.get(KEY)).toBeUndefined()
   })
 
-  it('upgrade from v1 runs only step-2 (device_battery, both catalogs)', async () => {
+  it('upgrade from v1 runs step-2 then step-3 (device_battery, insight v2)', async () => {
     const { fake, db } = await newOpenDb()
     const { kv, store } = createFakeKV()
     store.set(KEY, 1)
@@ -97,12 +118,39 @@ describe('ensureMigrations', () => {
 
     expect(result).toEqual({ from: 1, to: CURRENT_VERSION })
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
-    // Step-2 only: local (no PARTITIONED BY) + remote (with) device_battery.
-    expect(fake.calls).toHaveLength(2)
+    // Step-2: local (no PARTITIONED BY) + remote (with) device_battery.
     expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS memory.device_battery')
     expect(fake.calls[0].sql).not.toContain('PARTITIONED BY')
     expect(fake.calls[1].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.default.device_battery')
     expect(fake.calls[1].sql).toContain('PARTITIONED BY (day(ts), device_id)')
+    // Steps 3 + 4 follow (see first-run test).
+    expect(fake.calls).toHaveLength(STEP2_COUNT + STEP3_COUNT + STEP4_COUNT)
+  })
+
+  it('upgrade from v2 runs only step-3 — insight recreate with data mapping', async () => {
+    const { fake, db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    store.set(KEY, 2)
+
+    const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
+
+    expect(result).toEqual({ from: 2, to: CURRENT_VERSION })
+    const sqls = fake.calls.map(c => c.sql)
+    // information_schema probe on the local catalog gates the recreate.
+    expect(sqls[0]).toContain('information_schema.columns')
+    // Copy preserves rows with id → insight_id, kind default 'threshold',
+    // and severity 'critical' → 'urgent'.
+    const copy = sqls.find(s => s.startsWith('INSERT INTO memory.insight_v2'))
+    expect(copy).toBeDefined()
+    expect(copy).toContain(`'threshold'`)
+    expect(copy).toContain(`CASE WHEN severity = 'critical' THEN 'urgent' ELSE severity END`)
+    expect(sqls).toContain('DROP TABLE memory.insight;')
+    expect(sqls).toContain('ALTER TABLE memory.insight_v2 RENAME TO insight;')
+    // Lookup index per spec — local catalog only.
+    expect(sqls.some(s => s.includes('CREATE INDEX IF NOT EXISTS idx_insight_lookup ON memory.insight (user_id, metric, dismissed_at, ts)'))).toBe(true)
+    // Remote gets non-destructive CREATE IF NOT EXISTS only.
+    expect(sqls.some(s => s.includes('CREATE TABLE IF NOT EXISTS zone_fam123.default.insight'))).toBe(true)
+    expect(sqls.some(s => s.includes('DROP TABLE zone_fam123'))).toBe(false)
   })
 
   it('multi-step upgrade path applies only newer migrations', async () => {
@@ -115,9 +163,9 @@ describe('ensureMigrations', () => {
     const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
     expect(result.from).toBe(0)
     expect(result.to).toBe(CURRENT_VERSION)
-    // Baseline creates 15 local + 15 remote = 30 DDLs, plus step-2's
-    // 2 device_battery DDLs = 32.
-    expect(fake.calls.length).toBe(32)
+    expect(fake.calls.length).toBe(
+      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT,
+    )
 
     // Same call again — no-op. KV already at CURRENT_VERSION.
     fake.calls.length = 0
@@ -165,6 +213,118 @@ describe('legacy key migration (T-23)', () => {
     // canonical key was present. Cleanup of orphan legacy keys is
     // out of scope for the migration runner.
     expect(store.get(LEGACY_KEY)).toBe(0)
+  })
+})
+
+describe('migration 3 — insight v2 against a live local DuckDB', () => {
+  const OLD_INSIGHT_DDL = `CREATE TABLE memory.insight (
+  id VARCHAR PRIMARY KEY,
+  ts TIMESTAMP NOT NULL,
+  brand VARCHAR NOT NULL,
+  family_id VARCHAR NOT NULL,
+  user_id VARCHAR NOT NULL,
+  rule_id VARCHAR,
+  severity VARCHAR NOT NULL,
+  title VARCHAR NOT NULL,
+  body TEXT,
+  evidence VARCHAR,
+  acknowledged_at TIMESTAMP
+);`
+
+  async function bootReal() {
+    const { createRealDuckDB } = await import('../../__integration__/setup/real-engine')
+    const { HybridDuckDB: Hybrid } = await import('../engine')
+    const db = new Hybrid(() => createRealDuckDB([]))
+    await db.open()
+    return db
+  }
+
+  it('fresh DB: full run yields the v2 shape + lookup index', async () => {
+    const db = await bootReal()
+    try {
+      const { kv } = createFakeKV()
+      await ensureMigrations(db, kv, CTX, { local: 'memory' })
+
+      const cols = await db.execute<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'insight'`,
+      )
+      const names = new Set(cols.map(c => c.column_name))
+      expect(names.has('insight_id')).toBe(true)
+      expect(names.has('metric')).toBe(true)
+      expect(names.has('kind')).toBe(true)
+      expect(names.has('dismissed_at')).toBe(true)
+      expect(names.has('id')).toBe(false)
+
+      const indexes = await db.execute<{ index_name: string }>(
+        `SELECT index_name FROM duckdb_indexes() WHERE table_name = 'insight'`,
+      )
+      expect(indexes.map(i => i.index_name)).toContain('idx_insight_lookup')
+    }
+    finally {
+      await db.close()
+    }
+  })
+
+  it('old-shape table: rows preserved, critical → urgent, kind defaults to threshold', async () => {
+    const db = await bootReal()
+    try {
+      const { kv, store } = createFakeKV()
+      await db.execute(OLD_INSIGHT_DDL)
+      await db.execute(
+        `INSERT INTO memory.insight (id, ts, brand, family_id, user_id, severity, title, body)
+         VALUES ('old-1', now(), 'b', 'f', 'u', 'critical', 'Old alert', 'legacy row')`,
+      )
+      store.set(KEY, 2) // step-3 pending only
+
+      await ensureMigrations(db, kv, CTX, { local: 'memory' })
+
+      const rows = await db.execute<{
+        insight_id: string
+        metric: string
+        kind: string
+        severity: string
+        title: string
+        dismissed_at: unknown
+      }>(`SELECT insight_id, metric, kind, severity, title, dismissed_at FROM memory.insight`)
+      expect(rows).toHaveLength(1)
+      expect(rows[0].insight_id).toBe('old-1')
+      expect(rows[0].kind).toBe('threshold')
+      expect(rows[0].severity).toBe('urgent')
+      expect(rows[0].metric).toBe('unknown')
+      expect(rows[0].title).toBe('Old alert')
+      expect(rows[0].dismissed_at).toBeNull()
+    }
+    finally {
+      await db.close()
+    }
+  })
+
+  it('running step-3 twice is a no-op the second time (metric column present)', async () => {
+    const db = await bootReal()
+    try {
+      const { kv, store } = createFakeKV()
+      await db.execute(OLD_INSIGHT_DDL)
+      await db.execute(
+        `INSERT INTO memory.insight (id, ts, brand, family_id, user_id, severity, title)
+         VALUES ('old-1', now(), 'b', 'f', 'u', 'warn', 'Keep me')`,
+      )
+      store.set(KEY, 2)
+      await ensureMigrations(db, kv, CTX, { local: 'memory' })
+
+      // Force step-3 to run again — the metric-column guard must skip the
+      // recreate and preserve the migrated row.
+      store.set(KEY, 2)
+      await ensureMigrations(db, kv, CTX, { local: 'memory' })
+
+      const rows = await db.execute<{ insight_id: string, severity: string }>(
+        `SELECT insight_id, severity FROM memory.insight`,
+      )
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ insight_id: 'old-1', severity: 'warn' })
+    }
+    finally {
+      await db.close()
+    }
   })
 })
 

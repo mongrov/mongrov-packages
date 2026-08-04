@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { deltaPct, formatBytes } from '../formatters'
+import { assertNoBanTerms, deltaPct, formatBytes } from '../formatters'
 import type { ToolImpl, ToolResult } from '../types'
 
 export const compareTrendInputSchema = z.object({
@@ -25,7 +25,7 @@ const METRIC_SPECS: Record<CompareTrendInput['metric'], MetricSpec> = {
   hrv_ms: {
     sql: (windowDays, offsetDays) =>
       `SELECT AVG(hrv_ms)::DOUBLE AS value
-       FROM hrv
+       FROM v_hrv
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND hrv_ms IS NOT NULL
          AND ts >= now() - INTERVAL (${windowDays + offsetDays}) DAY
@@ -36,7 +36,7 @@ const METRIC_SPECS: Record<CompareTrendInput['metric'], MetricSpec> = {
   sleep_total_minutes: {
     sql: (windowDays, offsetDays) =>
       `SELECT AVG(total_minutes)::DOUBLE AS value
-       FROM sleep_session
+       FROM v_sleep_session
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND ts_start >= now() - INTERVAL (${windowDays + offsetDays}) DAY
          AND ts_start <  now() - INTERVAL (${offsetDays}) DAY`,
@@ -47,7 +47,7 @@ const METRIC_SPECS: Record<CompareTrendInput['metric'], MetricSpec> = {
     sql: (windowDays, offsetDays) =>
       `SELECT AVG(daily_steps)::DOUBLE AS value FROM (
          SELECT date_trunc('day', ts) AS day, SUM(steps) AS daily_steps
-         FROM activity
+         FROM v_activity
          WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
            AND ts >= now() - INTERVAL (${windowDays + offsetDays}) DAY
            AND ts <  now() - INTERVAL (${offsetDays}) DAY
@@ -104,5 +104,9 @@ function fmt(v: number | null): string {
 }
 
 function finalize(text: string, rowCount: number): ToolResult {
+  // principle 37 — every formatter's return path is guarded, not
+  // just the SpO2 one. Tool text lands in an LLM's context, and the
+  // model repeats whatever register it finds there.
+  assertNoBanTerms(text, 'compareTrend')
   return { text, rowCount, bytes: formatBytes(text) }
 }

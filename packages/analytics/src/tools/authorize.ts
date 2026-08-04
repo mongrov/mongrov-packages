@@ -3,10 +3,20 @@
  *
  * `familyScopeAuthorize` — grants access iff `args.userId` is either
  * the requester themselves or another member of the requester's
- * family. When `config.familyMembersProvider` is supplied (the
- * factory path since T-11), membership resolves via that provider;
- * otherwise the legacy SQL path against a `family_member` table is
- * used (kept for standalone hook usage and backwards compat).
+ * family.
+ *
+ * Membership always resolves through the engine's configured
+ * `FamilyMembersProvider` (principle 39 — "Rules engine and AI tools
+ * share the same source of truth"): an explicitly-passed
+ * `config.familyMembersProvider` wins, otherwise `analytics
+ * .getFamilyMembers()` delegates to the one wired at `createAnalytics`.
+ *
+ * There is deliberately no SQL fallback. The spec's illustrative
+ * `SELECT 1 FROM family_member ...` referenced a table that no DDL in
+ * this package ever creates, so that path could only ever throw and
+ * fail closed — silently denying every cross-member query on any
+ * install that didn't pass a provider. Membership lives in the RxDB
+ * Family doc, not in DuckDB.
  *
  * Both hooks fail closed on any error — provider throws, engine
  * throws, missing/malformed args — return `false` rather than
@@ -37,26 +47,14 @@ export function familyScopeAuthorize(
       return true
     }
 
-    if (config.familyMembersProvider) {
-      try {
-        const members = await config.familyMembersProvider({
-          brand: ctx.brand,
-          familyId: ctx.familyId,
-        })
-        return members.includes(targetUserId)
-      }
-      catch {
-        return false
-      }
-    }
-
     try {
-      const rows = await analytics.execute<{ one: number }>(
-        'SELECT 1 AS one FROM family_member '
-        + 'WHERE family_id = $familyId AND user_id = $userId LIMIT 1',
-        { familyId: ctx.familyId, userId: targetUserId },
-      )
-      return rows.length > 0
+      const members = config.familyMembersProvider
+        ? await config.familyMembersProvider({
+            brand: ctx.brand,
+            familyId: ctx.familyId,
+          })
+        : await analytics.getFamilyMembers()
+      return members.includes(targetUserId)
     }
     catch {
       return false
@@ -65,14 +63,11 @@ export function familyScopeAuthorize(
 }
 
 /**
- * `orgScopeAuthorize` — parity with family scope but against an
- * `org_member` table. Orgs are not first-class in v0.1.0; the ctx
- * `familyId` is treated as the org id until org membership is wired
- * through `RequestContext`.
- *
- * When `familyMembersProvider` is supplied, the same provider is
- * consulted (v0.1.0 shim — a dedicated `orgMembersProvider` will
- * split out once orgs land).
+ * `orgScopeAuthorize` — parity with family scope. Orgs are not
+ * first-class in v0.1.0; the ctx `familyId` is treated as the org id
+ * until org membership is wired through `RequestContext`, and the same
+ * membership provider is consulted (v0.1.0 shim — a dedicated
+ * `orgMembersProvider` splits out once orgs land).
  */
 export function orgScopeAuthorize(
   analytics: AnalyticsEngine,
@@ -87,26 +82,14 @@ export function orgScopeAuthorize(
       return true
     }
 
-    if (config.familyMembersProvider) {
-      try {
-        const members = await config.familyMembersProvider({
-          brand: ctx.brand,
-          familyId: ctx.familyId,
-        })
-        return members.includes(targetUserId)
-      }
-      catch {
-        return false
-      }
-    }
-
     try {
-      const rows = await analytics.execute<{ one: number }>(
-        'SELECT 1 AS one FROM org_member '
-        + 'WHERE org_id = $orgId AND user_id = $userId LIMIT 1',
-        { orgId: ctx.familyId, userId: targetUserId },
-      )
-      return rows.length > 0
+      const members = config.familyMembersProvider
+        ? await config.familyMembersProvider({
+            brand: ctx.brand,
+            familyId: ctx.familyId,
+          })
+        : await analytics.getFamilyMembers()
+      return members.includes(targetUserId)
     }
     catch {
       return false

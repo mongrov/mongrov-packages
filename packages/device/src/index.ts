@@ -33,9 +33,32 @@ export type {
   Unsubscribe,
 } from './types'
 
+// Sync lifecycle events (Sprint 5 T-39). The emitter is usable today; D5's
+// sync machine wires it into its transitions.
+export { createSyncEventEmitter } from './sync-events'
+export type {
+  Clock,
+  SyncEventEmitter,
+  SyncEventEmitterConfig,
+  SyncRun,
+} from './sync-events'
+
+// Re-exported device-event contract so consumers need one import.
+export {
+  DEVICE_EVENT_TYPES,
+  encodeDeviceEventPayload,
+  decodeDeviceEventPayload,
+} from '@mongrov/types/device-events'
+export type {
+  DeviceEventPayload,
+  DeviceEventType,
+  SyncTriggerValue,
+} from '@mongrov/types/device-events'
+
 // Ports (behavioral contracts the app supplies)
 export type {
   ConfigStore,
+  DeviceEventSink,
   DeviceLogger,
   LifecyclePort,
   LifecycleState,
