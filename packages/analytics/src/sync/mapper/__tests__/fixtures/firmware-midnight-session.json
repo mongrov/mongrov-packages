@@ -1,0 +1,40 @@
+{
+  "$comment": "Midnight-crossing session, America/Los_Angeles. Timestamps are UTC per firmware contract. Session runs 22:00 Jun 17 local (05:00 UTC Jun 18) to 03:30 Jun 18 local (10:30 UTC). Pre- and post-midnight blocks belong to one session; 6pm-6pm rule assigns night_of = 2026-06-17 (2026-06-17T07:00:00.000Z).",
+  "heartrate": [],
+  "hrv_table": [],
+  "spo2": [],
+  "temperature_table": [],
+  "activitydetails": [],
+  "sleep_processed": [
+    {
+      "start": "2026.06.18 05:00:00",
+      "end": "2026.06.18 10:30:00",
+      "block_type": "primary",
+      "confidence": 0.9,
+      "timestamp": "2026.06.18 05:00:00"
+    },
+    {
+      "start": "2026.06.18 05:00:00",
+      "end": "2026.06.18 10:30:00",
+      "block_type": "deep",
+      "confidence": 0.85,
+      "timestamp": "2026.06.18 06:30:00"
+    },
+    {
+      "start": "2026.06.18 05:00:00",
+      "end": "2026.06.18 10:30:00",
+      "block_type": "rem",
+      "confidence": 0.8,
+      "timestamp": "2026.06.18 07:30:00"
+    },
+    {
+      "start": "2026.06.18 05:00:00",
+      "end": "2026.06.18 10:30:00",
+      "block_type": "light",
+      "confidence": 0.75,
+      "timestamp": "2026.06.18 10:30:00"
+    }
+  ],
+  "battery_table": [],
+  "ring": { "automaticMonitoringData": [] }
+}

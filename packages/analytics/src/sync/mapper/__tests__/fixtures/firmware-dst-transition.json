@@ -1,0 +1,40 @@
+{
+  "$comment": "DST fall-back edge case, America/Los_Angeles 2025-11-02 (02:00 PDT -> 01:00 PST). Timestamps are UTC per firmware contract. Session starts 23:00 PDT Nov 1 (06:00 UTC) and runs to 03:00 PST Nov 2 (11:00 UTC). The 08:30 UTC and 09:30 UTC blocks are BOTH 01:30 local wall-clock (first pass PDT, repeat pass PST) — the repeated hour. All blocks must land in one session with night_of = 2025-11-01 (2025-11-01T07:00:00.000Z).",
+  "heartrate": [],
+  "hrv_table": [],
+  "spo2": [],
+  "temperature_table": [],
+  "activitydetails": [],
+  "sleep_processed": [
+    {
+      "start": "2025.11.02 06:00:00",
+      "end": "2025.11.02 11:00:00",
+      "block_type": "primary",
+      "confidence": 0.92,
+      "timestamp": "2025.11.02 06:00:00"
+    },
+    {
+      "start": "2025.11.02 06:00:00",
+      "end": "2025.11.02 11:00:00",
+      "block_type": "deep",
+      "confidence": 0.88,
+      "timestamp": "2025.11.02 08:30:00"
+    },
+    {
+      "start": "2025.11.02 06:00:00",
+      "end": "2025.11.02 11:00:00",
+      "block_type": "rem",
+      "confidence": 0.81,
+      "timestamp": "2025.11.02 09:30:00"
+    },
+    {
+      "start": "2025.11.02 06:00:00",
+      "end": "2025.11.02 11:00:00",
+      "block_type": "light",
+      "confidence": 0.76,
+      "timestamp": "2025.11.02 11:00:00"
+    }
+  ],
+  "battery_table": [],
+  "ring": { "automaticMonitoringData": [] }
+}

@@ -64,7 +64,8 @@ export function mapActivity(
       family_id: ctx.familyId,
       user_id: ctx.userId,
       device_id: ctx.deviceId,
-      steps: row.step,
+      // No `steps` — the bucket carries calories/distance only. Steps are
+      // unnested to 1-min `activity` rows above (spec §Table schema).
       calories: row.calories,
       distance_km: row.distance,
     })
