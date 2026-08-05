@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { defineQuery } from '../define'
 import { executeQuery, runAuthorize, type EngineAdapters } from '../dispatcher'
 import { AuthorizationError, DataAccessError } from '../errors'
+import { createQueryInstrumentation } from '../instrumentation'
 import { mergeTenantParams } from '../tenant'
 import type { RequestContext } from '../types'
 
@@ -257,5 +258,54 @@ describe('unknown engine (compile-time exhaustive fallthrough)', () => {
         {}
       )
     ).rejects.toBeInstanceOf(DataAccessError)
+  })
+})
+
+describe('T-45 — instrumentation hook', () => {
+  const def = defineQuery({
+    engine: 'kv',
+    output: z.string().nullable(),
+    keyBuilder: () => 'k',
+  })
+  const ctx = {
+    userId: 'u', brand: 'ziva', familyId: 'f',
+    timezone: 'UTC', now: () => new Date(),
+  }
+  const engines = { kv: { get: async () => 'v' } }
+
+  it('is skipped entirely when no instrumentation is supplied', async () => {
+    // The hot path must not pay for a feature that is off by default.
+    await expect(executeQuery(def, {}, ctx, engines as never)).resolves.toBe('v')
+  })
+
+  it('records under the registry name when enabled', async () => {
+    const inst = createQueryInstrumentation({ enabled: true })
+    await executeQuery(def, {}, ctx, engines as never, {
+      instrumentation: inst,
+      queryName: 'user.spo2SafeLevel',
+    })
+    expect(inst.statsFor('user.spo2SafeLevel')!.count).toBe(1)
+  })
+
+  it('records a failure without swallowing the error', async () => {
+    const inst = createQueryInstrumentation({ enabled: true })
+    const failing = { kv: { get: async () => { throw new Error('kv down') } } }
+
+    await expect(
+      executeQuery(def, {}, ctx, failing as never, {
+        instrumentation: inst, queryName: 'user.spo2SafeLevel',
+      }),
+    ).rejects.toThrow('kv down')
+
+    inst.record('user.spo2SafeLevel', 1, true)
+    expect(inst.statsFor('user.spo2SafeLevel')!.errorCount).toBe(1)
+  })
+
+  it('does not record when instrumentation is present but disabled', async () => {
+    const inst = createQueryInstrumentation({ enabled: false })
+    await executeQuery(def, {}, ctx, engines as never, {
+      instrumentation: inst, queryName: 'user.spo2SafeLevel',
+    })
+    expect(inst.statsFor('user.spo2SafeLevel')).toBeNull()
   })
 })

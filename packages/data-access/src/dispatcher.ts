@@ -18,6 +18,8 @@
 
 import type { z } from 'zod'
 
+import type { QueryInstrumentation } from './instrumentation'
+
 import {
   AuthorizationError,
   DataAccessError,
@@ -109,19 +111,37 @@ export interface EngineAdapters {
 }
 
 /**
+ * Optional per-execution instrumentation (Sprint 5 T-45). Off by default;
+ * see `instrumentation.ts` for why the measurement exists.
+ */
+export interface ExecuteQueryOptions {
+  instrumentation?: QueryInstrumentation
+  /** Registry name, used as the metric key. */
+  queryName?: string
+}
+
+/**
  * T-06 core — resolve a registered query and return typed output.
  */
 export async function executeQuery<TInput, TOutput>(
   def: QueryDefinition<TInput, TOutput>,
   input: TInput,
   ctx: RequestContext,
-  engines: EngineAdapters
+  engines: EngineAdapters,
+  options: ExecuteQueryOptions = {}
 ): Promise<TOutput> {
   const parsedInput = parseInput(def.config.input, input)
 
   await runAuthorize(def.config.authorize, parsedInput, ctx)
 
-  const raw = await dispatchByEngine(def.config, parsedInput, ctx, engines)
+  // Only the engine round-trip is timed. Input parse, authorize and output
+  // parse are ours and roughly constant; folding them in would blur the
+  // number the watermark-cache gate is read from.
+  const instrumentation = options.instrumentation
+  const raw = instrumentation?.enabled && options.queryName
+    ? await instrumentation.measure(options.queryName, () =>
+        dispatchByEngine(def.config, parsedInput, ctx, engines))
+    : await dispatchByEngine(def.config, parsedInput, ctx, engines)
 
   return parseOutput(def.config.output, raw)
 }

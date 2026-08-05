@@ -12,7 +12,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [types, core, auth, ui, ai, db, theme, collab, analytics]
+        # data-access + device were absent until 2026-08-04; their only
+        # automated check was inside publish.yml at tag time, so a break
+        # would not surface until someone cut a release.
+        package: [types, core, auth, ui, ai, db, theme, collab, analytics, data-access, device]
     steps:
       - uses: actions/checkout@v4
 
