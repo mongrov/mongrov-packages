@@ -12,7 +12,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [types, core, auth, ui, ai, db, theme, collab, analytics]
+        # data-access + device were absent until 2026-08-04; their only
+        # automated check was inside publish.yml at tag time, so a break
+        # would not surface until someone cut a release.
+        package: [types, core, auth, ui, ai, db, theme, collab, analytics, data-access, device]
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +27,14 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Build workspace dependencies
+        # Packages resolve each other through their `exports` maps, which
+        # point at dist/. On a clean checkout dist/ does not exist yet, so a
+        # package that imports a sibling (analytics -> types/device-events)
+        # fails to typecheck. `^...` builds dependencies only, not the
+        # package itself — that is still the job's own Build step.
+        run: pnpm --filter @mongrov/${{ matrix.package }}^... run build
 
       - name: Typecheck
         run: pnpm --filter @mongrov/${{ matrix.package }} run typecheck
