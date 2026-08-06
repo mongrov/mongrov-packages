@@ -71,6 +71,11 @@ export type {
   EventBus,
 } from './analytics-contracts'
 
+// KVStore key namespace registry (v0.5.x — Sprint 5 T-42). Value exports,
+// so imported from the `./kv-keys` subpath by runtime consumers; the types
+// are re-exported here for convenience.
+export type { KvKey, KvKeyEntry } from './kv-keys'
+
 // Device types (v0.4.0)
 export type {
   JsonValue,

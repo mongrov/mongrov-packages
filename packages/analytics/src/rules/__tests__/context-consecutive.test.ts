@@ -230,3 +230,51 @@ describe('injection safety holds across the new paths', () => {
     }
   })
 })
+
+describe('T-42 — user_setting keys must be in the KVStore registry', () => {
+  const userSettingRule = (key: string) => rule({
+    target: { type: 'user_setting', key, defaultValue: 90 },
+  })
+
+  it('accepts a registered threshold key', () => {
+    expect(() => validateRule(userSettingRule('user:spo2SafeLevel')))
+      .not.toThrow()
+  })
+
+  it('rejects an unregistered key', () => {
+    // The failure this prevents: a typo compiles, validates, evaluates,
+    // and silently uses defaultValue forever — the user drags their safe
+    // level, sees it save, and nothing changes.
+    expect(() => validateRule(userSettingRule('user:spo2SaveLevel')))
+      .toThrow(/not in the KVStore key namespace registry/)
+  })
+
+  it('rejects a registered key that is UX state, not a threshold', () => {
+    // Thresholding on "did they dismiss a banner" is a bug, not a feature.
+    expect(() => validateRule(userSettingRule('user:spo2Day30BannerDismissed')))
+      .toThrow(/UX state, not a threshold/)
+  })
+
+  it('names the legal keys in the error, so the fix is obvious', () => {
+    try {
+      validateRule(userSettingRule('user:nope'))
+      throw new Error('should have thrown')
+    }
+    catch (err) {
+      const msg = (err as Error).message
+      expect(msg).toContain('user:spo2SafeLevel')
+      expect(msg).toContain('KV_KEY_REGISTRY')
+    }
+  })
+
+  it('leaves non-user_setting targets alone', () => {
+    expect(() => validateRule(rule({}))).not.toThrow()
+  })
+
+  it('the shipped Ziva safe-level rule uses a registered key', async () => {
+    const { zivaDefaults } = await import('../defaults')
+    const r = zivaDefaults.find(x => x.id === 'ziva.spo2-safe-level')!
+    expect(r.target).toMatchObject({ key: 'user:spo2SafeLevel' })
+    expect(() => validateRule(r)).not.toThrow()
+  })
+})

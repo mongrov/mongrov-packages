@@ -6,6 +6,12 @@
  * cadence + the minimum viable window.
  */
 
+import {
+  isRegisteredKvKey,
+  isRuleReadableKvKey,
+  ruleReadableKvKeys,
+} from '@mongrov/types/kv-keys'
+
 import { METRIC_METADATA, type MetricId } from '../core/metric_metadata'
 import type { RulesLogger } from './types'
 import { type Rule, RuleValidationError, type Window, WINDOWS } from './schema'
@@ -76,6 +82,7 @@ function samplingLabel(metric: MetricId): string {
 export function validateRule(rule: Rule, logger?: RulesLogger): void {
   validateConsecutive(rule)
   validateContext(rule)
+  validateUserSettingKey(rule)
 
   const allowed = allowedWindowsFor(rule.metric)
   if (!allowed.includes(rule.window)) {
@@ -163,6 +170,38 @@ function validateContext(rule: Rule): void {
       + `${rule.metric} — it is already a per-session measure. Use context 'any'.`,
     )
   }
+}
+
+/**
+ * Sprint 5 §4 / T-42 — a `user_setting` target's key must be in the
+ * KVStore namespace registry.
+ *
+ * Without this check a typo is invisible in the worst possible way: a rule
+ * pointing at `user:spo2SaveLevel` compiles, validates, evaluates, and
+ * silently uses its `defaultValue` forever. The user drags their safe
+ * level, sees it save, and the alert never changes behaviour — with no
+ * error raised anywhere. Failing at register() turns a silent
+ * misconfiguration into a loud one.
+ *
+ * UX-state keys are rejected too. They are in the registry so authors can
+ * see the whole namespace, but thresholding a rule on "did they dismiss a
+ * banner" is a bug rather than a feature.
+ */
+function validateUserSettingKey(rule: Rule): void {
+  if (rule.target.type !== 'user_setting') return
+  const { key } = rule.target
+  if (isRuleReadableKvKey(key)) return
+
+  const known = ruleReadableKvKeys()
+  const detail = isRegisteredKvKey(key)
+    ? `'${key}' is registered but is UX state, not a threshold`
+    : `'${key}' is not in the KVStore key namespace registry`
+  throw new RuleValidationError(
+    `Rule ${rule.id}: ${detail}. `
+    + `Rule-readable keys are [${known.join(', ')}]. `
+    + `Add new keys to KV_KEY_REGISTRY in @mongrov/types/kv-keys — a key `
+    + `absent from the registry would silently fall back to defaultValue.`,
+  )
 }
 
 /** Scan a rawSql body for whole-word references to collected-only columns. */

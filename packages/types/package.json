@@ -32,7 +32,13 @@
       "require": "./dist/cjs/device-events.js",
       "default": "./dist/esm/device-events.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./kv-keys": {
+      "types": "./dist/esm/kv-keys.d.ts",
+      "import": "./dist/esm/kv-keys.js",
+      "require": "./dist/cjs/kv-keys.js",
+      "default": "./dist/esm/kv-keys.js"
+    }
   },
   "files": [
     "dist"
