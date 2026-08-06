@@ -28,6 +28,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Build workspace dependencies
+        # Packages resolve each other through their `exports` maps, which
+        # point at dist/. On a clean checkout dist/ does not exist yet, so a
+        # package that imports a sibling (analytics -> types/device-events)
+        # fails to typecheck. `^...` builds dependencies only, not the
+        # package itself — that is still the job's own Build step.
+        run: pnpm --filter @mongrov/${{ matrix.package }}^... run build
+
       - name: Typecheck
         run: pnpm --filter @mongrov/${{ matrix.package }} run typecheck
 

@@ -41,6 +41,14 @@ jobs:
             exit 1
           fi
 
+      - name: Build workspace dependencies
+        # Packages resolve each other through their `exports` maps, which
+        # point at dist/. On a clean checkout dist/ does not exist yet, so a
+        # package that imports a sibling (analytics -> types/device-events)
+        # fails to typecheck. `^...` builds dependencies only, not the
+        # package itself — that is still the job's own Build step.
+        run: pnpm --filter @mongrov/${{ steps.pkg.outputs.package }}^... run build
+
       - name: Typecheck
         run: pnpm --filter @mongrov/${{ steps.pkg.outputs.package }} run typecheck
 

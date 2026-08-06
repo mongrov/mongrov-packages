@@ -54,12 +54,16 @@ export type TableName = (typeof TABLE_NAMES)[number]
  * `user_baseline` is derived data: it is recomputed from the union views
  * after each sync cycle and is cheap to rebuild, so pushing it would add an
  * Iceberg table nobody reads and invite two devices in the same family to
- * race on the same composite PK. `sync_watermark` is per-device sync
- * bookkeeping and meaningless outside the device that wrote it.
+ * race on the same composite PK.
+ *
+ * `sync_watermark` is deliberately NOT here, despite being per-device
+ * bookkeeping that is never pushed (`TABLE_METADATA.syncable: false`).
+ * Excluding it broke the T-18 retention integration cases, which exercise
+ * the sweep against the real attached Iceberg catalog and need the table
+ * present there. An empty remote copy is harmless; a failing sweep is not.
  */
 export const LOCAL_ONLY_TABLES: ReadonlySet<TableName> = new Set<TableName>([
   'user_baseline',
-  'sync_watermark',
 ])
 
 /**
