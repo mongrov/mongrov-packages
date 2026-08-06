@@ -82,10 +82,21 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
    * Optional `retentionDays` seeds the brand-level retention config so
    * `setRetention()` has a baseline to resolve against.
    */
-  function bootEngine(retentionDays?: number): AnalyticsEngine {
+  /**
+   * The local DuckDB catalog the retention sweep targets. `createRealDuckDB`
+   * opens `:memory:`, so `current_database()` is `memory`.
+   */
+  const LOCAL_CATALOG = 'memory'
+
+  /** Push-watermark KV key, matching sync/watermark.ts exactly. */
+  function watermarkKey(tenantId: string, table: string): string {
+    return `analytics:watermark:ziva:${tenantId}:${table}:push`
+  }
+
+  function bootEngine(retentionDays?: number, storage = memoryKV()): AnalyticsEngine {
     return createAnalytics(
       {
-        storage: memoryKV(),
+        storage,
         warehouseUriBuilder: () => ep.warehouseName,
         catalogEndpoint: ep.restEndpoint,
         tokenVendor: staticTokenVendor(),
@@ -262,72 +273,99 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
     }
   })
 
-  it('case #4: retention sweep respects the per-table sync watermark', async () => {
-    const engine = bootEngine(90) // brand default = 90 days
+  it('case #4: retention sweep respects the per-table push watermark', async () => {
+    // Updated for the CO-1 behaviour change: the sweep runs against the
+    // LOCAL catalog only — the client never prunes the attached R2 zone
+    // (principles 17/53; server-side retention is R2 snapshot expiration).
+    // The watermark guard reads the KVStore push cursor, not the
+    // `sync_watermark` table. This case previously seeded the remote zone
+    // and asserted against it, which silently stopped exercising anything.
+    const storage = memoryKV()
+    const engine = bootEngine(90, storage) // brand default = 90 days
     try {
       await engine.attach(attachCtx(TENANT_A))
-      await resetHrv(engine, CATALOG_A, 'u4')
-      // Also clear the watermark for a clean slate.
-      await engine.execute(
-        `DELETE FROM ${qualify(CATALOG_A, 'sync_watermark')}
-          WHERE brand = 'ziva' AND family_id = $fam AND table_name = 'hrv'`,
-        { fam: TENANT_A },
-      )
 
-      // Seed 100 rows, one per day, spanning [now-100d, now-1d]. We use
-      // wall-clock `now()` inside SQL so the ages the retention DELETE
-      // computes line up with the ages the seed inserts pick.
+      const localHrv = `${LOCAL_CATALOG}.hrv`
+      await engine.execute(`DELETE FROM ${localHrv} WHERE user_id = 'u4'`)
+
+      // Seed 100 rows, one per day, spanning [now-100d, now-1d]. Wall-clock
+      // `now()` inside SQL so the ages the DELETE computes line up with the
+      // ages the seed picks.
       await engine.execute(
-        `INSERT INTO ${qualify(CATALOG_A, 'hrv')}
+        `INSERT INTO ${localHrv}
            (ts, brand, family_id, user_id, device_id, hrv_ms)
          SELECT
            (now() - (day_offset * INTERVAL 1 DAY))::TIMESTAMP,
-           'ziva',
-           $fam,
-           'u4',
-           'd-ret',
-           50
+           'ziva', $fam, 'u4', 'd-ret', 50
          FROM generate_series(1, 100) AS t(day_offset)`,
         { fam: TENANT_A },
       )
       const seeded = await engine.execute<{ n: bigint }>(
-        `SELECT COUNT(*)::BIGINT AS n FROM ${qualify(CATALOG_A, 'hrv')} WHERE user_id = 'u4'`,
+        `SELECT COUNT(*)::BIGINT AS n FROM ${localHrv} WHERE user_id = 'u4'`,
       )
       expect(seeded[0]?.n).toBe(100n)
 
       // Watermark 95d back — inside the retention window (90d), so it is
       // the tighter bound and constrains deletion. Only rows older than
       // now-95d should get swept; rows in [now-95d, now] survive.
-      await engine.execute(
-        `INSERT INTO ${qualify(CATALOG_A, 'sync_watermark')}
-           (brand, family_id, table_name, kind, cursor_ts, updated_at)
-           VALUES ('ziva', $fam, 'hrv', 'push', (now() - INTERVAL 95 DAY)::TIMESTAMP, now()::TIMESTAMP)`,
-        { fam: TENANT_A },
-      )
+      const wm = new Date(Date.now() - 95 * 24 * 60 * 60 * 1000)
+      await storage.set(watermarkKey(TENANT_A, 'hrv'), wm.toISOString())
 
       await engine.setRetention(90) // triggers runRetentionSweep
 
       const remaining = await engine.execute<{ n: bigint }>(
-        `SELECT COUNT(*)::BIGINT AS n FROM ${qualify(CATALOG_A, 'hrv')} WHERE user_id = 'u4'`,
+        `SELECT COUNT(*)::BIGINT AS n FROM ${localHrv} WHERE user_id = 'u4'`,
       )
       // LEAST(now - 90d, watermark = now - 95d) = now - 95d.
       // Rows at offset [96..100] days are older → 5 deleted, ~95 remain.
-      // The seed's `now()` and the sweep's `now()` are seconds apart, so
-      // the row at offset=95 straddles the boundary — accept 94..95 to
-      // absorb the wall-clock jitter without weakening the assertion.
+      // Seed and sweep `now()` are seconds apart, so offset=95 straddles
+      // the boundary — accept 94..95 to absorb jitter.
       const remainingN = remaining[0]?.n ?? 0n
       expect(Number(remainingN)).toBeGreaterThanOrEqual(94)
       expect(Number(remainingN)).toBeLessThanOrEqual(95)
 
-      // Sanity: the oldest surviving row is on the far side of the retention
-      // cutoff but inside the watermark bound.
+      // The oldest survivor sits past the retention cutoff but inside the
+      // watermark bound — proving the watermark, not the cutoff, decided.
       const oldest = await engine.execute<{ age_days: number }>(
         `SELECT (extract(epoch FROM (now() - MIN(ts))) / 86400)::INTEGER AS age_days
-           FROM ${qualify(CATALOG_A, 'hrv')}
-          WHERE user_id = 'u4'`,
+           FROM ${localHrv} WHERE user_id = 'u4'`,
       )
       expect(oldest[0]?.age_days).toBeGreaterThanOrEqual(90)
       expect(oldest[0]?.age_days).toBeLessThanOrEqual(95)
+
+      await engine.detach()
+    }
+    finally {
+      await engine.close()
+    }
+  })
+
+  it('case #4b: a syncable table with no push watermark is skipped entirely', async () => {
+    // The other half of the guard: nothing pushed yet means deleting would
+    // lose data that never reached R2, so the table is left alone even
+    // when every row is far past the retention cutoff.
+    const storage = memoryKV()
+    const engine = bootEngine(1, storage) // 1-day retention — everything expired
+    try {
+      await engine.attach(attachCtx(TENANT_A))
+      const localHrv = `${LOCAL_CATALOG}.hrv`
+      await engine.execute(`DELETE FROM ${localHrv} WHERE user_id = 'u4b'`)
+      await engine.execute(
+        `INSERT INTO ${localHrv}
+           (ts, brand, family_id, user_id, device_id, hrv_ms)
+         SELECT (now() - (day_offset * INTERVAL 1 DAY))::TIMESTAMP,
+                'ziva', $fam, 'u4b', 'd-ret', 50
+         FROM generate_series(1, 10) AS t(day_offset)`,
+        { fam: TENANT_A },
+      )
+
+      // No watermark set for hrv.
+      await engine.setRetention(1)
+
+      const remaining = await engine.execute<{ n: bigint }>(
+        `SELECT COUNT(*)::BIGINT AS n FROM ${localHrv} WHERE user_id = 'u4b'`,
+      )
+      expect(Number(remaining[0]?.n ?? 0n)).toBe(10)
 
       await engine.detach()
     }
@@ -492,27 +530,21 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
   })
 
   it('case #8: retention sweep honors sleep_session.ts_end (not ts_start)', async () => {
-    const engine = bootEngine(90) // brand default = 90 days
+    // Same CO-1 update as case #4: local catalog, KVStore watermark.
+    const storage = memoryKV()
+    const engine = bootEngine(90, storage) // brand default = 90 days
     try {
       await engine.attach(attachCtx(TENANT_A))
 
-      // Clean slate.
-      await engine.execute(
-        `DELETE FROM ${qualify(CATALOG_A, 'sleep_session')} WHERE user_id = $u`,
-        { u: 'u8' },
-      )
-      await engine.execute(
-        `DELETE FROM ${qualify(CATALOG_A, 'sync_watermark')}
-          WHERE brand = 'ziva' AND family_id = $fam AND table_name = 'sleep_session'`,
-        { fam: TENANT_A },
-      )
+      const localSleep = `${LOCAL_CATALOG}.sleep_session`
+      await engine.execute(`DELETE FROM ${localSleep} WHERE user_id = 'u8'`)
 
       // Seed 100 sessions with ts_end spanning [now-100d, now-1d]. ts_start
       // sits 7h earlier — deliberately places rows where a `ts_start`-based
       // sweep would keep more rows than a `ts_end`-based sweep. Distinct
       // session_ids satisfy the single-column PK.
       await engine.execute(
-        `INSERT INTO ${qualify(CATALOG_A, 'sleep_session')}
+        `INSERT INTO ${localSleep}
            (session_id, ts_start, ts_end, brand, family_id, user_id, device_id,
             total_minutes, deep_minutes, rem_minutes, light_minutes,
             awake_minutes, avg_confidence, night_of)
@@ -520,58 +552,39 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
            'sess_u8_' || day_offset::VARCHAR,
            (now() - (day_offset * INTERVAL 1 DAY) - INTERVAL 7 HOUR)::TIMESTAMP,
            (now() - (day_offset * INTERVAL 1 DAY))::TIMESTAMP,
-           'ziva',
-           $fam,
-           'u8',
-           'd8',
+           'ziva', $fam, 'u8', 'd8',
            420, 90, 80, 180, 70, 0.9,
            (now() - (day_offset * INTERVAL 1 DAY))::DATE
          FROM generate_series(1, 100) AS t(day_offset)`,
         { fam: TENANT_A },
       )
       const seeded = await engine.execute<{ n: bigint }>(
-        `SELECT COUNT(*)::BIGINT AS n
-           FROM ${qualify(CATALOG_A, 'sleep_session')}
-          WHERE user_id = 'u8'`,
+        `SELECT COUNT(*)::BIGINT AS n FROM ${localSleep} WHERE user_id = 'u8'`,
       )
       expect(seeded[0]?.n).toBe(100n)
 
-      // Watermark 95d back — the tighter bound, constrains deletion to
-      // ts_end < now - 95d. This proves the sweep is reading ts_end (not
-      // ts_start, which sits 7h earlier and would otherwise shift the
-      // boundary).
-      await engine.execute(
-        `INSERT INTO ${qualify(CATALOG_A, 'sync_watermark')}
-           (brand, family_id, table_name, kind, cursor_ts, updated_at)
-           VALUES ('ziva', $fam, 'sleep_session', 'push',
-                   (now() - INTERVAL 95 DAY)::TIMESTAMP, now()::TIMESTAMP)`,
-        { fam: TENANT_A },
-      )
+      // Watermark 95d back — the tighter bound, constraining deletion to
+      // ts_end < now - 95d. This is what proves the sweep reads ts_end and
+      // not ts_start, which sits 7h earlier and would shift the boundary.
+      const wm = new Date(Date.now() - 95 * 24 * 60 * 60 * 1000)
+      await storage.set(watermarkKey(TENANT_A, 'sleep_session'), wm.toISOString())
 
-      await engine.setRetention(90) // triggers runRetentionSweep
+      await engine.setRetention(90)
 
       const remaining = await engine.execute<{ n: bigint }>(
-        `SELECT COUNT(*)::BIGINT AS n
-           FROM ${qualify(CATALOG_A, 'sleep_session')}
-          WHERE user_id = 'u8'`,
+        `SELECT COUNT(*)::BIGINT AS n FROM ${localSleep} WHERE user_id = 'u8'`,
       )
-      // LEAST(now - 90d, watermark = now - 95d) = now - 95d.
-      // Rows at ts_end offset [96..100] days are older → 5 deleted.
-      // Absorb wall-clock jitter across seed/sweep by accepting 94..95.
       const remainingN = Number(remaining[0]?.n ?? 0n)
       expect(remainingN).toBeGreaterThanOrEqual(94)
       expect(remainingN).toBeLessThanOrEqual(95)
 
-      // The oldest surviving session's ts_end must be inside the watermark
-      // bound. If the sweep had used ts_start, the oldest ts_end would be
-      // 7h younger than expected — this projection catches that regression.
-      const oldest = await engine.execute<{ age_days: number }>(
+      // A ts_start-based sweep would have kept one MORE row (ts_start is 7h
+      // older, so the row at the boundary would fall outside the bound).
+      const oldestEnd = await engine.execute<{ age_days: number }>(
         `SELECT (extract(epoch FROM (now() - MIN(ts_end))) / 86400)::INTEGER AS age_days
-           FROM ${qualify(CATALOG_A, 'sleep_session')}
-          WHERE user_id = 'u8'`,
+           FROM ${localSleep} WHERE user_id = 'u8'`,
       )
-      expect(oldest[0]?.age_days).toBeGreaterThanOrEqual(90)
-      expect(oldest[0]?.age_days).toBeLessThanOrEqual(95)
+      expect(oldestEnd[0]?.age_days).toBeLessThanOrEqual(95)
 
       await engine.detach()
     }
