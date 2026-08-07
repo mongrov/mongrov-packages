@@ -63,6 +63,21 @@ export type {
 export { dismissInsight } from './insight'
 export type { DismissInsightArgs, DismissInsightDeps } from './insight'
 
+// Effective sampling cadence (Sprint 5 T-41, principle 22). Chart data
+// providers and gap detection should resolve cadence through this rather
+// than reading metric_metadata directly.
+export {
+  createSamplingResolver,
+  fallbackSampling,
+  minimumWindowMinutes,
+  SAMPLING_CACHE_TTL_MS,
+} from './sampling'
+export type {
+  EffectiveSampling,
+  SamplingResolver,
+  SamplingResolverConfig,
+} from './sampling'
+
 // Baseline metadata (Sprint 5 §7).
 export {
   baselineAggregateFor,

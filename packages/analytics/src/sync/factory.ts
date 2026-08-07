@@ -483,21 +483,37 @@ interface CreateSinkDeps {
  * `.has(dataType)` — but hydrating the row keeps the map future-friendly
  * for logging / diagnostics without a second query.
  */
+/**
+ * Open (`valid_to IS NULL`) device_config rows for one device.
+ *
+ * Fully-qualified `memory.main.device_config` so this resolves against the
+ * local catalog regardless of the active `USE <iceberg>.default` that
+ * `attach()` issues — a 2-part `main.device_config` would resolve against
+ * the current (Iceberg) catalog post-attach and miss.
+ *
+ * Exported so a test can execute it against the real DDL. It is
+ * hand-written SQL naming columns explicitly, which means a schema change
+ * can silently desync it: the 0.8.0 `data_type` -> `metric` rename did
+ * exactly that, and every unit test mocked the response so nothing caught
+ * it. `__tests__/prior-configs-sql.integration.test.ts` now runs it against
+ * a real table built from LOCAL_SCHEMAS.
+ */
+export const ACTIVE_PRIOR_CONFIGS_SQL
+  = `SELECT device_id, brand, family_id, user_id, metric, interval_minutes, `
+    + `start_time, end_time, weeks, valid_from, valid_to\n`
+    + `       FROM memory.main.device_config\n`
+    + `      WHERE device_id = $device_id\n`
+    + `        AND family_id = $family_id\n`
+    + `        AND user_id = $user_id\n`
+    + `        AND valid_to IS NULL`
+
 async function fetchActivePriorConfigs(
   engine: HybridDuckDB,
   ctx: MapperContext,
 ): Promise<Map<string, DeviceConfigRow>> {
-  // Fully-qualified `memory.main.device_config` so this resolves against the
-  // local in-memory catalog regardless of the active `USE <iceberg>.default`
-  // that `attach()` issues. A 2-part `main.device_config` would resolve
-  // against the current (Iceberg) catalog post-attach and miss.
+  // See ACTIVE_PRIOR_CONFIGS_SQL.
   const rows = await engine.execute<Record<string, unknown>>(
-    `SELECT device_id, brand, family_id, user_id, data_type, interval_minutes, start_time, end_time, weeks, valid_from, valid_to
-       FROM memory.main.device_config
-      WHERE device_id = $device_id
-        AND family_id = $family_id
-        AND user_id = $user_id
-        AND valid_to IS NULL`,
+    ACTIVE_PRIOR_CONFIGS_SQL,
     {
       device_id: ctx.deviceId,
       family_id: ctx.familyId,

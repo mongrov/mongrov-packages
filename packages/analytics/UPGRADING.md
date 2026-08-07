@@ -46,6 +46,29 @@ Note this is a **1:1 map**. The Sprint 5 spec described `dataType = 2` as
 SDK does not agree — temperature has its own code 3, so there is nothing to
 fan out.
 
+### New: `createSamplingResolver` (principle 22)
+
+Chart rendering, gap detection and rule windows should derive cadence from
+`device_config.interval_minutes`, not from constants — so a firmware
+upgrade that changes sampling rate propagates without an app release.
+
+```ts
+import { createSamplingResolver } from '@mongrov/analytics'
+
+const sampling = createSamplingResolver({ analytics })
+const { minutes, source } = await sampling.resolve('spo2', deviceId)
+// source: 'device_config' when the ring reported a schedule,
+//         'metric_metadata' before the first sync
+```
+
+Memoized per `(deviceId, metric)` with a 10-minute TTL; call
+`sampling.invalidate(deviceId)` after a sync that wrote a new config row.
+Omitting `deviceId` returns the metadata fallback with no query, which is
+what register-time rule validation uses.
+
+`metric_metadata.sampling_minutes` stays as the fallback — it is what we
+know before a device has ever reported.
+
 ### `ringConfigTranslator` is deprecated and ignored
 
 The mapper reads the vendor struct directly and owns the translation.

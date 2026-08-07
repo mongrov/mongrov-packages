@@ -13,6 +13,7 @@ import {
 } from '@mongrov/types/kv-keys'
 
 import { METRIC_METADATA, type MetricId } from '../core/metric_metadata'
+import { minimumWindowMinutes } from '../core/sampling'
 import type { RulesLogger } from './types'
 import { type Rule, RuleValidationError, type Window, WINDOWS } from './schema'
 
@@ -143,9 +144,9 @@ function validateConsecutive(rule: Rule): void {
     return
   }
 
-  const needed = n * cadence
+  const needed = minimumWindowMinutes(cadence, n)
   const available = WINDOW_MINUTES[rule.window]
-  if (needed > available) {
+  if (needed !== null && needed > available) {
     throw new RuleValidationError(
       `Rule ${rule.id}: consecutive ${n} x ${cadence}min sampling needs `
       + `${needed}min but window ${rule.window} is only ${available}min. `
