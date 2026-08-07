@@ -318,7 +318,9 @@ describe('DA-3 · timezone auto-binding', () => {
       engine: 'duckdb',
       input: z.object({ userId: z.string() }),
       output: z.object({ n: z.number() }),
-      sql: "SELECT timezone($tz, now()) AS n",
+      // References every tenant placeholder, so all four survive the
+      // referenced-placeholder filter.
+      sql: "SELECT timezone($tz, now()) AS n WHERE $userId = $userId AND $brand = $brand AND $familyId = $familyId",
     })
 
     const registry: Registry = {
@@ -338,7 +340,7 @@ describe('DA-3 · timezone auto-binding', () => {
       expect(result.current.loading).toBe(false)
     })
     expect(execute).toHaveBeenCalledWith(
-      "SELECT timezone($tz, now()) AS n",
+      expect.stringContaining('timezone($tz, now())'),
       expect.objectContaining({
         userId: 'u1',
         brand: 'zivaone',

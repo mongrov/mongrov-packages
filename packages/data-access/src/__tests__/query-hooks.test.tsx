@@ -128,10 +128,9 @@ describe('T-11 · useAppQuery (duckdb)', () => {
     expect(result.current.error).toBeNull()
     expect(result.current.data).toEqual({ n: 42 })
     expect(execute).toHaveBeenCalledTimes(1)
-    expect(execute).toHaveBeenCalledWith(
-      'SELECT $userId AS n',
-      expect.objectContaining({ userId: 'u1', brand: 'zivaone', familyId: 'f1' })
-    )
+    // Only $userId is referenced, so brand/familyId/tz are filtered out —
+    // DuckDB rejects bound params a statement does not declare.
+    expect(execute).toHaveBeenCalledWith('SELECT $userId AS n', { userId: 'u1' })
   })
 
   it('invalidates on matching invalidatedBy emit → refetches', async () => {

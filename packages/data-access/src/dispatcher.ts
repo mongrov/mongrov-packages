@@ -230,7 +230,7 @@ function dispatchDuckdb<TInput, TOutput>(
       "engine 'duckdb' is not wired in this dispatcher"
     )
   }
-  const params = mergeTenantParams(input, ctx)
+  const params = mergeTenantParams(input, ctx, config.sql)
   return engine.execute(config.sql, params)
 }
 

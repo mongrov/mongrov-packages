@@ -1,5 +1,27 @@
 # Upgrading
 
+## @mongrov/data-access 0.2.0 → 0.3.0 — bind only referenced placeholders
+
+**Behaviour fix. No API change, but it repairs queries that could never run.**
+
+DuckDB binds parameters by NAME and **rejects** any bound parameter the
+statement does not declare — `Failed to retrieve bind parameter index`. The
+dispatcher injected `brand` / `familyId` / `tz` unconditionally, so every
+query whose SQL omitted one of them failed at bind time.
+
+Three ZivaOne registry queries did exactly that (`spo2.compareBaseline`,
+`spo2.worthALookInsight`, `device.lastSyncedAt` — all use `$userId`,
+`$brand`, `$familyId` but not `$tz`). It went unnoticed because the app's
+`duckdb` adapter routed to Timon and mapped every error to `[]`.
+
+`mergeTenantParams(input, ctx, sql?)` now filters to placeholders the SQL
+actually references. Tenant values still win over caller input, so the
+anti-forgery guarantee is unchanged.
+
+If you assert on the params passed to your engine adapter, expect a smaller
+object — only what the SQL uses.
+
+
 ## 0.7.0 → 0.8.0 — `device_config` firmware contract (Sprint 5 §2, T-02/T-09/T-10)
 
 **Breaking, and it changes both a table and a mapper input type.**

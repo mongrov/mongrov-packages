@@ -92,14 +92,18 @@ describe('T-06 · executeQuery — duckdb path', () => {
     sql: 'SELECT hrv FROM hrv WHERE user_id = $userId',
   })
 
-  it('dispatches to duckdb.execute with tenant-merged params', async () => {
+  it('binds only the placeholders the SQL references', async () => {
+    // DuckDB binds by name and REJECTS a parameter the statement does not
+    // declare ("Failed to retrieve bind parameter index"). This SQL uses
+    // only $userId, so brand/familyId/tz must be dropped — binding them
+    // would fail the query outright.
     const execute = vi.fn(async () => ({ hrv: 45 }))
     const engines: EngineAdapters = { duckdb: { execute } }
     const out = await executeQuery(duckdbDef, { userId: 'u1' }, ctx, engines)
     expect(out).toEqual({ hrv: 45 })
     expect(execute).toHaveBeenCalledWith(
       'SELECT hrv FROM hrv WHERE user_id = $userId',
-      { userId: 'u1', brand: 'zivaone', familyId: 'f1', tz: 'America/New_York' }
+      { userId: 'u1' }
     )
   })
 
@@ -307,5 +311,64 @@ describe('T-45 — instrumentation hook', () => {
       instrumentation: inst, queryName: 'user.spo2SafeLevel',
     })
     expect(inst.statsFor('user.spo2SafeLevel')).toBeNull()
+  })
+})
+
+describe('referenced-placeholder binding', () => {
+  const ctx = {
+    userId: 'u1', brand: 'zivaone', familyId: 'f1',
+    timezone: 'America/New_York', now: () => new Date(),
+  }
+
+  const q = (sql: string) => defineQuery({
+    engine: 'duckdb',
+    output: z.array(z.unknown()),
+    sql,
+  })
+
+  it('drops tenant params a query never references', async () => {
+    // The bug this prevents: mergeTenantParams injected brand/familyId/tz
+    // unconditionally, so any query omitting one failed at bind time with
+    // "Failed to retrieve bind parameter index". Three ZivaOne registry
+    // queries did exactly that.
+    // `userId` comes from caller input, not the tenant merge — only
+    // brand/familyId/tz are context-injected.
+    const execute = vi.fn(async () => [])
+    await executeQuery(
+      q('SELECT 1 WHERE u = $userId'),
+      { userId: 'u1' } as never, ctx, { duckdb: { execute } } as never,
+    )
+    expect(execute.mock.calls[0][1]).toEqual({ userId: 'u1' })
+  })
+
+  it('keeps every tenant param a query does reference', async () => {
+    const execute = vi.fn(async () => [])
+    await executeQuery(
+      q('SELECT timezone($tz, ts) WHERE brand = $brand AND family_id = $familyId'),
+      {}, ctx, { duckdb: { execute } } as never,
+    )
+    expect(execute.mock.calls[0][1]).toEqual({
+      brand: 'zivaone', familyId: 'f1', tz: 'America/New_York',
+    })
+  })
+
+  it('drops caller input the SQL ignores, too', async () => {
+    const execute = vi.fn(async () => [])
+    await executeQuery(
+      q('SELECT 1 WHERE u = $userId'),
+      { userId: 'u1', offset: 3, unused: 'x' } as never,
+      ctx, { duckdb: { execute } } as never,
+    )
+    expect(execute.mock.calls[0][1]).toEqual({ userId: 'u1' })
+  })
+
+  it('still lets tenant values win over forged input', async () => {
+    const execute = vi.fn(async () => [])
+    await executeQuery(
+      q('SELECT 1 WHERE brand = $brand'),
+      { brand: 'evil-brand' } as never,
+      ctx, { duckdb: { execute } } as never,
+    )
+    expect(execute.mock.calls[0][1]).toEqual({ brand: 'zivaone' })
   })
 })
