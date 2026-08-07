@@ -70,17 +70,47 @@ interface QueryConfigBase<TInput, TOutput> {
   gcTime?: number
 }
 
+/**
+ * Context handed to a `transform`. Carries the request context plus the
+ * parsed input, because derivation usually needs both — an offset to label
+ * a day, a userId to attribute a narrative.
+ */
+export interface DeriveContext<TInput = unknown> extends RequestContext {
+  input: TInput
+}
+
+/** Pure derivation from raw engine rows to the declared output shape. */
+export type TransformFn<TInput, TOutput> = (
+  raw: unknown,
+  ctx: DeriveContext<TInput>
+) => TOutput
+
 export interface DuckdbQueryConfig<TInput, TOutput>
   extends QueryConfigBase<TInput, TOutput> {
   engine: 'duckdb'
   sql: string
   /**
-   * Repo-relative path to an app-owned pure post-query derivation module
-   * (e.g. "apps/zivaone/src/features/spo2/utils/derive-day.ts").
-   * Documentation / registry metadata only — the package never resolves
-   * or imports this path at runtime; the app applies the derivation.
+   * Pure post-query derivation. Runs AFTER the engine returns, BEFORE the
+   * Zod output parse — so the declared `output` schema describes the
+   * DERIVED shape, not the raw SQL projection.
+   *
+   * Use it where deterministic TypeScript is more testable than SQL:
+   * narrative generation, verdict computation, factor derivation.
+   *
+   * ```ts
+   * transform: (raw, ctx) => deriveDay(raw as SlotRow[], ctx)
+   * ```
+   *
+   * A **string** is also accepted, and ignored. The original contract
+   * specified a repo-relative module path "resolved at build time", but
+   * nothing resolves it: Metro cannot require an arbitrary runtime path,
+   * and no build step generates the wiring. Queries declaring a string
+   * therefore reach `parseOutput` with raw rows — which is why every
+   * ZivaOne `spo2.*` query with a declared derived output could never
+   * satisfy its own schema. Strings stay accepted so existing registries
+   * keep compiling; migrate them to functions.
    */
-  transform?: string
+  transform?: string | TransformFn<TInput, TOutput>
   /**
    * T-34 — explicit background-fetch override (principle 57).
    * When set, it wins outright. When omitted, asyncFetch is inferred per

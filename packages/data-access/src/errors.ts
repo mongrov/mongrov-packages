@@ -9,6 +9,7 @@ export type DataAccessErrorCode =
   | 'authorization_denied'
   | 'engine_missing'
   | 'zod_parse_failed'
+  | 'transform_failed'
   | 'define_config_invalid'
   | 'invalid_pattern'
   | 'not_implemented'

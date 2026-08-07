@@ -28,6 +28,7 @@ import { mergeTenantParams } from './tenant'
 import type {
   DuckdbQueryConfig,
   KvQueryConfig,
+  QueryConfig,
   QueryDefinition,
   RequestContext,
   RxdbQueryConfig,
@@ -143,7 +144,41 @@ export async function executeQuery<TInput, TOutput>(
         dispatchByEngine(def.config, parsedInput, ctx, engines))
     : await dispatchByEngine(def.config, parsedInput, ctx, engines)
 
-  return parseOutput(def.config.output, raw)
+  // Derivation sits between the engine and the parse, so `output`
+  // describes the derived shape. Not timed: it is pure TypeScript, and
+  // folding it into the latency figure would blur the engine measurement
+  // the watermark-cache gate reads.
+  const derived = applyTransform(def.config, parsedInput, ctx, raw)
+
+  return parseOutput(def.config.output, derived)
+}
+
+/**
+ * Run a query's `transform`, if it has a callable one.
+ *
+ * A string `transform` is registry metadata and is deliberately ignored —
+ * see the field's doc comment. A throwing transform surfaces as
+ * `transform_failed` rather than a raw exception, so a derivation bug is
+ * distinguishable from an engine or schema failure in the hook's `error`.
+ */
+function applyTransform<TInput, TOutput>(
+  config: QueryConfig<TInput, TOutput>,
+  input: TInput,
+  ctx: RequestContext,
+  raw: unknown
+): unknown {
+  const transform = 'transform' in config ? config.transform : undefined
+  if (typeof transform !== 'function') return raw
+  try {
+    return transform(raw, { ...ctx, input })
+  }
+  catch (cause) {
+    throw new DataAccessError(
+      'transform_failed',
+      `transform threw: ${(cause as Error).message}`,
+      cause
+    )
+  }
 }
 
 function parseInput<TInput>(
