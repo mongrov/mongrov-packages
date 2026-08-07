@@ -36,5 +36,62 @@
     }
   ],
   "battery_table": [],
-  "ring": { "automaticMonitoringData": [] }
+  "ring": {
+    "automaticMonitoringData": [
+      {
+        "dataType": 4,
+        "intervalTime": 5,
+        "startTime_Hour": 22,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 8,
+        "endTime_Minutes": 0,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      },
+      {
+        "dataType": 2,
+        "intervalTime": 30,
+        "startTime_Hour": 0,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 23,
+        "endTime_Minutes": 59,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      },
+      {
+        "dataType": 3,
+        "intervalTime": 30,
+        "startTime_Hour": 0,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 23,
+        "endTime_Minutes": 59,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      }
+    ]
+  }
 }

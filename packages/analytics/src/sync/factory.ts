@@ -70,7 +70,6 @@ const configSchema = z.object({
   tables: z.array(z.string().min(1)).min(1),
   columnOrder: z.record(z.string(), z.array(z.string()).readonly()),
   prefetchPolicy: prefetchPolicySchema,
-  hasRingConfigTranslator: z.boolean(),
   flush: z.object({
     maxRows: z.number().int().positive().optional(),
     maxAgeMs: z.number().int().positive().optional(),
@@ -85,13 +84,7 @@ const configSchema = z.object({
     requiresWifi: z.boolean().optional(),
     taskName: z.string().optional(),
   }).optional(),
-}).refine(
-  cfg => !cfg.tables.includes('device_config') || cfg.hasRingConfigTranslator,
-  {
-    message: 'ringConfigTranslator is required when `tables` includes \'device_config\'',
-    path: ['ringConfigTranslator'],
-  },
-)
+})
 
 export interface CreateSyncManagerConfig {
   analytics: AnalyticsEngine
@@ -148,10 +141,11 @@ export interface CreateSyncManagerConfig {
   computeBaselines?: boolean
   logger?: SchedulerLogger
   /**
-   * Consumer-provided translation between firmware ring-config semantics
-   * and the schema-shaped `device_config` row. **Required** whenever
-   * `tables` includes `'device_config'` — enforced at construction by a
-   * Zod refinement. See `mapper/types.ts` for the contract.
+   * @deprecated Ignored since Sprint 5 T-09/T-10. The mapper reads the
+   * vendor `AutomaticMonitoring_J2301A` struct directly and owns the
+   * `dataType` → metric translation, so no consumer-supplied bridge is
+   * needed. Accepted for one release so existing call sites keep
+   * compiling.
    */
   ringConfigTranslator?: RingConfigTranslator
 }
@@ -165,7 +159,6 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     tables: config.tables,
     columnOrder: config.columnOrder,
     prefetchPolicy: config.prefetchPolicy,
-    hasRingConfigTranslator: config.ringConfigTranslator !== undefined,
     flush: config.flush,
     overflow: config.overflow,
     scheduler: config.scheduler,
@@ -437,7 +430,6 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     tables: config.tables,
     engine: engineAsHybrid,
     attachCtx: config.ctx,
-    translator: config.ringConfigTranslator,
     pendingClosesStore,
   })
 
@@ -480,7 +472,6 @@ interface CreateSinkDeps {
   tables: readonly string[]
   engine: HybridDuckDB
   attachCtx: AttachContext
-  translator: RingConfigTranslator | undefined
   pendingClosesStore: PendingClosesStore
 }
 
@@ -495,7 +486,7 @@ interface CreateSinkDeps {
 async function fetchActivePriorConfigs(
   engine: HybridDuckDB,
   ctx: MapperContext,
-): Promise<Map<number, DeviceConfigRow>> {
+): Promise<Map<string, DeviceConfigRow>> {
   // Fully-qualified `memory.main.device_config` so this resolves against the
   // local in-memory catalog regardless of the active `USE <iceberg>.default`
   // that `attach()` issues. A 2-part `main.device_config` would resolve
@@ -513,15 +504,15 @@ async function fetchActivePriorConfigs(
       user_id: ctx.userId,
     },
   )
-  const map = new Map<number, DeviceConfigRow>()
+  const map = new Map<string, DeviceConfigRow>()
   for (const r of rows) {
-    const dataType = Number(r.data_type)
-    map.set(dataType, {
+    const metric = String(r.metric ?? '')
+    map.set(metric, {
       brand: String(r.brand ?? ''),
       family_id: String(r.family_id ?? ''),
       user_id: String(r.user_id ?? ''),
       device_id: String(r.device_id ?? ''),
-      data_type: dataType,
+      metric,
       interval_minutes: Number(r.interval_minutes),
       start_time: r.start_time == null ? null : String(r.start_time),
       end_time: r.end_time == null ? null : String(r.end_time),
@@ -534,8 +525,10 @@ async function fetchActivePriorConfigs(
 }
 
 function createSensorSink(deps: CreateSinkDeps): SensorSink {
-  const { buffer, flusher, triggers, tables, engine, attachCtx, translator, pendingClosesStore } = deps
-  const handlesConfig = tables.includes('device_config') && translator !== undefined
+  const { buffer, flusher, triggers, tables, engine, attachCtx, pendingClosesStore } = deps
+  // Gated on subscription alone now — the mapper owns the translation, so
+  // there is no consumer wiring left that could be missing.
+  const handlesConfig = tables.includes('device_config')
 
   return {
     push: async (batch: SensorBatch) => {
@@ -545,18 +538,14 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
     pushFirmware: async (fw: FirmwareExport, ctx: MapperContext) => {
       // 1) Pre-fetch open configs for this device so the mapper can decide
       //    which metrics need SCD-2 closes. Skipped when we're not
-      //    subscribed to device_config or no translator is wired.
+      //    subscribed to device_config.
       const activePriorConfigs = handlesConfig
         ? await fetchActivePriorConfigs(engine, ctx)
-        : new Map<number, DeviceConfigRow>()
+        : new Map<string, DeviceConfigRow>()
 
-      // 2) Map firmware → mapped batch. The mapper requires a translator
-      //    only when firmware has ring windows; the wrapper in `firmware.ts`
-      //    enforces that.
-      const mapped = mapFirmwareExport(fw, ctx, {
-        activePriorConfigs,
-        translator,
-      })
+      // 2) Map firmware → mapped batch. The mapper owns the
+      //    dataType → metric translation; no consumer translator needed.
+      const mapped = mapFirmwareExport(fw, ctx, { activePriorConfigs })
 
       // 3) SCD-2 close handling. Enqueue-before-UPDATE keeps the local
       //    UPDATE + remote UPDATE replay-safe under crash: both are
@@ -571,12 +560,12 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
             `UPDATE memory.main.device_config
                 SET valid_to = $valid_to
               WHERE device_id = $device_id
-                AND data_type = $data_type
+                AND metric = $data_type
                 AND valid_to IS NULL`,
             {
               valid_to: close.valid_to.toISOString(),
               device_id: close.device_id,
-              data_type: close.data_type,
+              metric: close.metric,
             },
           )
         }

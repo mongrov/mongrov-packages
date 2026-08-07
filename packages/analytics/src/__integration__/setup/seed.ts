@@ -319,8 +319,8 @@ export function seedSleepSessionRows(
  * Seed `n` device_config rows starting at `validFromStart`. Column order
  * matches the 11-column schema at `schemas.ts:150-163`.
  *
- * Composite PK `(device_id, data_type, valid_from)` requires distinct
- * `data_type` values across rows (default: increments 0, 1, 2, …).
+ * Composite PK `(device_id, metric, valid_from)` requires distinct
+ * `metric` values across rows (default: `metric_0`, `metric_1`, …).
  * `valid_to` is emitted as `null` by default (open/current config) so
  * NULL round-trip through Iceberg can be asserted.
  */
@@ -329,8 +329,8 @@ export interface DeviceConfigSeedOpts {
   deviceId?: string
   familyId?: string
   brand?: string
-  /** Base data_type; incremented per row to satisfy composite PK. */
-  dataTypeBase?: number
+  /** Metric-name prefix; suffixed per row to satisfy the composite PK. */
+  metricPrefix?: string
   intervalMinutes?: number
   startTime?: string | null
   endTime?: string | null
@@ -352,7 +352,7 @@ export function seedDeviceConfigRows(
   const familyId = opts.familyId ?? 'fam_int'
   const userId = opts.userId ?? 'user_int'
   const deviceId = opts.deviceId ?? 'ring_int'
-  const dataTypeBase = opts.dataTypeBase ?? 0
+  const metricPrefix = opts.metricPrefix ?? 'metric'
   const intervalMinutes = opts.intervalMinutes ?? 15
   const startTime = opts.startTime ?? null
   const endTime = opts.endTime ?? null
@@ -369,7 +369,7 @@ export function seedDeviceConfigRows(
         brand,                // brand
         familyId,             // family_id
         userId,               // user_id
-        dataTypeBase + i,     // data_type (composite-PK component)
+        `${metricPrefix}_${i}`,     // metric (composite-PK component)
         intervalMinutes,      // interval_minutes
         startTime,            // start_time (nullable)
         endTime,              // end_time (nullable)

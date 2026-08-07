@@ -18,13 +18,19 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { mapFirmwareExport } from '../firmware'
-import type { FirmwareExport, MapperContext, RingConfigTranslator } from '../types'
+import type { FirmwareExport, MapperContext } from '../types'
 
-// Test translator: fixed metric ↔ data_type map + naive HH:00 → HH:MM
-// window rendering with a static all-days weeks bitmask.
-const METRIC_ENUM: Record<string, number> = {
-  hrv: 1, spo2: 2, heart_rate: 3, temperature: 4,
+const ALL_DAYS = {
+  sunday: true, monday: true, Tuesday: true, Wednesday: true,
+  Thursday: true, Friday: true, Saturday: true,
 }
+/** Vendor-shaped monitoring window (AutomaticMonitoring_J2301A). */
+const window = (dataType: number, intervalTime: number, sh: number, eh: number) => ({
+  dataType, intervalTime,
+  startTime_Hour: sh, startTime_Minutes: 0,
+  endTime_Hour: eh, endTime_Minutes: 0,
+  weeks: { ...ALL_DAYS }, mode: 1,
+})
 const ENUM_METRIC: Record<number, string> = {
   1: 'hrv', 2: 'spo2', 3: 'heart_rate', 4: 'temperature',
 }
@@ -55,7 +61,7 @@ const NOW = new Date('2026-06-17T12:00:00.000Z')
 describe('mapFirmwareExport', () => {
   it('produces the expected MappedBatch shape from the full fixture', () => {
     const fw: FirmwareExport = JSON.parse(readFileSync(FIXTURE_PATH, 'utf-8'))
-    const batch = mapFirmwareExport(fw, ctx, { now: NOW, translator })
+    const batch = mapFirmwareExport(fw, ctx, { now: NOW })
 
     // Row-count assertions per table.
     expect(batch.heart_rate).toHaveLength(2)
@@ -77,8 +83,11 @@ describe('mapFirmwareExport', () => {
     expect(batch.device_battery).toHaveLength(2)
     expect(batch.device_battery[0].battery_pct).toBe(82)
     expect(batch.device_event).toHaveLength(0)
-    // 2 monitoring windows → device_config.
-    expect(batch.device_config).toHaveLength(2)
+    // 3 monitoring windows (hrv / spo2 / temperature) → 3 device_config
+    // rows, one per metric. dataType is 1:1 with metric — no fan-out.
+    expect(batch.device_config).toHaveLength(3)
+    expect(batch.device_config.map(r => r.metric).sort())
+      .toEqual(['hrv', 'spo2', 'temperature'])
     // First-install: no prior configs → no closes.
     expect(batch.device_config_closes).toHaveLength(0)
 

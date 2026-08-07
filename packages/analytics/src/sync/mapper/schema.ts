@@ -70,11 +70,30 @@ export const firmwareBatteryRowSchema = z.object({
   battery: z.number(),
 }).strict()
 
+export const firmwareWeekdaysSchema = z.object({
+  sunday: z.boolean(),
+  monday: z.boolean(),
+  Tuesday: z.boolean(),
+  Wednesday: z.boolean(),
+  Thursday: z.boolean(),
+  Friday: z.boolean(),
+  Saturday: z.boolean(),
+}).strict()
+
+/**
+ * Mirrors `AutomaticMonitoring_J2301A` from the JStyle SDK. `dataType` is
+ * the firmware enum (1=heartRate, 2=spo2, 3=temperature, 4=HRV) and is
+ * translated away at the mapper boundary — see `mapper/ring-config.ts`.
+ */
 export const firmwareMonitoringWindowSchema = z.object({
-  metric: z.string(),
-  interval_minutes: z.number(),
-  start_hour: z.number(),
-  end_hour: z.number(),
+  dataType: z.number().int(),
+  intervalTime: z.number().int().nonnegative(),
+  startTime_Hour: z.number().int(),
+  startTime_Minutes: z.number().int(),
+  endTime_Hour: z.number().int(),
+  endTime_Minutes: z.number().int(),
+  weeks: firmwareWeekdaysSchema,
+  mode: z.number().int().optional(),
 }).strict()
 
 export const firmwareRingConfigSchema = z.object({
@@ -144,8 +163,22 @@ export const FIRMWARE_EXPORT_KEY_PATHS: ReadonlySet<string> = new Set([
   'battery_table[].battery',
   'ring',
   'ring.automaticMonitoringData',
-  'ring.automaticMonitoringData[].metric',
-  'ring.automaticMonitoringData[].interval_minutes',
-  'ring.automaticMonitoringData[].start_hour',
-  'ring.automaticMonitoringData[].end_hour',
+  // AutomaticMonitoring_J2301A (JStyle SDK). `dataType` is the firmware
+  // enum — 1=heartRate, 2=spo2, 3=temperature, 4=HRV — translated away at
+  // the mapper boundary so it never reaches a warehouse column.
+  'ring.automaticMonitoringData[].dataType',
+  'ring.automaticMonitoringData[].intervalTime',
+  'ring.automaticMonitoringData[].startTime_Hour',
+  'ring.automaticMonitoringData[].startTime_Minutes',
+  'ring.automaticMonitoringData[].endTime_Hour',
+  'ring.automaticMonitoringData[].endTime_Minutes',
+  'ring.automaticMonitoringData[].mode',
+  'ring.automaticMonitoringData[].weeks',
+  'ring.automaticMonitoringData[].weeks.sunday',
+  'ring.automaticMonitoringData[].weeks.monday',
+  'ring.automaticMonitoringData[].weeks.Tuesday',
+  'ring.automaticMonitoringData[].weeks.Wednesday',
+  'ring.automaticMonitoringData[].weeks.Thursday',
+  'ring.automaticMonitoringData[].weeks.Friday',
+  'ring.automaticMonitoringData[].weeks.Saturday',
 ])

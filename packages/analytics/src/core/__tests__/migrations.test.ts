@@ -37,6 +37,12 @@ const STEP2_COUNT = 2
 const STEP3_COUNT = 8
 /** step-4 creates user_baseline in the local catalog only. */
 const STEP4_COUNT = 1
+/**
+ * step-5 (device_config data_type -> metric) probes information_schema and
+ * returns early on a fresh install, where the baseline already created the
+ * new shape. One statement.
+ */
+const STEP5_COUNT = 1
 
 const CTX = { brand: 'brandA', tenantId: 'fam123' }
 const CATALOG = 'zone_fam123'
@@ -55,7 +61,7 @@ describe('ensureMigrations', () => {
     // remote catalog (0.5.0 fix for "ensureSchemas never creates local.*
     // tables"), minus the local-only tables remote-side; then steps 2-4.
     expect(fake.calls).toHaveLength(
-      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT,
+      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT,
     )
     // Local tables come first (baseline migration order).
     expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS memory.hrv')
@@ -124,7 +130,7 @@ describe('ensureMigrations', () => {
     expect(fake.calls[1].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.default.device_battery')
     expect(fake.calls[1].sql).toContain('PARTITIONED BY (day(ts), device_id)')
     // Steps 3 + 4 follow (see first-run test).
-    expect(fake.calls).toHaveLength(STEP2_COUNT + STEP3_COUNT + STEP4_COUNT)
+    expect(fake.calls).toHaveLength(STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT)
   })
 
   it('upgrade from v2 runs only step-3 — insight recreate with data mapping', async () => {
@@ -164,7 +170,7 @@ describe('ensureMigrations', () => {
     expect(result.from).toBe(0)
     expect(result.to).toBe(CURRENT_VERSION)
     expect(fake.calls.length).toBe(
-      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT,
+      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT,
     )
 
     // Same call again — no-op. KV already at CURRENT_VERSION.

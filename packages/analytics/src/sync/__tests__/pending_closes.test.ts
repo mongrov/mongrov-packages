@@ -23,13 +23,13 @@ const ctx: Pick<AttachContext, 'brand' | 'tenantId'> = {
 
 const close1: RingConfigClose = {
   device_id: 'ring_8047',
-  data_type: 1,
+  metric: 'heart_rate',
   valid_to: new Date('2026-06-17T12:00:00Z'),
 }
 
 const close2: RingConfigClose = {
   device_id: 'ring_8047',
-  data_type: 2,
+  metric: 'spo2',
   valid_to: new Date('2026-06-17T12:00:00Z'),
 }
 
@@ -42,8 +42,8 @@ describe('PendingClosesStore', () => {
     expect(drained).toHaveLength(2)
     expect(drained[0].valid_to).toBeInstanceOf(Date)
     expect(drained[0].valid_to.toISOString()).toBe(close1.valid_to.toISOString())
-    expect(drained[0].data_type).toBe(1)
-    expect(drained[1].data_type).toBe(2)
+    expect(drained[0].metric).toBe('heart_rate')
+    expect(drained[1].metric).toBe('spo2')
   })
 
   it('enqueue is additive across calls; drain clears the queue', async () => {
@@ -74,7 +74,7 @@ describe('PendingClosesStore', () => {
     // A failed cycle re-inserts close1 with prepend semantics.
     await store.requeue(ctx, [close1])
     const drained = await store.drain(ctx)
-    expect(drained.map(c => c.data_type)).toEqual([1, 2])
+    expect(drained.map(c => c.metric)).toEqual(['heart_rate', 'spo2'])
   })
 
   it('keys are scoped by brand + tenantId', async () => {

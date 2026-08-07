@@ -27,7 +27,7 @@ const KEY_PREFIX = 'analytics:pending_closes'
 
 interface SerializedClose {
   device_id: string
-  data_type: number
+  metric: string
   valid_to: string
 }
 
@@ -38,7 +38,7 @@ function key(ctx: Pick<AttachContext, 'brand' | 'tenantId'>): string {
 function serialize(close: RingConfigClose): SerializedClose {
   return {
     device_id: close.device_id,
-    data_type: close.data_type,
+    metric: close.metric,
     valid_to: close.valid_to.toISOString(),
   }
 }
@@ -46,7 +46,7 @@ function serialize(close: RingConfigClose): SerializedClose {
 function deserialize(row: SerializedClose): RingConfigClose {
   return {
     device_id: row.device_id,
-    data_type: row.data_type,
+    metric: row.metric,
     valid_to: new Date(row.valid_to),
   }
 }

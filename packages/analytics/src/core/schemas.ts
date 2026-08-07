@@ -188,19 +188,23 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   battery_pct DOUBLE NOT NULL
 ) PARTITIONED BY (day(ts), device_id);`,
 
+  // Sprint 5 §2 — `metric VARCHAR`, not the firmware's `data_type` integer.
+  // Principle 21: firmware enums never leak into the schema. The mapper
+  // translates `dataType` (1=heartRate, 2=spo2, 3=temperature, 4=HRV per
+  // the JStyle J2301A SDK) at the ingestion boundary.
   device_config: `CREATE TABLE device_config (
   device_id VARCHAR NOT NULL,
   brand VARCHAR NOT NULL,
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
-  data_type INTEGER NOT NULL,
+  metric VARCHAR NOT NULL,
   interval_minutes INTEGER NOT NULL,
   start_time VARCHAR,
   end_time VARCHAR,
   weeks INTEGER,
   valid_from TIMESTAMP NOT NULL,
   valid_to TIMESTAMP,
-  PRIMARY KEY (device_id, data_type, valid_from)
+  PRIMARY KEY (device_id, metric, valid_from)
 );`,
 
   insight: `CREATE TABLE insight (

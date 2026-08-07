@@ -1,5 +1,5 @@
 {
-  "$comment": "DST fall-back edge case, America/Los_Angeles 2025-11-02 (02:00 PDT -> 01:00 PST). Timestamps are UTC per firmware contract. Session starts 23:00 PDT Nov 1 (06:00 UTC) and runs to 03:00 PST Nov 2 (11:00 UTC). The 08:30 UTC and 09:30 UTC blocks are BOTH 01:30 local wall-clock (first pass PDT, repeat pass PST) — the repeated hour. All blocks must land in one session with night_of = 2025-11-01 (2025-11-01T07:00:00.000Z).",
+  "$comment": "DST fall-back edge case, America/Los_Angeles 2025-11-02 (02:00 PDT -> 01:00 PST). Timestamps are UTC per firmware contract. Session starts 23:00 PDT Nov 1 (06:00 UTC) and runs to 03:00 PST Nov 2 (11:00 UTC). The 08:30 UTC and 09:30 UTC blocks are BOTH 01:30 local wall-clock (first pass PDT, repeat pass PST) \u2014 the repeated hour. All blocks must land in one session with night_of = 2025-11-01 (2025-11-01T07:00:00.000Z).",
   "heartrate": [],
   "hrv_table": [],
   "spo2": [],
@@ -36,5 +36,62 @@
     }
   ],
   "battery_table": [],
-  "ring": { "automaticMonitoringData": [] }
+  "ring": {
+    "automaticMonitoringData": [
+      {
+        "dataType": 4,
+        "intervalTime": 5,
+        "startTime_Hour": 22,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 8,
+        "endTime_Minutes": 0,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      },
+      {
+        "dataType": 2,
+        "intervalTime": 30,
+        "startTime_Hour": 0,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 23,
+        "endTime_Minutes": 59,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      },
+      {
+        "dataType": 3,
+        "intervalTime": 30,
+        "startTime_Hour": 0,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 23,
+        "endTime_Minutes": 59,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      }
+    ]
+  }
 }

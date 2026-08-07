@@ -95,11 +95,47 @@ export interface FirmwareRingConfig {
   automaticMonitoringData: FirmwareMonitoringWindow[]
 }
 
+/**
+ * One automatic-monitoring window, verbatim from the JStyle J2301A SDK's
+ * `AutomaticMonitoring_J2301A` struct (see `BleSDK_Header_J2301A.h`, and
+ * `AutomaticMonitoringData` in `@mongrov/zivacore`).
+ *
+ * Firmware-native naming and shape on purpose (principle 20): `dataType`
+ * stays an integer, hours and minutes stay split, `weeks` stays a struct of
+ * seven booleans. Every one of those is translated at the mapper boundary
+ * and none reaches a warehouse column.
+ *
+ * An earlier version of this type read `{metric: string, interval_minutes,
+ * start_hour, end_hour}`, which matched no vendor type — it had already
+ * discarded `dataType`, which is why consumers had to supply a
+ * `RingConfigTranslator` inventing the enum back from our own metric names.
+ */
 export interface FirmwareMonitoringWindow {
-  metric: string // 'hrv' | 'spo2' | ...
-  interval_minutes: number
-  start_hour: number
-  end_hour: number
+  /** 1 = heartRate, 2 = spo2, 3 = temperature, 4 = HRV. */
+  dataType: number
+  /** Sampling cadence in minutes. */
+  intervalTime: number
+  startTime_Hour: number
+  startTime_Minutes: number
+  endTime_Hour: number
+  endTime_Minutes: number
+  weeks: FirmwareWeekdays
+  /**
+   * Vendor field with undocumented semantics — carried through so the
+   * shape stays faithful, but not currently mapped to any column.
+   */
+  mode?: number
+}
+
+/** Per-weekday enable flags. Vendor casing (`Tuesday`..`Saturday`) preserved. */
+export interface FirmwareWeekdays {
+  sunday: boolean
+  monday: boolean
+  Tuesday: boolean
+  Wednesday: boolean
+  Thursday: boolean
+  Friday: boolean
+  Saturday: boolean
 }
 
 export interface FirmwareExport {
@@ -232,7 +268,11 @@ export interface DeviceBatteryRow extends BaseRow {
  * consumer-provided `RingConfigTranslator` (see below).
  */
 export interface DeviceConfigRow extends TenantRow {
-  data_type: number
+  /**
+   * OUR metric id (`spo2`, `hrv`, …), never the firmware enum
+   * (principle 21). Derived from `dataType` by `firmwareDataTypeToMetrics`.
+   */
+  metric: string
   interval_minutes: number
   start_time: string | null
   end_time: string | null
@@ -242,22 +282,16 @@ export interface DeviceConfigRow extends TenantRow {
 }
 
 /**
- * Consumer-provided translation from firmware ring-config semantics to
- * warehouse schema semantics. Required at `createSyncManager()` time whenever
- * the subscribed tables include `'device_config'`.
- *
- * Split into three responsibilities so the mapper can:
- *   - materialize `data_type` per insert (`metricToDataType`);
- *   - key `activePriorConfigs` by `data_type` when reading local state
- *     (`dataTypeToMetric` — round-trips the enum for callers that want to
- *     surface metric names in logs or diagnostics);
- *   - compute the schema-shaped time fields per firmware window
- *     (`windowToSchemaFields`).
+ * @deprecated Since the mapper consumes the real vendor shape, translation
+ * is no longer consumer-specific and happens inside
+ * `mapper/ring-config.ts`. Kept as an exported type for one release so
+ * existing `createSyncManager({ ringConfigTranslator })` call sites keep
+ * compiling; the value is ignored.
  */
 export interface RingConfigTranslator {
-  metricToDataType: (metric: string) => number
-  dataTypeToMetric: (dataType: number) => string
-  windowToSchemaFields: (window: FirmwareMonitoringWindow) => {
+  metricToDataType?: (metric: string) => number
+  dataTypeToMetric?: (dataType: number) => string
+  windowToSchemaFields?: (window: FirmwareMonitoringWindow) => {
     start_time: string | null
     end_time: string | null
     weeks: number | null

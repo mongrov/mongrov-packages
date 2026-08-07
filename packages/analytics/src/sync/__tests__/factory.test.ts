@@ -67,15 +67,18 @@ describe('createSyncManager — validation', () => {
     })).toThrow()
   })
 
-  it('throws when tables includes device_config but no ringConfigTranslator is provided', () => {
+  it('accepts device_config with no ringConfigTranslator (Sprint 5 T-09/T-10)', () => {
+    // The translator requirement is gone: the mapper reads the vendor
+    // struct directly and owns the dataType -> metric translation, so a
+    // consumer-supplied bridge would only be a place to get it wrong.
     expect(() => createSyncManager({
       ...baseConfig(),
       tables: ['hrv', 'device_config'],
       columnOrder: {
         hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms'] as const,
-        device_config: ['device_id', 'brand', 'family_id', 'user_id', 'data_type', 'interval_minutes', 'start_time', 'end_time', 'weeks', 'valid_from', 'valid_to'] as const,
+        device_config: ['device_id', 'brand', 'family_id', 'user_id', 'metric', 'interval_minutes', 'start_time', 'end_time', 'weeks', 'valid_from', 'valid_to'] as const,
       },
-    })).toThrow(/ringConfigTranslator is required/)
+    })).not.toThrow()
   })
 
   it('accepts device_config when ringConfigTranslator is provided', () => {
@@ -84,7 +87,7 @@ describe('createSyncManager — validation', () => {
       tables: ['hrv', 'device_config'],
       columnOrder: {
         hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms'] as const,
-        device_config: ['device_id', 'brand', 'family_id', 'user_id', 'data_type', 'interval_minutes', 'start_time', 'end_time', 'weeks', 'valid_from', 'valid_to'] as const,
+        device_config: ['device_id', 'brand', 'family_id', 'user_id', 'metric', 'interval_minutes', 'start_time', 'end_time', 'weeks', 'valid_from', 'valid_to'] as const,
       },
       ringConfigTranslator: {
         metricToDataType: () => 1,
@@ -339,20 +342,22 @@ describe('scheduler wiring', () => {
 
 describe('device_config sink (SCD-2 close semantics)', () => {
   const deviceConfigColumns = [
-    'device_id', 'brand', 'family_id', 'user_id', 'data_type',
+    'device_id', 'brand', 'family_id', 'user_id', 'metric',
     'interval_minutes', 'start_time', 'end_time', 'weeks',
     'valid_from', 'valid_to',
   ] as const
 
-  const translator = {
-    metricToDataType: (m: string) => ({ hrv: 1, spo2: 2 } as Record<string, number>)[m] ?? 99,
-    dataTypeToMetric: (d: number) => ({ 1: 'hrv', 2: 'spo2' } as Record<number, string>)[d] ?? 'unknown',
-    windowToSchemaFields: (w: { start_hour: number, end_hour: number }) => ({
-      start_time: `${String(w.start_hour).padStart(2, '0')}:00`,
-      end_time: `${String(w.end_hour).padStart(2, '0')}:00`,
-      weeks: 0x7F,
-    }),
-  }
+const ALL_DAYS = {
+  sunday: true, monday: true, Tuesday: true, Wednesday: true,
+  Thursday: true, Friday: true, Saturday: true,
+}
+/** Vendor-shaped monitoring window (AutomaticMonitoring_J2301A). */
+const window = (dataType: number, intervalTime: number, sh: number, eh: number) => ({
+  dataType, intervalTime,
+  startTime_Hour: sh, startTime_Minutes: 0,
+  endTime_Hour: eh, endTime_Minutes: 0,
+  weeks: { ...ALL_DAYS }, mode: 1,
+})
 
   const emptyFirmware = {
     heartrate: [], hrv_table: [], spo2: [], temperature_table: [],
@@ -369,7 +374,6 @@ describe('device_config sink (SCD-2 close semantics)', () => {
       analytics: fake.engine as unknown as AnalyticsEngine,
       tables: ['device_config'],
       columnOrder: { device_config: deviceConfigColumns },
-      ringConfigTranslator: translator,
     })
   }
 
@@ -381,7 +385,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     await mgr.sink.pushFirmware({
       ...emptyFirmware,
       ring: { automaticMonitoringData: [
-        { metric: 'hrv', interval_minutes: 5, start_hour: 22, end_hour: 8 },
+        window(4, 5, 22, 8),
       ] },
     }, mapperCtx)
 
@@ -401,7 +405,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     // SELECT returns one open HRV config.
     fake.mockExecuteNext([{
       device_id: 'ring_1', brand: 'ziva', family_id: 'fam_A', user_id: 'u1',
-      data_type: 1, interval_minutes: 10,
+      metric: 'hrv', interval_minutes: 10,
       start_time: '22:00', end_time: '08:00', weeks: 0x7F,
       valid_from: '2026-06-01T00:00:00.000Z', valid_to: null,
     }])
@@ -411,7 +415,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     await mgr.sink.pushFirmware({
       ...emptyFirmware,
       ring: { automaticMonitoringData: [
-        { metric: 'hrv', interval_minutes: 5, start_hour: 22, end_hour: 8 },
+        window(4, 5, 22, 8),
       ] },
     }, mapperCtx)
 
@@ -421,7 +425,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     expect(update.sql).toMatch(/UPDATE memory\.main\.device_config/)
     expect(update.sql).toMatch(/SET valid_to/)
     expect(update.sql).toMatch(/valid_to IS NULL/)
-    expect(update.params?.data_type).toBe(1)
+    expect(update.params?.metric).toBe('hrv')
     expect(update.params?.device_id).toBe('ring_1')
 
     // New insert is buffered.
@@ -433,7 +437,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     // 1. SELECT prior configs → returns one open HRV
     fake.mockExecuteNext([{
       device_id: 'ring_1', brand: 'ziva', family_id: 'fam_A', user_id: 'u1',
-      data_type: 1, interval_minutes: 10,
+      metric: 'hrv', interval_minutes: 10,
       start_time: '22:00', end_time: '08:00', weeks: 0x7F,
       valid_from: '2026-06-01T00:00:00.000Z', valid_to: null,
     }])
@@ -445,7 +449,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     await mgr.sink.pushFirmware({
       ...emptyFirmware,
       ring: { automaticMonitoringData: [
-        { metric: 'hrv', interval_minutes: 5, start_hour: 22, end_hour: 8 },
+        window(4, 5, 22, 8),
       ] },
     }, mapperCtx)
 
@@ -468,7 +472,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     )
     expect(remoteUpdate).toBeDefined()
     expect(remoteUpdate!.params?.family_id).toBe('fam_A')
-    expect(remoteUpdate!.params?.data_type).toBe(1)
+    expect(remoteUpdate!.params?.metric).toBe('hrv')
   })
 })
 

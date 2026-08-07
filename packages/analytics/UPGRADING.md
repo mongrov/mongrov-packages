@@ -1,5 +1,68 @@
 # Upgrading
 
+## 0.7.0 → 0.8.0 — `device_config` firmware contract (Sprint 5 §2, T-02/T-09/T-10)
+
+**Breaking, and it changes both a table and a mapper input type.**
+
+### `device_config.data_type` → `device_config.metric`
+
+Principle 21 says firmware enums must not reach the schema. The table now
+stores our metric id:
+
+```diff
+-  data_type INTEGER NOT NULL,
+-  PRIMARY KEY (device_id, data_type, valid_from)
++  metric VARCHAR NOT NULL,
++  PRIMARY KEY (device_id, metric, valid_from)
+```
+
+Migration **v5** converts existing rows using the JStyle automatic-monitoring
+enum. Unknown codes are preserved as `unknown_<n>` rather than dropped, so a
+firmware revision that added one stays diagnosable. Local catalog only — the
+client never destructively rewrites the attached Iceberg zone.
+
+**Update your `columnOrder`** for `device_config`: `data_type` → `metric`.
+
+### `FirmwareMonitoringWindow` now matches the vendor struct
+
+The previous type matched no vendor type — it had already discarded
+`dataType`, which is why consumers had to supply a `RingConfigTranslator`
+inventing the enum back from our own metric names.
+
+```diff
+-{ metric: string, interval_minutes: number, start_hour: number, end_hour: number }
++{ dataType: number, intervalTime: number,
++  startTime_Hour: number, startTime_Minutes: number,
++  endTime_Hour: number,   endTime_Minutes: number,
++  weeks: { sunday: boolean, monday: boolean, Tuesday: boolean, ... },
++  mode?: number }
+```
+
+Verbatim from `AutomaticMonitoring_J2301A` (JStyle J2301A SDK). `dataType`
+is **1 = heartRate, 2 = spo2, 3 = temperature, 4 = HRV**.
+
+Note this is a **1:1 map**. The Sprint 5 spec described `dataType = 2` as
+"spo2 + temperature (shared schedule)" needing a fan-out to two rows; the
+SDK does not agree — temperature has its own code 3, so there is nothing to
+fan out.
+
+### `ringConfigTranslator` is deprecated and ignored
+
+The mapper reads the vendor struct directly and owns the translation.
+
+```diff
+ createSyncManager({
+   …,
+-  ringConfigTranslator: myTranslator,   // now ignored; delete it
+ })
+```
+
+It is no longer required when `tables` includes `device_config` — the Zod
+refinement enforcing that is gone. The type is still exported for one
+release so existing call sites compile.
+
+---
+
 ## 0.6.0 → 0.7.0 (Sprint 5 coordinated release)
 
 This is a **coordinated release**. Upgrade all four together — the packages

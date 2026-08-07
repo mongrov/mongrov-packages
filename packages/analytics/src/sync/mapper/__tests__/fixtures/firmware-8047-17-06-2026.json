@@ -1,8 +1,14 @@
 {
   "$comment": "Hand-authored minimal firmware fixture (v0.1.0-alpha.7). Covers sentinel zeros, midnight-crossing sleep, activity unnest, battery, and ring config. Replace with a captured real-device sample once available.",
   "heartrate": [
-    { "timestamp": "2026.06.17 03:15:00", "singleHR": 68 },
-    { "timestamp": "2026.06.17 03:16:00", "singleHR": 71 }
+    {
+      "timestamp": "2026.06.17 03:15:00",
+      "singleHR": 68
+    },
+    {
+      "timestamp": "2026.06.17 03:16:00",
+      "singleHR": 71
+    }
   ],
   "hrv_table": [
     {
@@ -25,12 +31,24 @@
     }
   ],
   "spo2": [
-    { "timestamp": "2026.06.17 03:15:00", "automaticSpo2Data": 97 },
-    { "timestamp": "2026.06.17 04:15:00", "automaticSpo2Data": 98 }
+    {
+      "timestamp": "2026.06.17 03:15:00",
+      "automaticSpo2Data": 97
+    },
+    {
+      "timestamp": "2026.06.17 04:15:00",
+      "automaticSpo2Data": 98
+    }
   ],
   "temperature_table": [
-    { "timestamp": "2026.06.17 03:15:00", "temperature": 37 },
-    { "timestamp": "2026.06.17 04:15:00", "temperature": 36 }
+    {
+      "timestamp": "2026.06.17 03:15:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.06.17 04:15:00",
+      "temperature": 36
+    }
   ],
   "activitydetails": [
     {
@@ -38,14 +56,36 @@
       "step": 45,
       "calories": 5,
       "distance": 0.03,
-      "arraySteps": [4, 5, 4, 5, 4, 5, 4, 5, 4, 5]
+      "arraySteps": [
+        4,
+        5,
+        4,
+        5,
+        4,
+        5,
+        4,
+        5,
+        4,
+        5
+      ]
     },
     {
       "timestamp": "2026.06.17 10:10:00",
       "step": 60,
       "calories": 7,
       "distance": 0.05,
-      "arraySteps": [6, 6, 6, 6, 6, 6, 6, 6, 6, 6]
+      "arraySteps": [
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6,
+        6
+      ]
     }
   ],
   "sleep_processed": [
@@ -72,13 +112,71 @@
     }
   ],
   "battery_table": [
-    { "timestamp": "2026.06.17 03:15:00", "battery": 82 },
-    { "timestamp": "2026.06.17 15:15:00", "battery": 71 }
+    {
+      "timestamp": "2026.06.17 03:15:00",
+      "battery": 82
+    },
+    {
+      "timestamp": "2026.06.17 15:15:00",
+      "battery": 71
+    }
   ],
   "ring": {
     "automaticMonitoringData": [
-      { "metric": "hrv", "interval_minutes": 5, "start_hour": 22, "end_hour": 8 },
-      { "metric": "spo2", "interval_minutes": 30, "start_hour": 0, "end_hour": 23 }
+      {
+        "dataType": 4,
+        "intervalTime": 5,
+        "startTime_Hour": 22,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 8,
+        "endTime_Minutes": 0,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      },
+      {
+        "dataType": 2,
+        "intervalTime": 30,
+        "startTime_Hour": 0,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 23,
+        "endTime_Minutes": 59,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      },
+      {
+        "dataType": 3,
+        "intervalTime": 30,
+        "startTime_Hour": 0,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 23,
+        "endTime_Minutes": 59,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      }
     ]
   }
 }

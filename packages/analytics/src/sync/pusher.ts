@@ -175,11 +175,11 @@ export class R2Pusher {
     const remote = this.#remoteTable(ctx, 'device_config')
     for (const close of closes) {
       await this.#engine.execute(
-        `UPDATE ${remote} SET valid_to = $valid_to WHERE device_id = $device_id AND data_type = $data_type AND family_id = $family_id AND valid_to IS NULL`,
+        `UPDATE ${remote} SET valid_to = $valid_to WHERE device_id = $device_id AND metric = $metric AND family_id = $family_id AND valid_to IS NULL`,
         {
           valid_to: close.valid_to.toISOString(),
           device_id: close.device_id,
-          data_type: close.data_type,
+          metric: close.metric,
           family_id: ctx.tenantId,
         },
       )

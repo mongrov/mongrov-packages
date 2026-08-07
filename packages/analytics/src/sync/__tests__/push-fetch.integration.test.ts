@@ -228,7 +228,7 @@ const CONFIG_REMOTE = `${CATALOG}.${NAMESPACE}.${CONFIG_TABLE}`
 
 /**
  * `memory.main.device_config` local mirror. Composite PK matches the Iceberg
- * schema (`device_id, data_type, valid_from`) so ON CONFLICT DO NOTHING is
+ * schema (`device_id, metric, valid_from`) so ON CONFLICT DO NOTHING is
  * bound correctly — critical for the "fetch twice, count stable" idempotency
  * assertion in the round-trip test.
  */
@@ -239,14 +239,14 @@ async function ensureConfigMirror(engine: AnalyticsEngine): Promise<void> {
       brand VARCHAR NOT NULL,
       family_id VARCHAR NOT NULL,
       user_id VARCHAR NOT NULL,
-      data_type INTEGER NOT NULL,
+      metric VARCHAR NOT NULL,
       interval_minutes INTEGER NOT NULL,
       start_time VARCHAR,
       end_time VARCHAR,
       weeks INTEGER,
       valid_from TIMESTAMP NOT NULL,
       valid_to TIMESTAMP,
-      PRIMARY KEY (device_id, data_type, valid_from)
+      PRIMARY KEY (device_id, metric, valid_from)
     )`,
   )
   await engine.execute(`DELETE FROM ${CONFIG_LOCAL}`)
@@ -260,7 +260,7 @@ async function resetRemoteConfig(engine: AnalyticsEngine): Promise<void> {
 }
 
 /**
- * Seed `n` device_config rows. Distinct `data_type` values (composite-PK
+ * Seed `n` device_config rows. Distinct `metric` values (composite-PK
  * requirement) and all rows are open configs (`valid_to = NULL`) so the
  * round-trip must preserve NULL.
  */
@@ -270,7 +270,7 @@ async function seedLocalConfig(engine: AnalyticsEngine, n: number): Promise<void
       .toISOString().replace('T', ' ').replace('Z', '')
     await engine.execute(
       `INSERT INTO ${CONFIG_LOCAL}
-         (device_id, brand, family_id, user_id, data_type,
+         (device_id, brand, family_id, user_id, metric,
           interval_minutes, start_time, end_time, weeks,
           valid_from, valid_to)
          VALUES ('d1', 'ziva', $f, 'u1', $dt,
@@ -493,7 +493,7 @@ describe('T-28 — R2 push/fetch byte-equal round trip (MinIO)', () => {
       await seedLocalConfig(push, ROW_COUNT)
 
       pushLocalSnapshot = await push.execute(
-        `SELECT * FROM ${CONFIG_LOCAL} ORDER BY valid_from, data_type`,
+        `SELECT * FROM ${CONFIG_LOCAL} ORDER BY valid_from, metric`,
       )
       expect(pushLocalSnapshot).toHaveLength(ROW_COUNT)
 
@@ -574,7 +574,7 @@ describe('T-28 — R2 push/fetch byte-equal round trip (MinIO)', () => {
       expect(secondCount[0]?.n).toBe(firstCount[0]?.n)
 
       const fetchLocalSnapshot = await fetch.execute(
-        `SELECT * FROM ${CONFIG_LOCAL} ORDER BY valid_from, data_type`,
+        `SELECT * FROM ${CONFIG_LOCAL} ORDER BY valid_from, metric`,
       )
       expect(fetchLocalSnapshot).toHaveLength(ROW_COUNT)
       expect(fetchLocalSnapshot).toEqual(pushLocalSnapshot)

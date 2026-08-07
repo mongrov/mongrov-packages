@@ -169,6 +169,54 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       )
     },
   },
+  {
+    version: 5,
+    name: 'device_config: data_type -> metric (Sprint 5 §2)',
+    // Principle 21 — firmware enums do not belong in the schema. Converts
+    // existing rows using the JStyle J2301A automatic-monitoring enum
+    // (1=heartRate, 2=spo2, 3=temperature, 4=HRV), which is what the old
+    // `data_type` column actually held.
+    //
+    // Numbered 5, not the spec's 2: versions 2-4 were spent before this
+    // landed (device_battery, insight v2, user_baseline).
+    //
+    // Idempotent: skips when `metric` already exists. Local only — the
+    // client never destructively rewrites the attached Iceberg catalog;
+    // remote schema evolution is a server-side operation.
+    async up(db, catalogs) {
+      const cols = await db.execute<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns `
+        + `WHERE table_catalog = $catalog AND table_name = 'device_config'`,
+        { catalog: catalogs.local },
+      )
+      if (cols.length === 0) return // table absent; baseline will create it
+      if (cols.some(c => c.column_name === 'metric')) return
+
+      await db.execute(`DROP TABLE IF EXISTS ${catalogs.local}.device_config_v2;`)
+      const tmpDdl = LOCAL_SCHEMAS.device_config.replace(
+        'CREATE TABLE device_config',
+        `CREATE TABLE ${catalogs.local}.device_config_v2`,
+      )
+      await db.execute(tmpDdl)
+      await db.execute(
+        `INSERT INTO ${catalogs.local}.device_config_v2 `
+        + `(device_id, brand, family_id, user_id, metric, interval_minutes, `
+        + `start_time, end_time, weeks, valid_from, valid_to) `
+        + `SELECT device_id, brand, family_id, user_id, `
+        + `CASE data_type WHEN 1 THEN 'heart_rate' WHEN 2 THEN 'spo2' `
+        + `WHEN 3 THEN 'temperature' WHEN 4 THEN 'hrv' `
+        // Unknown codes are preserved rather than dropped, so a firmware
+        // revision that added one is diagnosable instead of invisible.
+        + `ELSE 'unknown_' || data_type::VARCHAR END, `
+        + `interval_minutes, start_time, end_time, weeks, valid_from, valid_to `
+        + `FROM ${catalogs.local}.device_config;`,
+      )
+      await db.execute(`DROP TABLE ${catalogs.local}.device_config;`)
+      await db.execute(
+        `ALTER TABLE ${catalogs.local}.device_config_v2 RENAME TO device_config;`,
+      )
+    },
+  },
 ])
 
 /** Version of the latest known migration — target for every attach. */

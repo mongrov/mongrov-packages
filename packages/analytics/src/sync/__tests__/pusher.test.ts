@@ -115,11 +115,11 @@ describe('R2Pusher time column resolution', () => {
 describe('R2Pusher.pushCloses', () => {
   const NOW = new Date('2026-06-17T12:00:00Z')
   const closes: RingConfigClose[] = [
-    { device_id: 'ring_1', data_type: 1, valid_to: NOW },
-    { device_id: 'ring_1', data_type: 2, valid_to: NOW },
+    { device_id: 'ring_1', metric: 'heart_rate', valid_to: NOW },
+    { device_id: 'ring_1', metric: 'spo2', valid_to: NOW },
   ]
 
-  it('issues one UPDATE per close bound to (device_id, data_type, family_id, valid_to IS NULL)', async () => {
+  it('issues one UPDATE per close bound to (device_id, metric, family_id, valid_to IS NULL)', async () => {
     const { pusher, fake } = newPusher()
     fake.mockNext([])
     fake.mockNext([])
@@ -133,8 +133,8 @@ describe('R2Pusher.pushCloses', () => {
       expect(call.params?.family_id).toBe('fam_A')
       expect(call.params?.valid_to).toBe(NOW.toISOString())
     }
-    expect(fake.calls[0]!.params?.data_type).toBe(1)
-    expect(fake.calls[1]!.params?.data_type).toBe(2)
+    expect(fake.calls[0]!.params?.metric).toBe('heart_rate')
+    expect(fake.calls[1]!.params?.metric).toBe('spo2')
   })
 
   it('empty closes returns ok without issuing SQL', async () => {

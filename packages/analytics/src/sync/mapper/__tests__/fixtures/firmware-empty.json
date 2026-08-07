@@ -7,5 +7,7 @@
   "activitydetails": [],
   "sleep_processed": [],
   "battery_table": [],
-  "ring": { "automaticMonitoringData": [] }
+  "ring": {
+    "automaticMonitoringData": []
+  }
 }

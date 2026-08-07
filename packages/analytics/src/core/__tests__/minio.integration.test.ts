@@ -457,25 +457,25 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       expect(engine.state).toBe('attached')
 
       // Clean slate — composite PK means we must delete by user_id AND
-      // data_type range to avoid stale rows from prior runs polluting the
+      // metric range to avoid stale rows from prior runs polluting the
       // count assertion.
       await engine.execute(
         `DELETE FROM ${qualify(CATALOG_A, 'device_config')} WHERE user_id = $u`,
         { u: 'u7' },
       )
 
-      // Seed 3 configs with distinct data_type values (satisfies composite
-      // PK (device_id, data_type, valid_from)). One row has valid_to = NULL
+      // Seed 3 configs with distinct metric values (satisfies composite
+      // PK (device_id, metric, valid_from)). One row has valid_to = NULL
       // (open config, most recent). Two are closed (valid_to set).
       const configs = [
-        { dt: 100, validFrom: '2025-06-01 00:00:00', validTo: '2025-06-02 00:00:00' as string | null },
-        { dt: 101, validFrom: '2025-06-01 00:00:00', validTo: '2025-06-02 00:00:00' as string | null },
-        { dt: 102, validFrom: '2025-06-02 00:00:00', validTo: null as string | null },
+        { dt: 'hrv', validFrom: '2025-06-01 00:00:00', validTo: '2025-06-02 00:00:00' as string | null },
+        { dt: 'spo2', validFrom: '2025-06-01 00:00:00', validTo: '2025-06-02 00:00:00' as string | null },
+        { dt: 'temperature', validFrom: '2025-06-02 00:00:00', validTo: null as string | null },
       ]
       for (const c of configs) {
         await engine.execute(
           `INSERT INTO ${qualify(CATALOG_A, 'device_config')}
-             (device_id, brand, family_id, user_id, data_type,
+             (device_id, brand, family_id, user_id, metric,
               interval_minutes, start_time, end_time, weeks,
               valid_from, valid_to)
              VALUES ('d7', 'ziva', $fam, $u, $dt,
@@ -509,18 +509,19 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       // components together.
       const shape = await engine.execute<{
         device_id: string
-        data_type: number
+        metric: string
         valid_from: string
       }>(
-        `SELECT device_id, data_type, valid_from::VARCHAR AS valid_from
+        `SELECT device_id, metric, valid_from::VARCHAR AS valid_from
            FROM ${qualify(CATALOG_A, 'device_config')}
           WHERE user_id = $u
-          ORDER BY data_type, valid_from`,
+          ORDER BY metric, valid_from`,
         { u: 'u7' },
       )
       expect(shape).toHaveLength(3)
-      expect(shape[0]?.data_type).toBe(100)
-      expect(shape[2]?.data_type).toBe(102)
+      // Ordered by metric: hrv, spo2, temperature.
+      expect(shape[0]?.metric).toBe('hrv')
+      expect(shape[2]?.metric).toBe('temperature')
 
       await engine.detach()
     }
@@ -605,11 +606,11 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       )
 
       // Seed 5 configs with valid_from 180 days back — well past any
-      // reasonable retention window. Distinct data_type values satisfy the
+      // reasonable retention window. Distinct metric values satisfy the
       // composite PK.
       await engine.execute(
         `INSERT INTO ${qualify(CATALOG_A, 'device_config')}
-           (device_id, brand, family_id, user_id, data_type,
+           (device_id, brand, family_id, user_id, metric,
             interval_minutes, start_time, end_time, weeks,
             valid_from, valid_to)
          SELECT
@@ -721,14 +722,14 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
         { u: 'u10' },
       )
 
-      // Seed two OPEN configs (valid_to = NULL). data_type=300 is the target
-      // of the close; data_type=301 must remain open to prove the WHERE clause
+      // Seed two OPEN configs (valid_to = NULL). metric=300 is the target
+      // of the close; metric=301 must remain open to prove the WHERE clause
       // narrows correctly.
       const validFrom = '2025-07-01 00:00:00'
       for (const dt of [300, 301]) {
         await engine.execute(
           `INSERT INTO ${qualify(CATALOG_A, 'device_config')}
-             (device_id, brand, family_id, user_id, data_type,
+             (device_id, brand, family_id, user_id, metric,
               interval_minutes, start_time, end_time, weeks,
               valid_from, valid_to)
              VALUES ('d10', 'ziva', $fam, $u, $dt,
@@ -756,7 +757,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
 
       const closeAt = new Date(Date.UTC(2025, 7, 1, 12, 0, 0)) // 2025-08-01T12:00Z
       const res1 = await pusher.pushCloses(
-        [{ device_id: 'd10', data_type: 300, valid_to: closeAt }],
+        [{ device_id: 'd10', metric: 300, valid_to: closeAt }],
         attachCtx(TENANT_A),
       )
       expect(res1).toMatchObject({ table: 'device_config', ok: true, rowsPushed: 1 })
@@ -765,7 +766,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       const closed = await engine.execute<{ n: bigint }>(
         `SELECT COUNT(*)::BIGINT AS n
            FROM ${qualify(CATALOG_A, 'device_config')}
-          WHERE user_id = $u AND data_type = 300 AND valid_to IS NOT NULL`,
+          WHERE user_id = $u AND metric = 300 AND valid_to IS NOT NULL`,
         { u: 'u10' },
       )
       expect(closed[0]?.n).toBe(1n)
@@ -773,7 +774,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       const stillOpen = await engine.execute<{ n: bigint }>(
         `SELECT COUNT(*)::BIGINT AS n
            FROM ${qualify(CATALOG_A, 'device_config')}
-          WHERE user_id = $u AND data_type = 301 AND valid_to IS NULL`,
+          WHERE user_id = $u AND metric = 301 AND valid_to IS NULL`,
         { u: 'u10' },
       )
       expect(stillOpen[0]?.n).toBe(1n)
@@ -782,7 +783,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       const validToRow = await engine.execute<{ valid_to: string }>(
         `SELECT valid_to::VARCHAR AS valid_to
            FROM ${qualify(CATALOG_A, 'device_config')}
-          WHERE user_id = $u AND data_type = 300`,
+          WHERE user_id = $u AND metric = 300`,
         { u: 'u10' },
       )
       expect(validToRow[0]?.valid_to).toContain('2025-08-01 12:00:00')
@@ -792,7 +793,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       // Neither the row count nor the valid_to timestamp should change.
       const laterCloseAt = new Date(Date.UTC(2025, 8, 1, 12, 0, 0)) // deliberately different
       const res2 = await pusher.pushCloses(
-        [{ device_id: 'd10', data_type: 300, valid_to: laterCloseAt }],
+        [{ device_id: 'd10', metric: 300, valid_to: laterCloseAt }],
         attachCtx(TENANT_A),
       )
       expect(res2.ok).toBe(true)
@@ -800,7 +801,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       const validToAfterReplay = await engine.execute<{ valid_to: string }>(
         `SELECT valid_to::VARCHAR AS valid_to
            FROM ${qualify(CATALOG_A, 'device_config')}
-          WHERE user_id = $u AND data_type = 300`,
+          WHERE user_id = $u AND metric = 300`,
         { u: 'u10' },
       )
       // Idempotent: original close time preserved.
