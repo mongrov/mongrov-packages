@@ -45,6 +45,38 @@ jobs:
       - name: Build
         run: pnpm --filter @mongrov/${{ matrix.package }} run build
 
+  # Publish safety — the class of break the matrix above CANNOT catch.
+  #
+  # In this workspace every @mongrov/* dependency is a symlink to local
+  # source, so `@mongrov/types/kv-keys` always resolves and every job is
+  # green. It did not resolve for anyone installing from npm:
+  # analytics@0.8.0 shipped importing a subpath that published types@0.5.0
+  # never had, because the export was added 4h44m after 0.5.0 was published
+  # with no version bump. QA found it in Metro; CI could not have.
+  #
+  # Needs the registry, so it is its own job — a network blip must not sink
+  # the unit matrix.
+  publish-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Checks read built output, so everything must be built first.
+      - name: Build all packages
+        run: pnpm -r run build
+
+      - name: Check published drift + subpath resolvability
+        run: node scripts/check-published-drift.mjs
+
   # Live-warehouse integration suite for @mongrov/analytics — boots a
   # MinIO + Iceberg REST stack via docker-compose and exercises the real
   # attach/push/fetch flow against it. Isolated from the fast unit matrix
