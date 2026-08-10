@@ -147,6 +147,32 @@ export function ChatScreen({
 
   const canSend = inputText.trim().length > 0 && !isStreaming;
 
+  /**
+   * gifted-chat 3.x removed the `isTyping` prop in favour of
+   * `renderTypingIndicator`, and does not export its own TypingIndicator, so
+   * this is ours. Returning null while idle is what suppresses it — there is
+   * no boolean to toggle any more.
+   */
+  const renderTypingIndicator = useCallback(() => {
+    if (!isStreaming) return null;
+    return (
+      <View
+        style={{
+          alignSelf: 'flex-start',
+          marginLeft: 12,
+          marginBottom: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: 16,
+          backgroundColor: theme.assistantBubble,
+        }}
+        testID={testID ? `${testID}-typing` : undefined}
+      >
+        <Text style={{ color: theme.assistantText, fontSize: 14 }}>…</Text>
+      </View>
+    );
+  }, [isStreaming, theme, testID]);
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }} testID={testID}>
       <View style={{ flex: 1 }} pointerEvents="box-none">
@@ -157,8 +183,7 @@ export function ChatScreen({
           renderChatEmpty={renderChatEmpty}
           renderMessageText={renderMessageText}
           renderBubble={renderBubble}
-          isTyping={isStreaming}
-          inverted={true}
+          renderTypingIndicator={renderTypingIndicator}
           renderInputToolbar={() => null}
         />
         {quickReplies.length > 0 && messages.length === 0 && (

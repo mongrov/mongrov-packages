@@ -54,7 +54,7 @@
     "ai": ">=4",
     "react": ">=18",
     "react-native": ">=0.74",
-    "react-native-gifted-chat": ">=2",
+    "react-native-gifted-chat": ">=3",
     "uniwind": ">=1"
   },
   "peerDependenciesMeta": {
@@ -79,6 +79,7 @@
     "react-test-renderer": "^18.2.0",
     "ts-jest": "^29.1.2",
     "typescript": "^5.9.3",
-    "uniwind": "^1.6.1"
+    "uniwind": "^1.6.1",
+    "react-native-gifted-chat": "^3.4.0"
   }
 }
