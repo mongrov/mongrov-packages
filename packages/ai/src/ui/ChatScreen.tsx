@@ -47,7 +47,7 @@ export function ChatScreen({
   onSend: onSendOverride,
   testID,
 }: ChatScreenProps) {
-  const { messages, send, isStreaming } = useAIChat();
+  const { messages, send, isStreaming, error } = useAIChat();
   const colorScheme = useColorScheme();
   const theme = colorScheme === 'dark' ? darkTheme : lightTheme;
   const [inputText, setInputText] = useState('');
@@ -194,6 +194,27 @@ export function ChatScreen({
           />
         )}
       </View>
+
+      {/*
+        A failed request used to be invisible: the machine catches the error
+        into context, but this screen never read it, so a bad key, a network
+        failure or a rejected model all looked identical to "nothing
+        happened". Rendered above the input, where the user is looking.
+      */}
+      {error && (
+        <View
+          style={{
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            backgroundColor: theme.assistantBubble,
+          }}
+          testID={testID ? `${testID}-error` : undefined}
+        >
+          <Text style={{ color: theme.assistantText, fontSize: 13 }}>
+            {error.message}
+          </Text>
+        </View>
+      )}
 
       {/* Custom Input Toolbar */}
       <View
