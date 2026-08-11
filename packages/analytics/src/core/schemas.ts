@@ -282,7 +282,7 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
  * the `day(ts)` partition instead. Issued by migration step 3.
  */
 export function insightIndexDdl(catalog: string): string {
-  return `CREATE INDEX IF NOT EXISTS idx_insight_lookup ON ${catalog}.insight (user_id, metric, dismissed_at, ts);`
+  return `CREATE INDEX IF NOT EXISTS idx_insight_lookup ON ${quoteQualifier(catalog)}.insight (user_id, metric, dismissed_at, ts);`
 }
 
 /**
@@ -393,6 +393,36 @@ export function dropViewDdl(table: ViewedTable): string {
 }
 
 /**
+ * Quote a (possibly dotted) SQL qualifier for use in DDL/DML.
+ *
+ * Catalog names come from the database filename, so `zivaone-analytics.duckdb`
+ * yields the catalog `zivaone-analytics` — and a bare hyphen is a syntax
+ * error in an identifier position:
+ *
+ *   CREATE TABLE IF NOT EXISTS zivaone-analytics.hrv (...)
+ *                                      ^ Parser Error: syntax error at or near "-"
+ *
+ * Each dot-separated part is quoted independently, because callers pass both
+ * plain catalogs (`memory`) and qualified namespaces (`remote.analytics`).
+ * Parts that are already quoted are left alone, and embedded double quotes
+ * are doubled per SQL rules.
+ */
+export function quoteQualifier(qualifier: string): string {
+  return qualifier
+    .split('.')
+    .map((part) => {
+      if (part.startsWith('"') && part.endsWith('"')) return part
+      // Leave plain identifiers bare. Quoting everything would work, but it
+      // churns every emitted statement and makes the SQL harder to read for
+      // the common `memory` / `main` case; only names that actually need it
+      // get quoted.
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(part)) return part
+      return `"${part.split('"').join('""')}"`
+    })
+    .join('.')
+}
+
+/**
  * Rewrite one base DDL to `CREATE TABLE IF NOT EXISTS <catalog>.<table>`.
  *
  * Exported for tests; call sites should prefer `ensureSchemas`.
@@ -400,7 +430,7 @@ export function dropViewDdl(table: ViewedTable): string {
 export function qualifyDdl(baseDdl: string, table: TableName, catalog: string): string {
   return baseDdl.replace(
     `CREATE TABLE ${table}`,
-    `CREATE TABLE IF NOT EXISTS ${catalog}.${table}`,
+    `CREATE TABLE IF NOT EXISTS ${quoteQualifier(catalog)}.${table}`,
   )
 }
 

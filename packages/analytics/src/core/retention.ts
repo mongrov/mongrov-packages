@@ -33,6 +33,7 @@
 import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
 import type { TableName } from './schemas'
+import { quoteQualifier } from './schemas'
 import { isSyncable } from './table_metadata'
 import type { AnalyticsMode } from './types'
 
@@ -243,5 +244,5 @@ export function buildDeleteSql(input: DeleteSqlInput): string {
   const bound = watermarkBound
     ? `LEAST(${cutoff}, CAST($pushWatermark AS TIMESTAMP))`
     : cutoff
-  return `DELETE FROM ${catalog}.${table} WHERE ${tsCol} < ${bound};`
+  return `DELETE FROM ${quoteQualifier(catalog)}.${table} WHERE ${tsCol} < ${bound};`
 }

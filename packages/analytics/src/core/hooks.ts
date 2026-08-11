@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useSyncExternalSto
 
 import { useAnalyticsEngine } from './context'
 import type { AnalyticsEngine, AnalyticsState, Insight } from './types'
+import { quoteQualifier } from './schemas'
 
 // -------------------- useAnalytics --------------------
 
@@ -181,7 +182,7 @@ export function useInsight(id: string): UseInsightResult {
   const engine = useAnalyticsEngine()
   const catalog = engine.catalog
   const sql = catalog
-    ? `SELECT * FROM ${catalog}.insight WHERE insight_id = $id LIMIT 1`
+    ? `SELECT * FROM ${quoteQualifier(catalog)}.insight WHERE insight_id = $id LIMIT 1`
     : ''
   const params = useMemo(() => ({ id }), [id])
   const { data, loading } = useTimeseries<Insight>(
