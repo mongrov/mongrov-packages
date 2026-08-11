@@ -243,15 +243,12 @@ export async function attachLocal(
   // tables via `${catalog}.main.<table>` when it needs to be explicit.
   let catalog: string
   try {
-    const rows = await db.execute<{ current_database: string }>(
-      `SELECT current_database() AS current_database;`,
-    )
-    catalog = rows[0]?.current_database ?? 'memory'
+    catalog = await probeCatalogName(db)
   }
   catch (cause) {
     throw new AnalyticsError(
       'attach_failed',
-      `attachLocal: current_database() probe failed`,
+      `attachLocal: could not determine the current catalog`,
       rootCause(cause),
     )
   }
@@ -277,17 +274,59 @@ export async function attachLocal(
  * addresses the correct source (post-0.5.0 attach no longer switches the
  * current catalog, so `main.<table>` still means local).
  */
+/**
+ * Current catalog name, probed defensively.
+ *
+ * `SELECT current_database()` is the obvious query and works on desktop
+ * DuckDB, but it is not universally safe: the react-native-duckdb iOS build
+ * rejects it with `Binder Error: Referenced table "system" not found!`,
+ * which took down attach before a single table was touched.
+ *
+ * So try the scalar function, then `PRAGMA database_list` (which reports the
+ * attached databases directly and does not depend on function binding), and
+ * only give up if both fail. The name matters because local tables are
+ * addressed as `${catalog}.main.<table>` when qualification is needed.
+ */
+async function probeCatalogName(db: HybridDuckDB): Promise<string> {
+  const attempts: (() => Promise<string | undefined>)[] = [
+    async () => {
+      const rows = await db.execute<{ current_database: string }>(
+        `SELECT current_database() AS current_database;`,
+      )
+      return rows[0]?.current_database
+    },
+    async () => {
+      // seq/name/file; the first non-temp entry is the main catalog.
+      const rows = await db.execute<{ name?: string, database_name?: string }>(
+        `PRAGMA database_list;`,
+      )
+      const row = rows.find(r => (r.name ?? r.database_name) !== 'temp')
+      return row?.name ?? row?.database_name
+    },
+  ]
+
+  let lastCause: unknown
+  for (const attempt of attempts) {
+    try {
+      const name = await attempt()
+      if (name) return name
+    }
+    catch (cause) {
+      lastCause = cause
+    }
+  }
+  if (lastCause !== undefined) throw lastCause
+  return 'memory'
+}
+
 export async function probeLocalCatalog(db: HybridDuckDB): Promise<string> {
   try {
-    const rows = await db.execute<{ current_database: string }>(
-      `SELECT current_database() AS current_database;`,
-    )
-    return rows[0]?.current_database ?? 'memory'
+    return await probeCatalogName(db)
   }
   catch (cause) {
     throw new AnalyticsError(
       'query_failed',
-      `probeLocalCatalog: current_database() failed`,
+      `probeLocalCatalog: could not determine the current catalog`,
       rootCause(cause),
     )
   }
