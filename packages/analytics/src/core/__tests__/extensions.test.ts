@@ -18,22 +18,47 @@ async function newOpenDb() {
 }
 
 describe('bootstrapExtensions', () => {
-  it('issues INSTALL + LOAD in the order httpfs → icu → iceberg → parquet', async () => {
+  it('LOADs in the order httpfs → icu → iceberg → parquet, without INSTALL', async () => {
     const { fake, db } = await newOpenDb()
 
     await bootstrapExtensions(db)
 
     // Order is load-bearing (Sprint 5 T-01): icu after httpfs, before iceberg.
+    // No INSTALL when LOAD succeeds — a statically linked extension needs
+    // none, and on mobile the fetch 404s.
     expect(fake.calls.map(c => c.sql)).toEqual([
-      'INSTALL httpfs;',
       'LOAD httpfs;',
-      'INSTALL icu;',
       'LOAD icu;',
-      'INSTALL iceberg;',
       'LOAD iceberg;',
-      'INSTALL parquet;',
       'LOAD parquet;',
     ])
+  })
+
+  it('falls back to INSTALL when LOAD fails, for builds that must fetch', async () => {
+    const { fake, db } = await newOpenDb()
+
+    const original = fake.instance.execute
+    let failedOnce = false
+    fake.instance.execute = async (sql, params) => {
+      if (!failedOnce && sql === 'LOAD icu;') {
+        failedOnce = true
+        throw new Error('not linked in')
+      }
+      return original.call(fake.instance, sql, params)
+    }
+
+    await bootstrapExtensions(db, 'local')
+
+    // The failed `LOAD icu;` is absent because the stub throws before
+    // delegating, and the fake only records calls that reach the instance.
+    // What matters is that INSTALL follows the failure and the retry LOAD
+    // then succeeds.
+    expect(fake.calls.map(c => c.sql)).toEqual([
+      'INSTALL icu;',    // fallback, after LOAD threw
+      'LOAD icu;',       // retry succeeds
+      'LOAD parquet;',
+    ])
+    expect(failedOnce).toBe(true)
   })
 
   it('loads icu in local mode too — timezone() is not an R2-only concern', async () => {
@@ -45,9 +70,7 @@ describe('bootstrapExtensions', () => {
     // must keep icu: day-grouped charts and day-first baselines call
     // timezone($tz, ts), which needs it.
     expect(fake.calls.map(c => c.sql)).toEqual([
-      'INSTALL icu;',
       'LOAD icu;',
-      'INSTALL parquet;',
       'LOAD parquet;',
     ])
     expect(LOCAL_EXTENSIONS).toContain('icu')
@@ -56,14 +79,11 @@ describe('bootstrapExtensions', () => {
   it('maps native failure to AnalyticsError(extension_load_failed) with extension name', async () => {
     const { fake, db } = await newOpenDb()
 
-    // First two INSTALLs (httpfs) succeed; then LOAD httpfs fails.
-    // Fake queues one failure onto the *next* execute.
-    let calls = 0
+    // Every attempt for httpfs fails — LOAD, then the INSTALL fallback, then
+    // the retry LOAD — which is the genuinely-broken case.
     const originalExecute = fake.instance.execute
     fake.instance.execute = async (sql, params) => {
-      calls += 1
-      if (calls === 2) {
-        // The 2nd call is `LOAD httpfs;`
+      if (sql.includes('httpfs')) {
         throw new Error('cannot find shared lib')
       }
       return originalExecute.call(fake.instance, sql, params)

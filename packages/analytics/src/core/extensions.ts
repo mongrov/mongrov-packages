@@ -82,16 +82,35 @@ export async function bootstrapExtensions(
     if (booted.has(ext)) {
       continue
     }
+    // LOAD first, INSTALL only as a fallback.
+    //
+    // A statically linked extension needs no INSTALL, and on mobile the
+    // INSTALL cannot succeed: there is no artifact to fetch. iOS asks for
+    // `http://extensions.duckdb.org/<ver>/ios_arm64/<ext>.duckdb_extension.gz`
+    // and gets a 404, so issuing INSTALL unconditionally made a correctly
+    // built binary fail exactly as loudly as a missing one.
+    //
+    // Ordering it this way keeps both cases working: linked extensions load
+    // straight away, and a desktop build that genuinely needs a download
+    // still gets one from the fallback.
     try {
-      await db.execute(`INSTALL ${ext};`)
       await db.execute(`LOAD ${ext};`)
     }
-    catch (cause) {
-      throw new AnalyticsError(
-        'extension_load_failed',
-        `Failed to load DuckDB extension: ${ext}`,
-        cause,
-      )
+    catch (loadCause) {
+      try {
+        await db.execute(`INSTALL ${ext};`)
+        await db.execute(`LOAD ${ext};`)
+      }
+      catch {
+        // Report the original LOAD failure: if the extension is meant to be
+        // linked in, "could not load" is the real problem and the INSTALL
+        // 404 is just noise about a fetch that was never going to work.
+        throw new AnalyticsError(
+          'extension_load_failed',
+          `Failed to load DuckDB extension: ${ext}`,
+          loadCause,
+        )
+      }
     }
     booted.add(ext)
   }
