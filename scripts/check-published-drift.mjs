@@ -21,6 +21,13 @@
  *   the direct symptom, checked independently of check 1 so a hand-edited
  *   range is caught too.
  *
+ * CHECK 3 — ambient declarations shadowing real types.
+ *   Same class of mistake, different surface: @mongrov/ai carried a
+ *   hand-written `declare module 'react-native-gifted-chat'` ending in
+ *   `[key: string]: unknown`, so ChatScreen type-checked against a fiction
+ *   and the app and the package silently resolved different majors.
+ *   Declaring a subpath the package ships no types for stays allowed.
+ *
  * Exit codes: 0 clean, 1 violations, 2 harness error (network, bad JSON).
  */
 
@@ -175,6 +182,54 @@ for (const { dir, pkg } of localPackages) {
           `${red('MISSING SUBPATH')} ${pkg.name} imports ${key}, but the published\n`
           + `        ${target}@${resolved} does not export ./${sub}.\n`
           + `        ${dim('Resolves in this workspace via symlink; fails for every installer.')}\n`
+          + `        ${dim(relative(ROOT, file))}`,
+        )
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------- check 3
+// Ambient `declare module 'x'` that shadows a package shipping its own types.
+//
+// @mongrov/ai carried a hand-written declaration for react-native-gifted-chat
+// ending in `[key: string]: unknown`. It shadowed the real types, so any prop
+// compiled — and the package was type-checked against a fiction while the app
+// and the package silently resolved different majors.
+//
+// Declaring a SUBPATH the package ships no types for is legitimate and stays
+// allowed (e.g. '@iarna/toml/parse-string.js'). Shadowing the package root,
+// when that root has types, is not.
+for (const { dir, pkg } of localPackages) {
+  const src = join(dir, 'src')
+  for (const file of walk(src)) {
+    if (!file.endsWith('.d.ts')) continue
+    const text = readFileSync(file, 'utf8')
+    for (const [, spec] of text.matchAll(/declare\s+module\s+['"]([^'"]+)['"]/g)) {
+      // Subpath declarations are the legitimate case — skip them.
+      const isSubpath = spec.includes('/')
+        && !(spec.startsWith('@') && spec.split('/').length === 2)
+      if (isSubpath) continue
+
+      let shipsTypes = false
+      try {
+        const meta = readJson(join(dir, 'node_modules', spec, 'package.json'))
+        shipsTypes = Boolean(meta.types || meta.typings || meta.exports)
+      }
+      catch {
+        try {
+          const meta = readJson(join(ROOT, 'node_modules', spec, 'package.json'))
+          shipsTypes = Boolean(meta.types || meta.typings || meta.exports)
+        }
+        catch { shipsTypes = false }
+      }
+
+      if (shipsTypes) {
+        violations.push(
+          `${red('SHADOWED TYPES')} ${pkg.name} declares an ambient module for `
+          + `'${spec}', but that package ships its own types.\n`
+          + `        ${dim('The declaration wins, so this package is type-checked against')}\n`
+          + `        ${dim('a local description instead of the real API. Delete it.')}\n`
           + `        ${dim(relative(ROOT, file))}`,
         )
       }
