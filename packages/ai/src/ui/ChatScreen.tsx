@@ -46,13 +46,17 @@ export function ChatScreen({
   assistantAvatar,
   onSend: onSendOverride,
   colorScheme,
+  theme: themeOverride,
   testID,
 }: ChatScreenProps) {
   const { messages, send, isStreaming, error } = useAIChat();
   // `colorScheme` prop wins; the OS is only the fallback. An app with its
   // own theme store would otherwise disagree with the chat.
   const systemColorScheme = useSystemColorScheme();
-  const theme = (colorScheme ?? systemColorScheme) === 'dark' ? darkTheme : lightTheme;
+  const base = (colorScheme ?? systemColorScheme) === 'dark' ? darkTheme : lightTheme;
+  // Consumer overrides win, token by token, so a brand only has to name the
+  // colours that differ from the built-in iOS-generic palette.
+  const theme = useMemo(() => ({ ...base, ...themeOverride }), [base, themeOverride]);
   const [inputText, setInputText] = useState('');
 
   const adapterConfig: AdapterConfig = useMemo(

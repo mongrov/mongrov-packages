@@ -108,7 +108,30 @@ export interface ChatScreenProps {
    * together.
    */
   colorScheme?: 'light' | 'dark';
+  /**
+   * Override any of the chat's colours.
+   *
+   * The built-in palette is iOS-generic — `#007AFF` send button, grey
+   * bubbles — which reads as foreign inside a branded app. Merged over the
+   * resolved light/dark base, so pass only what differs.
+   */
+  theme?: Partial<ChatTheme>;
   testID?: string;
+}
+
+/** Colour tokens ChatScreen paints with. */
+export interface ChatTheme {
+  background: string;
+  inputBackground: string;
+  inputBorder: string;
+  inputText: string;
+  placeholder: string;
+  sendButton: string;
+  sendButtonDisabled: string;
+  userBubble: string;
+  userText: string;
+  assistantBubble: string;
+  assistantText: string;
 }
 
 // Streaming text props

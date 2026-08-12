@@ -19,6 +19,7 @@ export type {
   UseAIChatReturn,
   UseAICompletionReturn,
   ChatScreenProps,
+  ChatTheme,
   StreamingTextProps,
   QuickReplyBarProps,
 } from './types';
