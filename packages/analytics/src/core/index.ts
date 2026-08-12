@@ -92,9 +92,18 @@ export type {
 
 // Union views (Sprint 5 §3). Registry/rule/tool SQL targets `v_{table}`,
 // never `local.{table}` or `r2.default.{table}` (principle 19).
+//
+// LOCAL_SCHEMAS / TABLE_NAMES are public so consumers can validate their own
+// SQL against the real DDL. zivaone_app's registry selected a `value` column
+// from spo2 — the column is `spo2` — and nothing caught it until DuckDB did,
+// on a device. A consumer-side test needs the schema to check against, and
+// reaching into dist/ to get it is worse than exporting it.
 export {
   dropViewDdl,
   generateViewDdl,
+  LOCAL_SCHEMAS,
+  quoteQualifier,
+  TABLE_NAMES,
   VIEWED_TABLES,
   watermarkColumnFor,
 } from './schemas'
