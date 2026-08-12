@@ -17,7 +17,6 @@
  * `getInsights.days`.
  */
 
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { AnalyticsToolsHandle } from '../factory'
 
 export interface McpTool {
@@ -37,11 +36,15 @@ export function toMcpTools(handle: AnalyticsToolsHandle): McpTool[] {
   ][]
 
   return entries.map(([name, tool]) => {
-    const parameters = tool.parameters as Parameters<typeof zodToJsonSchema>[0]
-    const rawSchema = zodToJsonSchema(parameters, {
-      target: 'jsonSchema7',
-      $refStrategy: 'none',
-    }) as Record<string, unknown>
+    // `makeTool` now hands the AI SDK a finished JSON Schema (see
+    // wrap.ts:toJsonSchema — the SDK's Zod path emits `type: "None"` for
+    // zod-4 schemas), so `tool.parameters` is a Schema wrapper carrying
+    // `.jsonSchema` rather than a Zod object. Read it straight through
+    // instead of converting a second time.
+    const rawSchema = {
+      ...((tool.parameters as unknown as { jsonSchema?: Record<string, unknown> })
+        .jsonSchema ?? {}),
+    }
 
     // Strip the top-level $schema marker — MCP clients don't need it,
     // and its presence bloats every list_tools response.

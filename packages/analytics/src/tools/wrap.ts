@@ -18,7 +18,7 @@
  * with a mutable container updated per request).
  */
 
-import { tool } from 'ai'
+import { jsonSchema, tool } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import type { AnalyticsEngine } from '../core/types'
 import { applyOutputBudget } from './budget'
@@ -64,13 +64,48 @@ export interface MakeToolConfig<Input> {
   clock?: () => number
 }
 
+/**
+ * Convert a Zod schema to plain JSON Schema for the AI SDK.
+ *
+ * The SDK's `tool({ parameters: zodSchema })` path converts using zod-3
+ * internals. Handed a zod-4 schema it emits `type: "None"`, and OpenAI
+ * rejects the whole request:
+ *
+ *   AI_APICallError: Invalid schema for function 'getSpO2': schema must be a
+ *   JSON Schema of 'type: "object"', got 'type: "None"'.
+ *
+ * Because tools are sent on every request, one bad schema breaks all chat —
+ * even a plain "hi" that needs no tool at all.
+ *
+ * This package supports zod 3 and 4 (`^3.23.8 || ^4.0.0`), so the consumer's
+ * version is not ours to pick. Converting here and passing `jsonSchema()`
+ * removes the coupling entirely: the SDK gets a finished JSON Schema and
+ * never inspects a Zod object.
+ */
+function toJsonSchema(schema: ZodTypeAny): ReturnType<typeof jsonSchema> {
+  // zod 4 ships its own converter; zod 3 needs the companion package.
+  const z4 = (schema as unknown as { _zod?: unknown })._zod
+  if (z4 !== undefined) {
+    // eslint-disable-next-line ts/no-require-imports
+    const zod = require('zod') as { toJSONSchema: (s: unknown) => object }
+    return jsonSchema(zod.toJSONSchema(schema) as never)
+  }
+  // eslint-disable-next-line ts/no-require-imports
+  const { zodToJsonSchema } = require('zod-to-json-schema') as {
+    zodToJsonSchema: (s: unknown) => object
+  }
+  return jsonSchema(zodToJsonSchema(schema) as never)
+}
+
 export function makeTool<Input>(cfg: MakeToolConfig<Input>) {
   const clock = cfg.clock ?? Date.now
 
   return tool({
     description: cfg.description,
-    parameters: cfg.inputSchema,
-    execute: async (input: Input): Promise<string> => {
+    parameters: toJsonSchema(cfg.inputSchema),
+    execute: async (rawInput: unknown): Promise<string> => {
+      // Validated against the JSON Schema by the SDK before we see it.
+      const input = rawInput as Input
       const startMs = clock()
       const ctx = cfg.ctxProvider()
 
