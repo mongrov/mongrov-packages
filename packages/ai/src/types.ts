@@ -98,6 +98,16 @@ export interface ChatScreenProps {
   assistantName?: string;
   assistantAvatar?: string | number;
   onSend?: (message: string) => void;
+  /**
+   * Force light or dark, overriding the OS setting.
+   *
+   * ChatScreen otherwise reads react-native's `useColorScheme`, which is the
+   * SYSTEM appearance. An app with its own theme store — a settings toggle,
+   * a persisted preference — will disagree with it, and the chat renders
+   * light inside a dark app. Pass the app's resolved scheme to keep them
+   * together.
+   */
+  colorScheme?: 'light' | 'dark';
   testID?: string;
 }
 

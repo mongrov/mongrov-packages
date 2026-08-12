@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, useColorScheme, Text, TextInput, TouchableOpacity } from 'react-native';
+import { View, useColorScheme as useSystemColorScheme, Text, TextInput, TouchableOpacity } from 'react-native';
 import { GiftedChat, Bubble, type BubbleProps } from 'react-native-gifted-chat';
 import { useAIChat } from '../use-ai-chat';
 import type { ChatScreenProps } from '../types';
@@ -45,11 +45,14 @@ export function ChatScreen({
   assistantName = 'Assistant',
   assistantAvatar,
   onSend: onSendOverride,
+  colorScheme,
   testID,
 }: ChatScreenProps) {
   const { messages, send, isStreaming, error } = useAIChat();
-  const colorScheme = useColorScheme();
-  const theme = colorScheme === 'dark' ? darkTheme : lightTheme;
+  // `colorScheme` prop wins; the OS is only the fallback. An app with its
+  // own theme store would otherwise disagree with the chat.
+  const systemColorScheme = useSystemColorScheme();
+  const theme = (colorScheme ?? systemColorScheme) === 'dark' ? darkTheme : lightTheme;
   const [inputText, setInputText] = useState('');
 
   const adapterConfig: AdapterConfig = useMemo(
