@@ -347,10 +347,11 @@ export function generateViewDdl(
   const tsCol = watermarkColumnFor(table)
   const brand = sqlLiteral(ctx.brand)
   const familyId = sqlLiteral(ctx.familyId)
-  const local = `${ctx.localCatalog}.${table}`
+  const localCatalog = quoteQualifier(ctx.localCatalog)
+  const local = `${localCatalog}.${table}`
 
   const watermark
-    = `COALESCE((SELECT cursor_ts FROM ${ctx.localCatalog}.sync_watermark `
+    = `COALESCE((SELECT cursor_ts FROM ${localCatalog}.sync_watermark `
       + `WHERE table_name = '${table}' AND kind = 'push' `
       + `AND brand = ${brand} AND family_id = ${familyId}), `
       + `'1970-01-01'::TIMESTAMP)`
@@ -361,7 +362,7 @@ export function generateViewDdl(
     return `CREATE OR REPLACE VIEW v_${table} AS SELECT * FROM ${local};`
   }
 
-  const remote = `${ctx.remoteCatalog}.${REMOTE_NAMESPACE_VIEW}.${table}`
+  const remote = `${quoteQualifier(ctx.remoteCatalog)}.${REMOTE_NAMESPACE_VIEW}.${table}`
   return (
     `CREATE OR REPLACE VIEW v_${table} AS\n`
     + `  SELECT * FROM ${local}\n`
