@@ -58,13 +58,14 @@ export function createAIClient(config: AIConfig): AIClient {
     logger.debug('Starting chat stream', { messageCount: messages.length });
 
     try {
-      const { textStream } = streamText({
+      const result = streamText({
         model,
         messages: aiMessages,
         abortSignal: currentAbortController.signal,
         experimental_telemetry: { isEnabled: false },
         ...(tools ? { tools, maxSteps: MAX_TOOL_STEPS } : {}),
       });
+      const { textStream } = result;
 
       let emitted = 0;
       for await (const chunk of textStream) {
@@ -74,12 +75,40 @@ export function createAIClient(config: AIConfig): AIClient {
 
       if (emitted === 0) {
         // Not an error the SDK raises, and the symptom a user sees is simply
-        // no reply — so say it out loud. The usual cause is the model
-        // stopping on a tool call with no step left to answer in.
+        // no reply — so say it out loud, with enough to tell the causes apart:
+        //
+        //   finishReason 'tool-calls'  → stopped on a call it never answered
+        //   finishReason 'stop'        → model genuinely returned nothing
+        //   finishReason 'error'       → provider rejected the request
+        //   warnings non-empty         → SDK dropped an unsupported setting
+        //   toolNames empty but hasTools true → `tools` was `{}`
+        //
+        // `hasTools` alone was not enough: an empty object is truthy, so it
+        // reported true while the model had nothing to call.
+        // Defensive: these are diagnostics. If a field is missing or rejects
+        // — an older SDK, a partial mock — the warning should degrade, not
+        // turn "no reply" into a crash.
+        const settle = async <T>(v: Promise<T> | undefined, fallback: T): Promise<T> => {
+          try {
+            return v === undefined ? fallback : await v;
+          }
+          catch {
+            return fallback;
+          }
+        };
+        const [finishReason, warnings, toolCalls] = await Promise.all([
+          settle(result.finishReason, 'unavailable' as string),
+          settle(result.warnings, undefined),
+          settle(result.toolCalls, [] as unknown[]),
+        ]);
         logger.warn('Chat stream produced no text', {
           messageCount: messages.length,
           hasTools: Boolean(tools),
+          toolNames: tools ? Object.keys(tools) : [],
           maxSteps: tools ? MAX_TOOL_STEPS : 1,
+          finishReason,
+          warnings,
+          toolCallCount: Array.isArray(toolCalls) ? toolCalls.length : 0,
         });
       }
 

@@ -28,6 +28,17 @@ const fakeTool = {
   execute: async () => 'ok',
 } as unknown as CoreTool;
 
+/** Mirrors the StreamTextResult fields the client reads on an empty stream. */
+function streamResult(chunks: string[], extra: Record<string, unknown> = {}) {
+  return {
+    textStream: stream(chunks),
+    finishReason: Promise.resolve('stop'),
+    warnings: Promise.resolve(undefined),
+    toolCalls: Promise.resolve([]),
+    ...extra,
+  };
+}
+
 function stream(chunks: string[]): AsyncIterable<string> {
   return {
     async *[Symbol.asyncIterator]() {
@@ -57,7 +68,7 @@ beforeEach(() => {
 
 describe('maxSteps', () => {
   it('is sent when tools are registered — otherwise a tool call ends the turn', async () => {
-    streamTextMock.mockReturnValue({ textStream: stream(['hi']) });
+    streamTextMock.mockReturnValue(streamResult(['hi']));
     const log = logger();
     const client = createAIClient({
       model: fakeModel,
@@ -73,7 +84,7 @@ describe('maxSteps', () => {
   });
 
   it('is omitted when there are no tools — nothing to step through', async () => {
-    streamTextMock.mockReturnValue({ textStream: stream(['hi']) });
+    streamTextMock.mockReturnValue(streamResult(['hi']));
     const client = createAIClient({ model: fakeModel, logger: logger() } as unknown as AIConfig);
 
     await drain(client.chat(MESSAGES));
@@ -99,7 +110,7 @@ describe('maxSteps', () => {
 
 describe('empty stream is not silent', () => {
   it('warns when the model produces no text', async () => {
-    streamTextMock.mockReturnValue({ textStream: stream([]) });
+    streamTextMock.mockReturnValue(streamResult([], { finishReason: Promise.resolve('tool-calls') }));
     const log = logger();
     const client = createAIClient({
       model: fakeModel,
@@ -110,12 +121,16 @@ describe('empty stream is not silent', () => {
     expect(await drain(client.chat(MESSAGES))).toBe('');
     expect(log.warn).toHaveBeenCalledWith(
       'Chat stream produced no text',
-      expect.objectContaining({ hasTools: true }),
+      expect.objectContaining({
+        hasTools: true,
+        toolNames: ['getSleep'],
+        finishReason: 'tool-calls',
+      }),
     );
   });
 
   it('stays quiet when text did arrive', async () => {
-    streamTextMock.mockReturnValue({ textStream: stream(['some', ' text']) });
+    streamTextMock.mockReturnValue(streamResult(['some', ' text']));
     const log = logger();
     const client = createAIClient({ model: fakeModel, logger: log } as unknown as AIConfig);
 
@@ -127,5 +142,42 @@ describe('empty stream is not silent', () => {
       'Chat stream produced no text',
       expect.anything(),
     );
+  });
+});
+
+describe('diagnostics never break the request', () => {
+  it('degrades when the SDK result lacks the diagnostic fields', async () => {
+    // An older SDK, or a partial mock, must not turn "no reply" into a crash.
+    streamTextMock.mockReturnValue({ textStream: stream([]) });
+    const log = logger();
+    const client = createAIClient({
+      model: fakeModel,
+      logger: log,
+      tools: { getSleep: fakeTool },
+    } as unknown as AIConfig);
+
+    await expect(drain(client.chat(MESSAGES))).resolves.toBe('');
+    expect(log.warn).toHaveBeenCalledWith(
+      'Chat stream produced no text',
+      expect.objectContaining({ finishReason: 'unavailable' }),
+    );
+  });
+
+  it('degrades when a diagnostic promise rejects', async () => {
+    streamTextMock.mockReturnValue({
+      textStream: stream([]),
+      finishReason: Promise.reject(new Error('nope')),
+      warnings: Promise.reject(new Error('nope')),
+      toolCalls: Promise.reject(new Error('nope')),
+    });
+    const log = logger();
+    const client = createAIClient({
+      model: fakeModel,
+      logger: log,
+      tools: { getSleep: fakeTool },
+    } as unknown as AIConfig);
+
+    await expect(drain(client.chat(MESSAGES))).resolves.toBe('');
+    expect(log.warn).toHaveBeenCalled();
   });
 });
