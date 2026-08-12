@@ -110,6 +110,22 @@ export function createAIClient(config: AIConfig): AIClient {
           warnings,
           toolCallCount: Array.isArray(toolCalls) ? toolCalls.length : 0,
         });
+
+        // A provider rejection — quota exhausted, bad key, rate limit — can
+        // end the stream without `textStream` ever throwing. That surfaced as
+        // a chat that sat there forever: the request failed, nothing was
+        // yielded, and nothing told the user why.
+        //
+        // Turning it into a throw puts it on the path that already works:
+        // the machine's ERROR branch, which ChatScreen renders above the
+        // input as of 0.4.1.
+        if (finishReason === 'error') {
+          throw new Error(
+            'The AI provider rejected the request. This is usually a quota, '
+            + 'billing or rate-limit problem rather than a bug — check the '
+            + 'provider dashboard.',
+          );
+        }
       }
 
       logger.debug('Chat stream complete', { textLength: emitted });

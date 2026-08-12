@@ -181,3 +181,32 @@ describe('diagnostics never break the request', () => {
     expect(log.warn).toHaveBeenCalled();
   });
 });
+
+describe('provider rejection is not silent', () => {
+  it('throws when the stream ends with finishReason error', async () => {
+    // A 429 (quota/spend limit) ends the stream without textStream throwing.
+    // That left the chat sitting there forever with no feedback.
+    streamTextMock.mockReturnValue(
+      streamResult([], { finishReason: Promise.resolve('error') }),
+    );
+    const log = logger();
+    const client = createAIClient({ model: fakeModel, logger: log } as unknown as AIConfig);
+
+    await expect(drain(client.chat(MESSAGES))).rejects.toThrow(/rejected the request/);
+    expect(log.warn).toHaveBeenCalledWith(
+      'Chat stream produced no text',
+      expect.objectContaining({ finishReason: 'error' }),
+    );
+  });
+
+  it('does not throw when an empty stream finished cleanly', async () => {
+    // finishReason 'stop' with no text is odd but not an error — the model
+    // genuinely returned nothing. Warn, do not fail the turn.
+    streamTextMock.mockReturnValue(
+      streamResult([], { finishReason: Promise.resolve('stop') }),
+    );
+    const client = createAIClient({ model: fakeModel, logger: logger() } as unknown as AIConfig);
+
+    await expect(drain(client.chat(MESSAGES))).resolves.toBe('');
+  });
+});
