@@ -22,7 +22,7 @@
 
 import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
-import { ensureSchemas, insightIndexDdl, LOCAL_SCHEMAS, qualifyDdl, SCHEMAS } from './schemas'
+import { ensureSchemas, insightIndexDdl, LOCAL_SCHEMAS, qualifyDdl, quoteQualifier, SCHEMAS } from './schemas'
 import type { KVStore } from './types'
 
 export interface MigrationContext {
@@ -57,6 +57,50 @@ export interface Migration {
  * Ordered list of migrations. Each entry's `version` must equal its
  * (1-based) position; `CURRENT_VERSION` is derived from the tail.
  */
+/**
+ * Column names for a table, without touching `information_schema`.
+ *
+ * `information_schema.columns` is a view in DuckDB's `system` catalog, and
+ * the react-native-duckdb iOS build cannot resolve it:
+ *
+ *   Binder Error: Referenced table "system" not found!
+ *
+ * `PRAGMA table_info` answers the same question through the pragma
+ * interface, which does not bind a catalog. A missing table throws there, and
+ * an empty list is exactly what callers use to mean "table absent", so that
+ * case is normalised rather than propagated.
+ */
+async function listColumns(
+  db: HybridDuckDB,
+  catalog: string,
+  table: string,
+): Promise<string[]> {
+  const qualified = `${quoteQualifier(catalog)}.${table}`
+  try {
+    const rows = await db.execute<{ name?: string, column_name?: string }>(
+      `PRAGMA table_info('${qualified}');`,
+    )
+    return rows
+      .map((r: { name?: string, column_name?: string }) => r.name ?? r.column_name)
+      .filter((n: string | undefined): n is string => typeof n === 'string')
+  }
+  catch {
+    // Either the table does not exist, or this build has no table_info.
+    // Fall back to information_schema for platforms where it works.
+    try {
+      const rows = await db.execute<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns `
+        + `WHERE table_catalog = $catalog AND table_name = $table`,
+        { catalog, table },
+      )
+      return rows.map((r: { column_name: string }) => r.column_name)
+    }
+    catch {
+      return []
+    }
+  }
+}
+
 export const MIGRATIONS: readonly Migration[] = Object.freeze([
   {
     version: 1,
@@ -74,7 +118,7 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       if (catalogs.remote) {
         await ensureSchemas(
           db,
-          `${catalogs.remote}.${REMOTE_NAMESPACE}`,
+          `${quoteQualifier(catalogs.remote)}.${REMOTE_NAMESPACE}`,
           SCHEMAS,
           { skipLocalOnly: true },
         )
@@ -93,7 +137,7 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
     async up(db, catalogs) {
       await db.execute(qualifyDdl(LOCAL_SCHEMAS.device_battery, 'device_battery', catalogs.local))
       if (catalogs.remote) {
-        await db.execute(qualifyDdl(SCHEMAS.device_battery, 'device_battery', `${catalogs.remote}.${REMOTE_NAMESPACE}`))
+        await db.execute(qualifyDdl(SCHEMAS.device_battery, 'device_battery', `${quoteQualifier(catalogs.remote)}.${REMOTE_NAMESPACE}`))
       }
     },
   },
@@ -112,39 +156,35 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
     // destructively rewrites the attached Iceberg catalog; schema
     // evolution of pre-existing remote tables is a server-side operation.
     async up(db, catalogs) {
-      const cols = await db.execute<{ column_name: string }>(
-        `SELECT column_name FROM information_schema.columns `
-        + `WHERE table_catalog = $catalog AND table_name = 'insight'`,
-        { catalog: catalogs.local },
-      )
-      const hasMetric = cols.some(c => c.column_name === 'metric')
+      const cols = await listColumns(db, catalogs.local, 'insight')
+      const hasMetric = cols.includes('metric')
       if (!hasMetric) {
         // Re-entrancy: a prior partially-failed run may have left the
         // scratch table behind (KV only advances after full success).
-        await db.execute(`DROP TABLE IF EXISTS ${catalogs.local}.insight_v2;`)
+        await db.execute(`DROP TABLE IF EXISTS ${quoteQualifier(catalogs.local)}.insight_v2;`)
         const tmpDdl = LOCAL_SCHEMAS.insight.replace(
           'CREATE TABLE insight',
-          `CREATE TABLE ${catalogs.local}.insight_v2`,
+          `CREATE TABLE ${quoteQualifier(catalogs.local)}.insight_v2`,
         )
         await db.execute(tmpDdl)
         // Old rows had no metric column; the package never wrote rows
         // pre-v2 (rules only emitted events), so 'unknown' only tags
         // app-authored legacy rows.
         await db.execute(
-          `INSERT INTO ${catalogs.local}.insight_v2 `
+          `INSERT INTO ${quoteQualifier(catalogs.local)}.insight_v2 `
           + `(insight_id, ts, brand, family_id, user_id, rule_id, metric, kind, `
           + `severity, title, body, evidence, acknowledged_at, dismissed_at) `
           + `SELECT id, ts, brand, family_id, user_id, rule_id, 'unknown', 'threshold', `
           + `CASE WHEN severity = 'critical' THEN 'urgent' ELSE severity END, `
           + `title, body, evidence, acknowledged_at, NULL `
-          + `FROM ${catalogs.local}.insight;`,
+          + `FROM ${quoteQualifier(catalogs.local)}.insight;`,
         )
-        await db.execute(`DROP TABLE ${catalogs.local}.insight;`)
-        await db.execute(`ALTER TABLE ${catalogs.local}.insight_v2 RENAME TO insight;`)
+        await db.execute(`DROP TABLE ${quoteQualifier(catalogs.local)}.insight;`)
+        await db.execute(`ALTER TABLE ${quoteQualifier(catalogs.local)}.insight_v2 RENAME TO insight;`)
       }
       await db.execute(insightIndexDdl(catalogs.local))
       if (catalogs.remote) {
-        await db.execute(qualifyDdl(SCHEMAS.insight, 'insight', `${catalogs.remote}.${REMOTE_NAMESPACE}`))
+        await db.execute(qualifyDdl(SCHEMAS.insight, 'insight', `${quoteQualifier(catalogs.remote)}.${REMOTE_NAMESPACE}`))
       }
     },
   },
@@ -184,22 +224,18 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
     // client never destructively rewrites the attached Iceberg catalog;
     // remote schema evolution is a server-side operation.
     async up(db, catalogs) {
-      const cols = await db.execute<{ column_name: string }>(
-        `SELECT column_name FROM information_schema.columns `
-        + `WHERE table_catalog = $catalog AND table_name = 'device_config'`,
-        { catalog: catalogs.local },
-      )
+      const cols = await listColumns(db, catalogs.local, 'device_config')
       if (cols.length === 0) return // table absent; baseline will create it
-      if (cols.some(c => c.column_name === 'metric')) return
+      if (cols.includes('metric')) return
 
-      await db.execute(`DROP TABLE IF EXISTS ${catalogs.local}.device_config_v2;`)
+      await db.execute(`DROP TABLE IF EXISTS ${quoteQualifier(catalogs.local)}.device_config_v2;`)
       const tmpDdl = LOCAL_SCHEMAS.device_config.replace(
         'CREATE TABLE device_config',
-        `CREATE TABLE ${catalogs.local}.device_config_v2`,
+        `CREATE TABLE ${quoteQualifier(catalogs.local)}.device_config_v2`,
       )
       await db.execute(tmpDdl)
       await db.execute(
-        `INSERT INTO ${catalogs.local}.device_config_v2 `
+        `INSERT INTO ${quoteQualifier(catalogs.local)}.device_config_v2 `
         + `(device_id, brand, family_id, user_id, metric, interval_minutes, `
         + `start_time, end_time, weeks, valid_from, valid_to) `
         + `SELECT device_id, brand, family_id, user_id, `
@@ -209,11 +245,11 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
         // revision that added one is diagnosable instead of invisible.
         + `ELSE 'unknown_' || data_type::VARCHAR END, `
         + `interval_minutes, start_time, end_time, weeks, valid_from, valid_to `
-        + `FROM ${catalogs.local}.device_config;`,
+        + `FROM ${quoteQualifier(catalogs.local)}.device_config;`,
       )
-      await db.execute(`DROP TABLE ${catalogs.local}.device_config;`)
+      await db.execute(`DROP TABLE ${quoteQualifier(catalogs.local)}.device_config;`)
       await db.execute(
-        `ALTER TABLE ${catalogs.local}.device_config_v2 RENAME TO device_config;`,
+        `ALTER TABLE ${quoteQualifier(catalogs.local)}.device_config_v2 RENAME TO device_config;`,
       )
     },
   },

@@ -142,8 +142,11 @@ describe('ensureMigrations', () => {
 
     expect(result).toEqual({ from: 2, to: CURRENT_VERSION })
     const sqls = fake.calls.map(c => c.sql)
-    // information_schema probe on the local catalog gates the recreate.
-    expect(sqls[0]).toContain('information_schema.columns')
+    // A column probe on the local catalog gates the recreate. It uses
+    // PRAGMA table_info rather than information_schema, which lives in the
+    // `system` catalog the iOS DuckDB build cannot resolve.
+    expect(sqls[0]).toContain('PRAGMA table_info')
+    expect(sqls[0]).toContain('insight')
     // Copy preserves rows with id → insight_id, kind default 'threshold',
     // and severity 'critical' → 'urgent'.
     const copy = sqls.find(s => s.startsWith('INSERT INTO memory.insight_v2'))
