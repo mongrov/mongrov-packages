@@ -18,6 +18,20 @@ const noopLogger: AILogger = {
   error: () => {},
 };
 
+/**
+ * Tool-call rounds allowed per request.
+ *
+ * The AI SDK defaults `maxSteps` to 1. With tools registered, step 1 is the
+ * model emitting a tool CALL — no assistant text — so `textStream` completed
+ * empty and the chat looked like nothing happened: message count rose, the
+ * stream opened and closed, and no error was thrown because nothing failed.
+ *
+ * Raising it lets the SDK run the tool, feed the result back, and take
+ * another step to produce the answer. 5 covers a tool call, its result, and
+ * a follow-up call or two, while still bounding a model that loops.
+ */
+const MAX_TOOL_STEPS = 5;
+
 export function createAIClient(config: AIConfig): AIClient {
   const { model, logger = noopLogger, systemPrompt, tools } = config;
   let currentAbortController: AbortController | null = null;
@@ -49,14 +63,27 @@ export function createAIClient(config: AIConfig): AIClient {
         messages: aiMessages,
         abortSignal: currentAbortController.signal,
         experimental_telemetry: { isEnabled: false },
-        ...(tools ? { tools } : {}),
+        ...(tools ? { tools, maxSteps: MAX_TOOL_STEPS } : {}),
       });
 
+      let emitted = 0;
       for await (const chunk of textStream) {
+        emitted += chunk.length;
         yield chunk;
       }
 
-      logger.debug('Chat stream complete');
+      if (emitted === 0) {
+        // Not an error the SDK raises, and the symptom a user sees is simply
+        // no reply — so say it out loud. The usual cause is the model
+        // stopping on a tool call with no step left to answer in.
+        logger.warn('Chat stream produced no text', {
+          messageCount: messages.length,
+          hasTools: Boolean(tools),
+          maxSteps: tools ? MAX_TOOL_STEPS : 1,
+        });
+      }
+
+      logger.debug('Chat stream complete', { textLength: emitted });
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         logger.debug('Chat stream cancelled');
@@ -87,7 +114,7 @@ export function createAIClient(config: AIConfig): AIClient {
         messages,
         abortSignal: currentAbortController.signal,
         experimental_telemetry: { isEnabled: false },
-        ...(tools ? { tools } : {}),
+        ...(tools ? { tools, maxSteps: MAX_TOOL_STEPS } : {}),
       });
 
       logger.debug('Completion finished', { resultLength: text.length });
