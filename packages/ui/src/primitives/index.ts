@@ -1,14 +1,7 @@
-// Utils
-export { cn } from './utils';
-
-// Text
-export { Text, TextClassContext, textVariants } from './text';
-export type { TextProps, TextVariant } from './text';
-
 // Button
-export { Button, buttonTextVariants, buttonVariants } from './button';
-export type { ButtonProps } from './button';
+export { Button, buttonTextVariants, buttonVariants } from './button'
 
+export type { ButtonProps } from './button'
 // Card
 export {
   Card,
@@ -17,10 +10,17 @@ export {
   CardFooter,
   CardHeader,
   CardTitle,
-} from './card';
-
-// Skeleton
-export { Skeleton } from './skeleton';
+} from './card'
 
 // Separator
-export { Separator } from './separator';
+export { Separator } from './separator'
+// Skeleton
+export { Skeleton } from './skeleton'
+
+// Text
+export { Text, TextClassContext, textVariants } from './text'
+
+export type { TextProps, TextVariant } from './text'
+
+// Utils
+export { cn } from './utils'

@@ -1,6 +1,3 @@
-import { describe, expect, it, vi } from 'vitest'
-import { z } from 'zod'
-import { createFakeEngine } from '../__fakes__/engine'
 import type { RateLimiter } from '../rate-limit'
 import type {
   AuditEntry,
@@ -11,6 +8,9 @@ import type {
   ToolImpl,
   ToolResult,
 } from '../types'
+import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
+import { createFakeEngine } from '../__fakes__/engine'
 import { makeTool } from '../wrap'
 
 const schema = z.object({ userId: z.string(), days: z.number() })

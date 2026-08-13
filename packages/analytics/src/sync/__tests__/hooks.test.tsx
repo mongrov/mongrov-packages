@@ -11,16 +11,16 @@
  *   4. `useSyncProgress` re-renders when progress deltas fan out via subscribe.
  */
 
+import type { AnalyticsEngine, AttachContext } from '../../core/types'
+import type { SyncManager } from '../manager'
 import { act, cleanup, renderHook } from '@testing-library/react'
+
 import * as React from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
-
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
-import type { AnalyticsEngine, AttachContext } from '../../core/types'
 import { SyncProvider, useSyncManager } from '../context'
 import { createSyncManager } from '../factory'
 import { useSensorSink, useSyncProgress, useSyncState } from '../hooks'
-import type { SyncManager } from '../manager'
 import { createFakeEngine } from './__fakes__/fake-engine'
 
 afterEach(() => {

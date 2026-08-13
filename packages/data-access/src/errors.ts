@@ -5,14 +5,14 @@
  * plus the codes stubs need on day one.
  */
 
-export type DataAccessErrorCode =
-  | 'authorization_denied'
-  | 'engine_missing'
-  | 'zod_parse_failed'
-  | 'transform_failed'
-  | 'define_config_invalid'
-  | 'invalid_pattern'
-  | 'not_implemented'
+export type DataAccessErrorCode
+  = | 'authorization_denied'
+    | 'engine_missing'
+    | 'zod_parse_failed'
+    | 'transform_failed'
+    | 'define_config_invalid'
+    | 'invalid_pattern'
+    | 'not_implemented'
 
 export class DataAccessError extends Error {
   public readonly code: DataAccessErrorCode
@@ -45,7 +45,7 @@ export class NotImplementedError extends DataAccessError {
   constructor(symbol: string) {
     super(
       'not_implemented',
-      `${symbol} is not implemented in @mongrov/data-access@0.1.0-alpha.0`
+      `${symbol} is not implemented in @mongrov/data-access@0.1.0-alpha.0`,
     )
     this.name = 'NotImplementedError'
   }

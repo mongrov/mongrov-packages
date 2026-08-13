@@ -23,13 +23,13 @@
  * mapper is the single place to divide.
  */
 
-import { parseTimestamp } from './time'
 import type {
   ActivityBucketRow,
   ActivityRow,
   FirmwareActivityRow,
   MapperContext,
 } from './types'
+import { parseTimestamp } from './time'
 
 export interface MapActivityResult {
   activity: ActivityRow[]

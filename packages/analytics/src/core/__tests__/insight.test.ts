@@ -5,7 +5,7 @@
  * the row (principle 51); only `dismissed_at` changes.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { AnalyticsError } from '../errors'
 import { dismissInsight } from '../insight'

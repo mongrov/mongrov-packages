@@ -1,7 +1,7 @@
+import type { ToolContext } from '../types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeEngine } from '../__fakes__/engine'
 import { createAnalyticsTools } from '../factory'
-import type { ToolContext } from '../types'
 
 const baseCtx: ToolContext = {
   requesterUserId: 'alice',
@@ -129,9 +129,7 @@ describe('createAnalyticsTools', () => {
     })
     handle.setContext(baseCtx)
     const results = await Promise.all(
-      Array.from({ length: 50 }, () =>
-        handle.tools.getHRV.execute!({ userId: 'alice', days: 7 }, {} as any),
-      ),
+      Array.from({ length: 50 }, () => handle.tools.getHRV.execute!({ userId: 'alice', days: 7 }, {} as any)),
     )
     // None should contain the rate-limit sentinel.
     for (const r of results) {

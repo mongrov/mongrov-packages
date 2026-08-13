@@ -93,7 +93,8 @@ export class SensorBuffer {
   }
 
   async size(table?: string): Promise<BufferSize> {
-    if (table) return this.#sizeOne(table)
+    if (table)
+      return this.#sizeOne(table)
     let inMemory = 0
     let inMemoryBytes = 0
     let overflow = 0
@@ -207,7 +208,8 @@ export class SensorBuffer {
 
   #wakeBlockers(table: string): void {
     const q = this.#blockWaiters.get(table)
-    if (!q || q.length === 0) return
+    if (!q || q.length === 0)
+      return
     this.#blockWaiters.set(table, [])
     for (const resolve of q) resolve()
   }

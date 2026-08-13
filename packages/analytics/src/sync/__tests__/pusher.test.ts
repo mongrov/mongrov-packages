@@ -9,14 +9,14 @@
  *   5. `pushAll` returns per-table results even when one fails.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import type { AttachContext } from '../../core/types'
 
-import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import type { RingConfigClose } from '../mapper/ring-config'
+import { describe, expect, it, vi } from 'vitest'
+import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { R2Pusher } from '../pusher'
 import { WatermarkStore } from '../watermark'
 import { createFakeSqlEngine } from './__fakes__/fake-sql-engine'
-import type { AttachContext } from '../../core/types'
 
 const ctx: AttachContext = {
   brand: 'ziva',

@@ -16,14 +16,16 @@ export function formatBytes(s: string): number {
  * output).
  */
 export function deltaPct(current: number, prior: number): string {
-  if (prior === 0) return 'n/a'
+  if (prior === 0)
+    return 'n/a'
   const pct = ((current - prior) / prior) * 100
   return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`
 }
 
 /** Population stddev; returns 0 when the sample is empty. */
 export function popStddev(values: number[]): number {
-  if (values.length === 0) return 0
+  if (values.length === 0)
+    return 0
   const mean = values.reduce((a, v) => a + v, 0) / values.length
   const variance
     = values.reduce((a, v) => a + (v - mean) ** 2, 0) / values.length

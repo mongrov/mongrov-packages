@@ -59,7 +59,8 @@ describe('VIEWED_TABLES', () => {
   it('partitions sleep_session on ts_start, everything else on ts', () => {
     expect(watermarkColumnFor('sleep_session')).toBe('ts_start')
     for (const table of VIEWED_TABLES) {
-      if (table === 'sleep_session') continue
+      if (table === 'sleep_session')
+        continue
       expect(watermarkColumnFor(table)).toBe('ts')
     }
   })
@@ -101,7 +102,7 @@ describe('generateViewDdl', () => {
   it('escapes quotes in tenant values — view bodies cannot bind params', () => {
     const sql = generateViewDdl('spo2', {
       ...CTX,
-      familyId: "fam'; DROP TABLE spo2; --",
+      familyId: 'fam\'; DROP TABLE spo2; --',
     })
     // The quote is doubled, so the injection collapses into a single
     // string literal rather than terminating it.
@@ -159,7 +160,8 @@ describe('view lifecycle', () => {
     const { fake, db } = await newOpenDb()
     const original = fake.instance.execute
     fake.instance.execute = async (sql, params) => {
-      if (sql.includes('v_spo2')) throw new Error('table spo2 does not exist')
+      if (sql.includes('v_spo2'))
+        throw new Error('table spo2 does not exist')
       return original.call(fake.instance, sql, params)
     }
 

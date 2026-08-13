@@ -1,7 +1,7 @@
+import type { AuditEntry } from '../types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeEngine } from '../__fakes__/engine'
 import { createAuditWriter } from '../audit'
-import type { AuditEntry } from '../types'
 
 function makeEntry(overrides: Partial<AuditEntry> = {}): AuditEntry {
   return {

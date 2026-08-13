@@ -115,8 +115,8 @@ describe('LifecyclePort (fake)', () => {
     const seenA: string[] = []
     const seenB: string[] = []
 
-    const unsubA = fake.lifecycle.subscribe((s) => seenA.push(s))
-    const unsubB = fake.lifecycle.subscribe((s) => seenB.push(s))
+    const unsubA = fake.lifecycle.subscribe(s => seenA.push(s))
+    const unsubB = fake.lifecycle.subscribe(s => seenB.push(s))
     expect(fake.subscriberCount()).toBe(2)
 
     fake.setState('background')

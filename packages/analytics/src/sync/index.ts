@@ -7,75 +7,18 @@
 
 // Buffer + overflow (Phase B).
 export {
-  buildBaselineSql,
-  createBaselineComputer,
   type BaselineComputeConfig,
   type BaselineComputeContext,
-  type BaselineComputeResult,
   type BaselineComputer,
+  type BaselineComputeResult,
+  buildBaselineSql,
+  createBaselineComputer,
 } from './baseline-compute'
 export { SensorBuffer, type SensorBufferConfig } from './buffer'
-export { OverflowStore } from './overflow'
-export type {
-  BufferEntry,
-  BufferSize,
-  FlushResult,
-  OverflowPolicy,
-  SensorBatch,
-} from './types'
-
-// Watermark + pusher + fetcher (Phase D+E+F).
-export {
-  type WatermarkKind,
-  WatermarkStore,
-  type WatermarkStoreConfig,
-} from './watermark'
-export {
-  type PushResult,
-  R2Pusher,
-  type R2PusherConfig,
-} from './pusher'
-export {
-  type FetchParams,
-  type FetchResult,
-  type PrefetchPolicy,
-  R2Fetcher,
-  type R2FetcherConfig,
-} from './fetcher'
-
-// Flusher + triggers (Phase C).
-export {
-  BACKOFF_SEQUENCE_MS,
-  type BatchCompleteEvent,
-  BatchFlusher,
-  type BatchFlusherConfig,
-  FLUSH_TIMEOUT_MS,
-  type FlushReason,
-  type FlushedEvent,
-  MAX_CONSECUTIVE_FAILURES,
-  type FlusherState,
-  type SyncEmitter,
-} from './flusher'
-export type { BatchCompletePayload } from './events'
-export { SyncError, type SyncErrorCode } from './errors'
-export {
-  DEFAULT_MAX_AGE_MS,
-  DEFAULT_MAX_ROWS,
-  FlushTriggers,
-  type FlushTriggersConfig,
-} from './triggers'
-
-// Factory + hooks + provider (Phase I).
-export { createSyncManager, type CreateSyncManagerConfig } from './factory'
-export type {
-  SensorSink,
-  SyncManager,
-  SyncManagerState,
-  SyncProgress,
-} from './manager'
 export { SyncProvider, type SyncProviderProps, useSyncManager } from './context'
-export { useSensorSink, useSyncProgress, useSyncState } from './hooks'
+export { SyncError, type SyncErrorCode } from './errors'
 
+export type { BatchCompletePayload } from './events'
 // Event bus integration (Phase H).
 export {
   bindFlushEvents,
@@ -85,19 +28,36 @@ export {
   type PushEmitter,
   type SyncCompletePayload,
 } from './events'
+// Factory + hooks + provider (Phase I).
+export { createSyncManager, type CreateSyncManagerConfig } from './factory'
 
-// Scheduler (Phase G).
 export {
-  type BackgroundTaskPort,
-  type ConstraintPort,
-  type CycleResult,
-  type SchedulerConstraints,
-  type SchedulerLogger,
-  type SchedulerState,
-  type SyncCoordinator,
-  SyncScheduler,
-  type SyncSchedulerConfig,
-} from './scheduler'
+  type FetchParams,
+  type FetchResult,
+  type PrefetchPolicy,
+  R2Fetcher,
+  type R2FetcherConfig,
+} from './fetcher'
+// Flusher + triggers (Phase C).
+export {
+  BACKOFF_SEQUENCE_MS,
+  type BatchCompleteEvent,
+  BatchFlusher,
+  type BatchFlusherConfig,
+  FLUSH_TIMEOUT_MS,
+  type FlushedEvent,
+  type FlusherState,
+  type FlushReason,
+  MAX_CONSECUTIVE_FAILURES,
+  type SyncEmitter,
+} from './flusher'
+export { useSensorSink, useSyncProgress, useSyncState } from './hooks'
+export type {
+  SensorSink,
+  SyncManager,
+  SyncManagerState,
+  SyncProgress,
+} from './manager'
 
 // Mappers (Phase A).
 export { mapActivity, type MapActivityResult } from './mapper/activity'
@@ -108,12 +68,15 @@ export {
   type MapFirmwareOptions,
 } from './mapper/firmware'
 export { mapHeartRate } from './mapper/heart-rate'
+
 export { mapHrv } from './mapper/hrv'
+
 export {
-  type MapRingConfigResult,
   mapRingConfig,
+  type MapRingConfigResult,
   type RingConfigClose,
 } from './mapper/ring-config'
+
 export {
   type ReconstructSleepResult,
   reconstructSleepSessions,
@@ -121,12 +84,11 @@ export {
 export { mapSpo2 } from './mapper/spo2'
 export { mapTemperature } from './mapper/temperature'
 export { computeNightOf, parseTimestamp } from './mapper/time'
-
 export type {
   ActivityBucketRow,
   ActivityRow,
-  DeviceConfigRow,
   DeviceBatteryRow,
+  DeviceConfigRow,
   DeviceEventRow,
   FirmwareActivityRow,
   FirmwareBatteryRow,
@@ -149,6 +111,44 @@ export type {
   Spo2Row,
   TemperatureRow,
 } from './mapper/types'
-
+export { OverflowStore } from './overflow'
 // SCD-2 pending closes (Phase G+).
 export { PendingClosesStore } from './pending_closes'
+export {
+  type PushResult,
+  R2Pusher,
+  type R2PusherConfig,
+} from './pusher'
+// Scheduler (Phase G).
+export {
+  type BackgroundTaskPort,
+  type ConstraintPort,
+  type CycleResult,
+  type SchedulerConstraints,
+  type SchedulerLogger,
+  type SchedulerState,
+  type SyncCoordinator,
+  SyncScheduler,
+  type SyncSchedulerConfig,
+} from './scheduler'
+export {
+  DEFAULT_MAX_AGE_MS,
+  DEFAULT_MAX_ROWS,
+  FlushTriggers,
+  type FlushTriggersConfig,
+} from './triggers'
+
+export type {
+  BufferEntry,
+  BufferSize,
+  FlushResult,
+  OverflowPolicy,
+  SensorBatch,
+} from './types'
+
+// Watermark + pusher + fetcher (Phase D+E+F).
+export {
+  type WatermarkKind,
+  WatermarkStore,
+  type WatermarkStoreConfig,
+} from './watermark'

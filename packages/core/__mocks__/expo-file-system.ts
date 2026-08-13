@@ -10,8 +10,8 @@ const ExpoFileSystem = {
   }),
   readDirectoryAsync: jest.fn(async (dir: string) => {
     return Object.keys(mockFiles)
-      .filter((p) => p.startsWith(dir))
-      .map((p) => p.replace(dir, ''))
+      .filter(p => p.startsWith(dir))
+      .map(p => p.replace(dir, ''))
   }),
   getInfoAsync: jest.fn(async (path: string) => {
     if (path.endsWith('/')) {

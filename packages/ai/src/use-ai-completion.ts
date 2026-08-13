@@ -1,36 +1,38 @@
-import { useCallback, useMemo } from 'react';
-import { useMachine } from '@xstate/react';
-import { completionMachine } from './machines/completion-machine';
-import { useAIClient } from './ai-provider';
-import type { UseAICompletionReturn } from './types';
+import type { UseAICompletionReturn } from './types'
+import { useMachine } from '@xstate/react'
+import { useCallback, useMemo } from 'react'
+import { useAIClient } from './ai-provider'
+import { completionMachine } from './machines/completion-machine'
 
 export function useAICompletion(): UseAICompletionReturn {
-  const client = useAIClient();
-  const [state, send] = useMachine(completionMachine);
+  const client = useAIClient()
+  const [state, send] = useMachine(completionMachine)
 
   const generate = useCallback(
     async (prompt: string): Promise<string> => {
-      if (!prompt.trim()) return '';
+      if (!prompt.trim())
+        return ''
 
-      send({ type: 'GENERATE', prompt });
+      send({ type: 'GENERATE', prompt })
 
       try {
-        const result = await client.complete(prompt);
-        send({ type: 'COMPLETE', result });
-        return result;
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        send({ type: 'ERROR', error: err });
-        throw err;
+        const result = await client.complete(prompt)
+        send({ type: 'COMPLETE', result })
+        return result
+      }
+      catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error))
+        send({ type: 'ERROR', error: err })
+        throw err
       }
     },
-    [client, send]
-  );
+    [client, send],
+  )
 
   const cancel = useCallback(() => {
-    client.cancel();
-    send({ type: 'CANCEL' });
-  }, [client, send]);
+    client.cancel()
+    send({ type: 'CANCEL' })
+  }, [client, send])
 
   const result = useMemo<UseAICompletionReturn>(
     () => ({
@@ -40,8 +42,8 @@ export function useAICompletion(): UseAICompletionReturn {
       cancel,
       error: state.context.error,
     }),
-    [state.context.result, state.context.error, state.value, generate, cancel]
-  );
+    [state.context.result, state.context.error, state.value, generate, cancel],
+  )
 
-  return result;
+  return result
 }

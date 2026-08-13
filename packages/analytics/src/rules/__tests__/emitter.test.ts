@@ -1,6 +1,6 @@
+import type { RuleViolation } from '../types'
 import { describe, expect, it, vi } from 'vitest'
 import { createEmitter } from '../emitter'
-import type { RuleViolation } from '../types'
 
 const sampleViolation: RuleViolation = {
   ruleId: 'test.rule',

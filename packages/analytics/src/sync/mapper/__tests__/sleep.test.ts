@@ -14,14 +14,14 @@
  *      including rows from dropped sessions.
  */
 
-import { describe, expect, it } from 'vitest'
+import type { FirmwareSleepRow, MapperContext } from '../types'
 
+import { describe, expect, it } from 'vitest'
 import {
   fnv1a32hex,
   reconstructSleepSessions,
   SLEEP_STAGE_CODES,
 } from '../sleep'
-import type { FirmwareSleepRow, MapperContext } from '../types'
 
 const ctx: MapperContext = {
   brand: 'ziva',
@@ -32,7 +32,7 @@ const ctx: MapperContext = {
 }
 
 // Principle 25 shape: nanoid(24) + '_' + 8-hex-char fnv1a32 suffix.
-const SESSION_ID_RE = /^[A-Za-z0-9_-]{24}_[0-9a-f]{8}$/
+const SESSION_ID_RE = /^[\w-]{24}_[0-9a-f]{8}$/
 
 describe('reconstructSleepSessions', () => {
   it('emits a session when a qualifying primary block is present', () => {
@@ -194,7 +194,8 @@ describe('reconstructSleepSessions', () => {
       deviceId: 'ring_9999',
     })
     expect(otherDevice.sleep_session[0].session_id.split('_').pop())
-      .not.toBe(expectedHash)
+      .not
+      .toBe(expectedHash)
   })
 
   it('random prefix keeps ids distinct even with identical timestamps', () => {

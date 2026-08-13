@@ -6,9 +6,9 @@
  * `useSyncManager()`.
  */
 
-import * as React from 'react'
-
 import type { SyncManager } from './manager'
+
+import * as React from 'react'
 
 const SyncContext = React.createContext<SyncManager | null>(null)
 

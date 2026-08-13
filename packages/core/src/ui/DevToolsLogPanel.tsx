@@ -1,21 +1,22 @@
-import React, { useEffect } from 'react';
-import { Text, View } from 'react-native';
-import { LogExportButton } from './LogExportButton';
-import { LogFilterBar } from './LogFilterBar';
-import { LogViewer } from './LogViewer';
-import type { DevToolsLogPanelProps } from './types';
-import { useLogViewer } from './useLogViewer';
+import type { DevToolsLogPanelProps } from './types'
+import * as React from 'react'
+import { useEffect } from 'react'
+import { Text, View } from 'react-native'
+import { LogExportButton } from './LogExportButton'
+import { LogFilterBar } from './LogFilterBar'
+import { LogViewer } from './LogViewer'
+import { useLogViewer } from './useLogViewer'
 
 export function DevToolsLogPanel({
   title = 'Dev Tools',
   testID,
 }: DevToolsLogPanelProps) {
-  const { entries, filter, refresh, setLevelFilter, exportLogs } =
-    useLogViewer();
+  const { entries, filter, refresh, setLevelFilter, exportLogs }
+    = useLogViewer()
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    refresh()
+  }, [refresh])
 
   return (
     <View className="flex-1" testID={testID}>
@@ -30,14 +31,16 @@ export function DevToolsLogPanel({
       <LogFilterBar
         activeLevel={filter.level}
         onSelectLevel={(level) => {
-          setLevelFilter(level);
-          setTimeout(refresh, 0);
+          setLevelFilter(level)
+          setTimeout(refresh, 0)
         }}
         testID={testID ? `${testID}-filter` : undefined}
       />
 
       <Text className="px-4 py-1 text-xs text-neutral-500 dark:text-neutral-400">
-        {entries.length} entries
+        {entries.length}
+        {' '}
+        entries
       </Text>
 
       <LogViewer
@@ -45,5 +48,5 @@ export function DevToolsLogPanel({
         testID={testID ? `${testID}-viewer` : undefined}
       />
     </View>
-  );
+  )
 }

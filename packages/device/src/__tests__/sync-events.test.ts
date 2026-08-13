@@ -6,12 +6,13 @@
  * payload shape and the no-double-settle guarantee are user-visible.
  */
 
-import {
-  DEVICE_EVENT_PAYLOAD_SCHEMAS,
-  type DeviceEventType,
-} from '@mongrov/types/device-events'
+import type { DeviceEventType } from '@mongrov/types/device-events'
 
 import type { DeviceEventSink } from '../ports'
+import {
+  DEVICE_EVENT_PAYLOAD_SCHEMAS,
+
+} from '@mongrov/types/device-events'
 import { createSyncEventEmitter } from '../sync-events'
 
 interface Emitted {
@@ -181,7 +182,8 @@ describe('payloads satisfy the shared schema contract', () => {
     expect(emitted).toHaveLength(4)
     for (const e of emitted) {
       expect(() => DEVICE_EVENT_PAYLOAD_SCHEMAS[e.eventType].parse(e.payload))
-        .not.toThrow()
+        .not
+        .toThrow()
     }
   })
 })

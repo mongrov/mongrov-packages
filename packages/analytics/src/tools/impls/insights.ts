@@ -1,6 +1,6 @@
+import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, formatBytes } from '../formatters'
-import type { ToolImpl, ToolResult } from '../types'
 
 export const getInsightsInputSchema = z.object({
   userId: z.string(),

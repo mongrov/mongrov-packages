@@ -1,6 +1,6 @@
+import type { ToolResult } from '../types'
 import { describe, expect, it } from 'vitest'
 import { applyOutputBudget } from '../budget'
-import type { ToolResult } from '../types'
 
 function makeResult(text: string, rowCount = 1): ToolResult {
   return {

@@ -3,20 +3,20 @@
  */
 
 import type {
-  Message,
   Conversation,
+  Message,
   Participant,
   Unsubscribe,
 } from '@mongrov/types'
 
 // ─── Connection Status ──────────────────────────────────────────────────────
 
-export type CollabConnectionStatus =
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'error'
+export type CollabConnectionStatus
+  = | 'disconnected'
+    | 'connecting'
+    | 'connected'
+    | 'reconnecting'
+    | 'error'
 
 // ─── Events ─────────────────────────────────────────────────────────────────
 
@@ -35,15 +35,15 @@ export interface CollabEvents {
   /** Emitted when a message is updated (edit, reactions) */
   'message:updated': Message
   /** Emitted when a message is deleted */
-  'message:deleted': { messageId: string; conversationId: string }
+  'message:deleted': { messageId: string, conversationId: string }
 
   /** Emitted when user starts typing */
-  'typing:start': { conversationId: string; userId: string; userName?: string }
+  'typing:start': { conversationId: string, userId: string, userName?: string }
   /** Emitted when user stops typing */
-  'typing:stop': { conversationId: string; userId: string }
+  'typing:stop': { conversationId: string, userId: string }
 
   /** Emitted when user presence changes */
-  'presence:changed': { userId: string; status: PresenceState }
+  'presence:changed': { userId: string, status: PresenceState }
   /** Emitted when user goes online */
   'presence:online': { userId: string }
   /** Emitted when user goes offline */
@@ -60,7 +60,7 @@ export interface CollabEvents {
 export type CollabEventName = keyof CollabEvents
 
 export type CollabEventHandler<T extends CollabEventName> = (
-  payload: CollabEvents[T]
+  payload: CollabEvents[T],
 ) => void
 
 // ─── Presence ───────────────────────────────────────────────────────────────
@@ -120,100 +120,100 @@ export interface CollabAdapter {
    * Connect to the backend.
    * @param credentials - Authentication credentials
    */
-  connect(credentials: AdapterCredentials): Promise<void>
+  connect: (credentials: AdapterCredentials) => Promise<void>
 
   /**
    * Disconnect from the backend.
    */
-  disconnect(): Promise<void>
+  disconnect: () => Promise<void>
 
   /**
    * Send a message to a conversation.
    */
-  sendMessage(params: SendMessageParams): Promise<SendMessageResult>
+  sendMessage: (params: SendMessageParams) => Promise<SendMessageResult>
 
   /**
    * Send typing indicator.
    */
-  sendTyping(conversationId: string, isTyping: boolean): Promise<void>
+  sendTyping: (conversationId: string, isTyping: boolean) => Promise<void>
 
   /**
    * Update user presence status.
    */
-  setPresence(status: PresenceState): Promise<void>
+  setPresence: (status: PresenceState) => Promise<void>
 
   /**
    * Subscribe to a conversation for real-time updates.
    * Returns unsubscribe function.
    */
-  subscribeToConversation(conversationId: string): Promise<Unsubscribe>
+  subscribeToConversation: (conversationId: string) => Promise<Unsubscribe>
 
   /**
    * Subscribe to user presence updates.
    * Returns unsubscribe function.
    */
-  subscribeToPresence(userIds: string[]): Promise<Unsubscribe>
+  subscribeToPresence: (userIds: string[]) => Promise<Unsubscribe>
 
   /**
    * Add reaction to a message.
    */
-  addReaction(messageId: string, emoji: string): Promise<void>
+  addReaction: (messageId: string, emoji: string) => Promise<void>
 
   /**
    * Remove reaction from a message.
    */
-  removeReaction(messageId: string, emoji: string): Promise<void>
+  removeReaction: (messageId: string, emoji: string) => Promise<void>
 
   /**
    * Edit a message.
    */
-  editMessage(messageId: string, newContent: string): Promise<void>
+  editMessage: (messageId: string, newContent: string) => Promise<void>
 
   /**
    * Delete a message.
    */
-  deleteMessage(messageId: string): Promise<void>
+  deleteMessage: (messageId: string) => Promise<void>
 
   /**
    * Mark messages as read.
    */
-  markAsRead(conversationId: string, messageId?: string): Promise<void>
+  markAsRead: (conversationId: string, messageId?: string) => Promise<void>
 
   /**
    * Fetch message history.
    */
-  fetchMessages(
+  fetchMessages: (
     conversationId: string,
-    options?: FetchMessagesOptions
-  ): Promise<FetchMessagesResult>
+    options?: FetchMessagesOptions,
+  ) => Promise<FetchMessagesResult>
 
   /**
    * Fetch conversation list.
    */
-  fetchConversations(options?: FetchConversationsOptions): Promise<FetchConversationsResult>
+  fetchConversations: (options?: FetchConversationsOptions) => Promise<FetchConversationsResult>
 
   /**
    * Get user info.
    */
-  getUser(userId: string): Promise<Participant | null>
+  getUser: (userId: string) => Promise<Participant | null>
 
   /**
    * Search messages.
    */
-  searchMessages(query: string, options?: SearchOptions): Promise<Message[]>
+  searchMessages: (query: string, options?: SearchOptions) => Promise<Message[]>
 
   /**
    * Subscribe to adapter events.
    */
-  on<T extends CollabEventName>(
+  on: <T extends CollabEventName>(
     event: T,
-    handler: CollabEventHandler<T>
-  ): Unsubscribe
+    handler: CollabEventHandler<T>,
+  ) => Unsubscribe
 
   /**
    * Emit an event (for internal use).
    */
-  emit<T extends CollabEventName>(event: T, payload: CollabEvents[T]): void
+  emit: <T extends CollabEventName>(event: T, payload: CollabEvents[T]) => void
 }
 
 // ─── Adapter Credentials ────────────────────────────────────────────────────
@@ -301,8 +301,8 @@ export interface CollabConfig {
 }
 
 export interface CollabLogger {
-  debug(msg: string, data?: Record<string, unknown>): void
-  info(msg: string, data?: Record<string, unknown>): void
-  warn(msg: string, data?: Record<string, unknown>): void
-  error(msg: string, data?: Record<string, unknown>): void
+  debug: (msg: string, data?: Record<string, unknown>) => void
+  info: (msg: string, data?: Record<string, unknown>) => void
+  warn: (msg: string, data?: Record<string, unknown>) => void
+  error: (msg: string, data?: Record<string, unknown>) => void
 }

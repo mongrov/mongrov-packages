@@ -5,14 +5,15 @@
  * App provides the actual UI components.
  */
 
-import { useMemo, type ReactNode } from 'react'
 import type {
+  Attachment,
+  DeliveryStatus,
   Message,
   MessageContent,
-  Attachment,
   Reaction,
-  DeliveryStatus,
 } from '@mongrov/types'
+import type { ReactNode } from 'react'
+import { useMemo } from 'react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -113,16 +114,21 @@ function formatTimestamp(isoString: string): string {
     const diffHours = Math.floor(diffMs / 3600000)
     const diffDays = Math.floor(diffMs / 86400000)
 
-    if (diffMins < 1) return 'now'
-    if (diffMins < 60) return `${diffMins}m`
-    if (diffHours < 24) return `${diffHours}h`
-    if (diffDays < 7) return `${diffDays}d`
+    if (diffMins < 1)
+      return 'now'
+    if (diffMins < 60)
+      return `${diffMins}m`
+    if (diffHours < 24)
+      return `${diffHours}h`
+    if (diffDays < 7)
+      return `${diffDays}d`
 
     return date.toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
     })
-  } catch {
+  }
+  catch {
     return ''
   }
 }
@@ -140,10 +146,10 @@ function getDeliveryStatusInfo(status: DeliveryStatus): DeliveryStatusInfo {
 
 function groupAttachmentsByType(attachments: Attachment[]): AttachmentRenderProps['byType'] {
   return {
-    images: attachments.filter((a) => a.type === 'image'),
-    videos: attachments.filter((a) => a.type === 'video'),
-    audio: attachments.filter((a) => a.type === 'audio'),
-    files: attachments.filter((a) => a.type === 'file'),
+    images: attachments.filter(a => a.type === 'image'),
+    videos: attachments.filter(a => a.type === 'video'),
+    audio: attachments.filter(a => a.type === 'audio'),
+    files: attachments.filter(a => a.type === 'file'),
   }
 }
 
@@ -155,7 +161,7 @@ function groupAttachmentsByType(attachments: Attachment[]): AttachmentRenderProp
  */
 export function useMessageRenderer(
   message: Message,
-  currentUserId?: string
+  currentUserId?: string,
 ): MessageRenderProps {
   return useMemo(() => {
     const { content, attachments = [], reactions = [] } = message
@@ -191,7 +197,7 @@ export function useMessageRenderer(
       totalCount: totalReactionCount,
       hasReactions: reactions.length > 0,
       hasUserReacted: (emoji: string, userId: string) => {
-        const reaction = reactions.find((r) => r.emoji === emoji)
+        const reaction = reactions.find(r => r.emoji === emoji)
         return reaction?.userIds.includes(userId) ?? false
       },
       sorted: sortedReactions,

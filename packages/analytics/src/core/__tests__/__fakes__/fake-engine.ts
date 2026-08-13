@@ -21,12 +21,12 @@ import type {
 
 export interface FakeEngineHandle {
   engine: AnalyticsEngine
-  setState(next: AnalyticsState): void
-  setCatalog(next: string | undefined): void
-  setLastError(err: Error | null): void
-  setExecuteImpl(
+  setState: (next: AnalyticsState) => void
+  setCatalog: (next: string | undefined) => void
+  setLastError: (err: Error | null) => void
+  setExecuteImpl: (
     impl: (sql: string, params?: Record<string, unknown>) => Promise<unknown[]>,
-  ): void
+  ) => void
   /** Every SQL sent via execute(), in order. */
   executeCalls: Array<{ sql: string, params?: Record<string, unknown> }>
 }
@@ -53,9 +53,9 @@ export function createFakeEngine(initial: {
       const rows = await executeImpl(sql, params)
       return rows as T[]
     },
-    // eslint-disable-next-line require-yield
-    async *stream<T = unknown>(_sql: string, _params?: Record<string, unknown>): AsyncIterable<T[]> {
-      return
+
+    async* stream<T = unknown>(_sql: string, _params?: Record<string, unknown>): AsyncIterable<T[]> {
+
     },
     createAppender(_table: string): AnalyticsAppender {
       return {

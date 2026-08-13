@@ -6,10 +6,10 @@
  * outlive its TTL.
  */
 
-import { describe, expect, it, vi } from 'vitest'
-
-import { createWatermarkCache, WATERMARK_CACHE_TTL_MS } from '../watermark-cache'
 import type { EventBus } from '../types'
+
+import { describe, expect, it, vi } from 'vitest'
+import { createWatermarkCache, WATERMARK_CACHE_TTL_MS } from '../watermark-cache'
 
 /** Minimal pattern-capable bus for invalidation tests. */
 function fakeBus() {
@@ -18,7 +18,8 @@ function fakeBus() {
     emit(name, payload) {
       for (const { pattern, handler } of patterns) {
         const suffix = pattern.replace('*', '')
-        if (name.endsWith(suffix)) handler(name, payload)
+        if (name.endsWith(suffix))
+          handler(name, payload)
       }
     },
     subscribe() { return () => {} },
@@ -27,7 +28,8 @@ function fakeBus() {
       patterns.push(entry)
       return () => {
         const i = patterns.indexOf(entry)
-        if (i >= 0) patterns.splice(i, 1)
+        if (i >= 0)
+          patterns.splice(i, 1)
       }
     },
   }
@@ -208,7 +210,10 @@ describe('instrumentation', () => {
 
   it('returns zeroes rather than NaN with no samples', () => {
     expect(createWatermarkCache().stats().latency).toEqual({
-      p50: 0, p95: 0, p99: 0, samples: 0,
+      p50: 0,
+      p95: 0,
+      p99: 0,
+      samples: 0,
     })
   })
 })

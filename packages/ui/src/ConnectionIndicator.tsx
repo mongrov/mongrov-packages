@@ -1,16 +1,17 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, View } from 'react-native';
-import type { ConnectionIndicatorProps, ConnectionStatus } from './types';
+import type { ConnectionIndicatorProps, ConnectionStatus } from './types'
+import * as React from 'react'
+import { useEffect, useRef } from 'react'
+import { Animated, View } from 'react-native'
 
 const statusColor: Record<ConnectionStatus, string> = {
   connected: 'bg-success',
   connecting: 'bg-warning',
   disconnected: 'bg-destructive',
-};
+}
 
 export function ConnectionIndicator({ status, testID }: ConnectionIndicatorProps) {
-  const opacity = useRef(new Animated.Value(1)).current;
-  const animation = useRef<Animated.CompositeAnimation | null>(null);
+  const opacity = useRef(new Animated.Value(1)).current
+  const animation = useRef<Animated.CompositeAnimation | null>(null)
 
   useEffect(() => {
     if (status === 'connecting') {
@@ -20,17 +21,18 @@ export function ConnectionIndicator({ status, testID }: ConnectionIndicatorProps
           duration: 800,
           useNativeDriver: true,
         }),
-      );
-      animation.current.start();
-    } else {
-      animation.current?.stop();
-      opacity.setValue(1);
+      )
+      animation.current.start()
+    }
+    else {
+      animation.current?.stop()
+      opacity.setValue(1)
     }
 
     return () => {
-      animation.current?.stop();
-    };
-  }, [status, opacity]);
+      animation.current?.stop()
+    }
+  }, [status, opacity])
 
   return (
     <View testID={testID}>
@@ -39,5 +41,5 @@ export function ConnectionIndicator({ status, testID }: ConnectionIndicatorProps
         style={{ opacity }}
       />
     </View>
-  );
+  )
 }

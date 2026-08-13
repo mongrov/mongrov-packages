@@ -1,14 +1,14 @@
-import type { LogEntry, LogTransport, FileConfig } from '../types'
+import type { FileConfig, LogEntry, LogTransport } from '../types'
 
 // expo-file-system types (imported dynamically to keep as peer dep)
 interface FileSystem {
   documentDirectory: string | null
-  writeAsStringAsync(fileUri: string, contents: string, options?: { encoding?: string }): Promise<void>
-  readDirectoryAsync(fileUri: string): Promise<string[]>
-  getInfoAsync(fileUri: string): Promise<{ exists: boolean; size?: number; isDirectory?: boolean }>
-  deleteAsync(fileUri: string, options?: { idempotent?: boolean }): Promise<void>
-  makeDirectoryAsync(fileUri: string, options?: { intermediates?: boolean }): Promise<void>
-  readAsStringAsync(fileUri: string): Promise<string>
+  writeAsStringAsync: (fileUri: string, contents: string, options?: { encoding?: string }) => Promise<void>
+  readDirectoryAsync: (fileUri: string) => Promise<string[]>
+  getInfoAsync: (fileUri: string) => Promise<{ exists: boolean, size?: number, isDirectory?: boolean }>
+  deleteAsync: (fileUri: string, options?: { idempotent?: boolean }) => Promise<void>
+  makeDirectoryAsync: (fileUri: string, options?: { intermediates?: boolean }) => Promise<void>
+  readAsStringAsync: (fileUri: string) => Promise<string>
   EncodingType: { UTF8: string }
 }
 
@@ -19,15 +19,16 @@ function getFileSystem(): FileSystem {
     try {
       // Prefer the legacy subpath (expo-file-system v19+) to avoid deprecation warnings.
       // Falls back to the main entry for older versions.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+
       FileSystemModule = require('expo-file-system/legacy') as FileSystem
-    } catch {
+    }
+    catch {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         FileSystemModule = require('expo-file-system') as FileSystem
-      } catch {
+      }
+      catch {
         throw new Error(
-          '@mongrov/core FileTransport requires expo-file-system as a peer dependency'
+          '@mongrov/core FileTransport requires expo-file-system as a peer dependency',
         )
       }
     }
@@ -59,8 +60,8 @@ export class FileTransport implements LogTransport {
 
   constructor(config?: FileConfig) {
     const fs = getFileSystem()
-    this.directory =
-      config?.directory ?? `${fs.documentDirectory ?? ''}logs/`
+    this.directory
+      = config?.directory ?? `${fs.documentDirectory ?? ''}logs/`
     this.maxSizeMB = config?.maxSizeMB ?? 5
     this.retentionDays = config?.retentionDays ?? 7
   }
@@ -82,7 +83,7 @@ export class FileTransport implements LogTransport {
         this.lastCleanup = now
       }
 
-      const lines = entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
+      const lines = `${entries.map(e => JSON.stringify(e)).join('\n')}\n`
       const filename = `logs-${formatDate(new Date())}.txt`
       const filePath = `${this.directory}${filename}`
 
@@ -93,10 +94,12 @@ export class FileTransport implements LogTransport {
         // Append by reading existing content + new lines
         const existing = await fs.readAsStringAsync(filePath)
         await fs.writeAsStringAsync(filePath, existing + lines)
-      } else {
+      }
+      else {
         await fs.writeAsStringAsync(filePath, lines)
       }
-    } catch (error) {
+    }
+    catch (error) {
       // Logging should never crash the app
       console.warn('[FileTransport] Write failed:', error)
     }
@@ -107,10 +110,11 @@ export class FileTransport implements LogTransport {
       const fs = getFileSystem()
       const files = await fs.readDirectoryAsync(this.directory)
       return files
-        .filter((f) => f.startsWith('logs-') && f.endsWith('.txt'))
+        .filter(f => f.startsWith('logs-') && f.endsWith('.txt'))
         .sort()
         .reverse()
-    } catch {
+    }
+    catch {
       return []
     }
   }
@@ -121,7 +125,8 @@ export class FileTransport implements LogTransport {
   }
 
   private async ensureDirectory(): Promise<void> {
-    if (this.initialized) return
+    if (this.initialized)
+      return
     const fs = getFileSystem()
     const info = await fs.getInfoAsync(this.directory)
     if (!info.exists) {
@@ -135,7 +140,7 @@ export class FileTransport implements LogTransport {
       const fs = getFileSystem()
       const files = await fs.readDirectoryAsync(this.directory)
       const logFiles = files
-        .filter((f) => f.startsWith('logs-') && f.endsWith('.txt'))
+        .filter(f => f.startsWith('logs-') && f.endsWith('.txt'))
         .sort()
 
       // Delete files older than retentionDays
@@ -153,7 +158,7 @@ export class FileTransport implements LogTransport {
       // Check total size and delete oldest if exceeding maxSizeMB
       let totalSize = 0
       const remaining = (await fs.readDirectoryAsync(this.directory))
-        .filter((f) => f.startsWith('logs-') && f.endsWith('.txt'))
+        .filter(f => f.startsWith('logs-') && f.endsWith('.txt'))
         .sort()
 
       for (const file of remaining) {
@@ -170,7 +175,8 @@ export class FileTransport implements LogTransport {
         totalSize -= info.size ?? 0
         i++
       }
-    } catch {
+    }
+    catch {
       // Cleanup failures are non-critical
     }
   }

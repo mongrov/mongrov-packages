@@ -1,15 +1,15 @@
 import type {
-  LogLevel,
+  FileConfig,
+  LogContext,
   LogEntry,
   LogFilter,
   LoggerConfig,
-  LogContext,
+  LogLevel,
   LogTransport,
   RingBufferConfig,
-  FileConfig,
 } from './types'
-import { RingBufferTransport } from './transports/ring-buffer'
 import { FileTransport } from './transports/file'
+import { RingBufferTransport } from './transports/ring-buffer'
 import { WebhookTransport } from './transports/webhook'
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
@@ -30,10 +30,10 @@ function generateSessionId(): string {
 
 function getPlatform(): 'ios' | 'android' {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Platform } = require('react-native')
     return Platform.OS === 'android' ? 'android' : 'ios'
-  } catch {
+  }
+  catch {
     return 'ios'
   }
 }
@@ -41,27 +41,28 @@ function getPlatform(): 'ios' | 'android' {
 function isDev(): boolean {
   try {
     return typeof __DEV__ !== 'undefined' ? __DEV__ : false
-  } catch {
+  }
+  catch {
     return false
   }
 }
 
 export interface Logger {
-  debug(message: string, data?: Record<string, unknown>): void
-  info(message: string, data?: Record<string, unknown>): void
-  warn(message: string, data?: Record<string, unknown>): void
-  error(message: string, data?: Record<string, unknown>): void
-  captureException(error: Error, context?: Record<string, unknown>): void
+  debug: (message: string, data?: Record<string, unknown>) => void
+  info: (message: string, data?: Record<string, unknown>) => void
+  warn: (message: string, data?: Record<string, unknown>) => void
+  error: (message: string, data?: Record<string, unknown>) => void
+  captureException: (error: Error, context?: Record<string, unknown>) => void
 
-  setUser(userId: string): void
-  setScreen(screenName: string): void
-  setContext(key: string, value: string): void
+  setUser: (userId: string) => void
+  setScreen: (screenName: string) => void
+  setContext: (key: string, value: string) => void
 
-  getLogs(filter?: LogFilter): LogEntry[]
-  exportLogs(filter?: LogFilter): string
+  getLogs: (filter?: LogFilter) => LogEntry[]
+  exportLogs: (filter?: LogFilter) => string
 
-  flush(): Promise<void>
-  destroy(): Promise<void>
+  flush: () => Promise<void>
+  destroy: () => Promise<void>
 }
 
 export function createLogger(config: LoggerConfig): Logger {
@@ -89,16 +90,16 @@ export function createLogger(config: LoggerConfig): Logger {
 
   // Ring buffer
   if (config.ringBuffer) {
-    const rbConfig: RingBufferConfig =
-      typeof config.ringBuffer === 'boolean' ? {} : config.ringBuffer
+    const rbConfig: RingBufferConfig
+      = typeof config.ringBuffer === 'boolean' ? {} : config.ringBuffer
     ringBuffer = new RingBufferTransport(rbConfig.maxSize)
     transports.push(ringBuffer)
   }
 
   // File transport
   if (config.file) {
-    const fileConfig: FileConfig =
-      typeof config.file === 'boolean' ? {} : config.file
+    const fileConfig: FileConfig
+      = typeof config.file === 'boolean' ? {} : config.file
     transports.push(new FileTransport(fileConfig))
   }
 
@@ -125,16 +126,20 @@ export function createLogger(config: LoggerConfig): Logger {
   }
 
   function log(level: LogLevel, message: string, data?: Record<string, unknown>): void {
-    if (LEVEL_ORDER[level] < minLevelNum) return
+    if (LEVEL_ORDER[level] < minLevelNum)
+      return
 
     const entry = buildEntry(level, message, data)
 
     // Console output in dev
     if (dev) {
-      const consoleFn = level === 'error' ? console.error
-        : level === 'warn' ? console.warn
-        : level === 'debug' ? console.debug
-        : console.log
+      const consoleFn = level === 'error'
+        ? console.error
+        : level === 'warn'
+          ? console.warn
+          : level === 'debug'
+            ? console.debug
+            : console.log
       consoleFn(`[${level.toUpperCase()}] ${message}`, data ?? '')
     }
 
@@ -144,7 +149,6 @@ export function createLogger(config: LoggerConfig): Logger {
         // Transport errors are non-fatal
       })
     }
-
   }
 
   const logger: Logger = {

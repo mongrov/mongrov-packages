@@ -10,10 +10,10 @@
  *      still emits both without erroring; the bucket carries `step` verbatim.
  */
 
-import { describe, expect, it } from 'vitest'
-
-import { mapActivity } from '../activity'
 import type { FirmwareActivityRow, MapperContext } from '../types'
+
+import { describe, expect, it } from 'vitest'
+import { mapActivity } from '../activity'
 
 const ctx: MapperContext = {
   brand: 'ziva',

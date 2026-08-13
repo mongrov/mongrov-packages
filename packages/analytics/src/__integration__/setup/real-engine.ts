@@ -34,15 +34,16 @@
  *   avoids any interface change to production code.
  */
 
-import bindings from '@duckdb/node-bindings'
-import {
-  DuckDBAppender as NodeAppender,
-  DuckDBConnection,
-  DuckDBInstance as NodeInstance,
-  DuckDBTimestampValue,
-  DuckDBValue,
-} from '@duckdb/node-api'
+import type { DuckDBConnection, DuckDBValue } from '@duckdb/node-api'
 import type { DuckDBAppender, DuckDBInstance } from '../../core/engine'
+import {
+
+  DuckDBTimestampValue,
+
+  DuckDBAppender as NodeAppender,
+  DuckDBInstance as NodeInstance,
+} from '@duckdb/node-api'
+import bindings from '@duckdb/node-bindings'
 
 const EXTENSIONS = ['iceberg', 'httpfs']
 
@@ -81,7 +82,7 @@ function adapt(inst: NodeInstance, conn: DuckDBConnection): DuckDBInstance {
       return normaliseRows(await r.getRowObjects())
     },
 
-    async *stream(sql, params) {
+    async* stream(sql, params) {
       const hasParams = params && Object.keys(params).length > 0
       let r
       if (hasParams) {
@@ -95,7 +96,8 @@ function adapt(inst: NodeInstance, conn: DuckDBConnection): DuckDBInstance {
       const columnNames = r.columnNames()
       while (true) {
         const chunk = await r.fetchChunk()
-        if (!chunk || chunk.rowCount === 0) break
+        if (!chunk || chunk.rowCount === 0)
+          break
         yield normaliseRows(chunk.getRowObjects(columnNames))
       }
     },
@@ -108,10 +110,12 @@ function adapt(inst: NodeInstance, conn: DuckDBConnection): DuckDBInstance {
       // with INSERT statements; appenders here target local (`memory`)
       // tables only.
       const parts = table.split('.')
-      const [catalog, schema, tbl] =
-        parts.length === 3 ? parts
-        : parts.length === 2 ? ['memory', parts[0], parts[1]]
-        : ['memory', 'main', parts[0]]
+      const [catalog, schema, tbl]
+        = parts.length === 3
+          ? parts
+          : parts.length === 2
+            ? ['memory', parts[0], parts[1]]
+            : ['memory', 'main', parts[0]]
       // Bridge sync seam → async @duckdb/node-api API by calling the
       // underlying sync bindings call directly. See file header.
       const rawConn = (conn as unknown as { connection: bindings.Connection }).connection
@@ -183,7 +187,8 @@ function appendValue(app: NodeAppender, v: unknown): void {
       app.appendVarchar(v)
       return
     case 'number':
-      if (Number.isInteger(v)) app.appendInteger(v)
+      if (Number.isInteger(v))
+        app.appendInteger(v)
       else app.appendDouble(v)
       return
     case 'bigint':

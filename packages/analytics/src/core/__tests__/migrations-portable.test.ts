@@ -10,7 +10,7 @@
  *
  * Both took attach down after the previous fix unblocked the step before.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { ensureMigrations } from '../migrations'
 
@@ -27,7 +27,7 @@ function scriptedDb(onSql: (sql: string) => unknown[]) {
   }
 }
 
-const kv = () => {
+function kv() {
   const store = new Map<string, string>()
   return {
     async get(k: string) { return store.get(k) ?? null },

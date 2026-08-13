@@ -5,14 +5,14 @@
  * and coordination with the CollabAdapter.
  */
 
-import { setup, assign, fromPromise } from 'xstate'
 import type {
-  CollabAdapter,
   AdapterCredentials,
-  CollabConnectionStatus,
+  CollabAdapter,
   CollabConfig,
+  CollabConnectionStatus,
   CollabLogger,
 } from './types'
+import { assign, fromPromise, setup } from 'xstate'
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
@@ -29,13 +29,13 @@ export interface CollabMachineContext {
 
 // ─── Events ─────────────────────────────────────────────────────────────────
 
-export type CollabMachineEvent =
-  | { type: 'CONNECT'; credentials: AdapterCredentials }
-  | { type: 'DISCONNECT' }
-  | { type: 'CONNECTION_SUCCESS' }
-  | { type: 'CONNECTION_ERROR'; error: Error }
-  | { type: 'CONNECTION_LOST'; reason?: string }
-  | { type: 'RETRY' }
+export type CollabMachineEvent
+  = | { type: 'CONNECT', credentials: AdapterCredentials }
+    | { type: 'DISCONNECT' }
+    | { type: 'CONNECTION_SUCCESS' }
+    | { type: 'CONNECTION_ERROR', error: Error }
+    | { type: 'CONNECTION_LOST', reason?: string }
+    | { type: 'RETRY' }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -49,26 +49,26 @@ const noopLogger: CollabLogger = {
 function calculateDelay(
   attempt: number,
   baseDelay: number,
-  maxDelay: number
+  maxDelay: number,
 ): number {
   // Exponential backoff with jitter
-  const exponentialDelay = baseDelay * Math.pow(2, attempt)
+  const exponentialDelay = baseDelay * 2 ** attempt
   const jitter = Math.random() * 0.3 * exponentialDelay
   return Math.min(exponentialDelay + jitter, maxDelay)
 }
 
 // ─── Actors ─────────────────────────────────────────────────────────────────
 
-const connectActor = fromPromise<void, { adapter: CollabAdapter; credentials: AdapterCredentials }>(
+const connectActor = fromPromise<void, { adapter: CollabAdapter, credentials: AdapterCredentials }>(
   async ({ input }) => {
     await input.adapter.connect(input.credentials)
-  }
+  },
 )
 
 const disconnectActor = fromPromise<void, { adapter: CollabAdapter }>(
   async ({ input }) => {
     await input.adapter.disconnect()
-  }
+  },
 )
 
 // ─── Machine ────────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ export const collabMachine = setup({
       return calculateDelay(
         context.reconnectAttempts,
         context.baseDelay,
-        context.maxDelay
+        context.maxDelay,
       )
     },
   },
@@ -301,7 +301,7 @@ export interface CollabMachineInput {
  * Maps machine state to CollabConnectionStatus.
  */
 export function getConnectionStatus(
-  stateValue: string
+  stateValue: string,
 ): CollabConnectionStatus {
   const statusMap: Record<string, CollabConnectionStatus> = {
     disconnected: 'disconnected',

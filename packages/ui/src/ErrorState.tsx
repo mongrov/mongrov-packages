@@ -1,6 +1,6 @@
-import React from 'react';
-import { Pressable, Text, View } from 'react-native';
-import type { ErrorStateProps } from './types';
+import type { ErrorStateProps } from './types'
+import * as React from 'react'
+import { Pressable, Text, View } from 'react-native'
 
 export function ErrorState({
   title = 'Something went wrong',
@@ -23,5 +23,5 @@ export function ErrorState({
         </Pressable>
       )}
     </View>
-  );
+  )
 }

@@ -2,13 +2,13 @@
  * Tests for KV backend implementations
  */
 
+import { __resetSecureStore } from '../../__mocks__/expo-secure-store'
+import {
+  __getInstanceStorage,
+  __resetAllInstances,
+} from '../../__mocks__/react-native-mmkv'
 import { MMKVBackend } from '../kv-backends/mmkv-backend'
 import { SecureBackend } from '../kv-backends/secure-backend'
-import {
-  __resetAllInstances,
-  __getInstanceStorage,
-} from '../../__mocks__/react-native-mmkv'
-import { __resetSecureStore } from '../../__mocks__/expo-secure-store'
 
 describe('MMKVBackend', () => {
   beforeEach(() => {

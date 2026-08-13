@@ -13,9 +13,9 @@
  * fixtures without touching real stdio.
  */
 
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { Readable, Writable } from 'node:stream'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
 export interface CreateStdioTransportOptions {
   stdin?: Readable

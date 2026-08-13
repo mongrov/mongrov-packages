@@ -1,7 +1,7 @@
-import React from 'react';
-import { FlatList, View } from 'react-native';
-import { LogEntryRow } from './LogEntryRow';
-import type { LogViewerProps } from './types';
+import type { LogViewerProps } from './types'
+import * as React from 'react'
+import { FlatList, View } from 'react-native'
+import { LogEntryRow } from './LogEntryRow'
 
 export function LogViewer({ entries, testID }: LogViewerProps) {
   return (
@@ -9,8 +9,8 @@ export function LogViewer({ entries, testID }: LogViewerProps) {
       <FlatList
         data={entries}
         renderItem={({ item }) => <LogEntryRow entry={item} />}
-        keyExtractor={(item) => item.id}
+        keyExtractor={item => item.id}
       />
     </View>
-  );
+  )
 }

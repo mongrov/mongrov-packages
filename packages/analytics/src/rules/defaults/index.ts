@@ -6,8 +6,8 @@
  * fast rather than at first evaluate.
  */
 
-export { zivaDefaults } from './ziva'
+export { parseCatalog, type ParseCatalogOptions } from './loader'
 export { luminxDefaults } from './luminx'
 export { vivaDefaults } from './viva'
 export { yogaringDefaults } from './yogaring'
-export { parseCatalog, type ParseCatalogOptions } from './loader'
+export { zivaDefaults } from './ziva'

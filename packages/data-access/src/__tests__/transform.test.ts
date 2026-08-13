@@ -13,13 +13,14 @@
  * DERIVED shape.
  */
 
+import type { EngineAdapters } from '../dispatcher'
+import type { RequestContext } from '../types'
+
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-
 import { defineQuery } from '../define'
-import { executeQuery, type EngineAdapters } from '../dispatcher'
+import { executeQuery } from '../dispatcher'
 import { DataAccessError } from '../errors'
-import type { RequestContext } from '../types'
 
 const ctx: RequestContext = {
   userId: 'u1',
@@ -66,7 +67,8 @@ describe('transform runs between the engine and the parse', () => {
     })
 
     await expect(executeQuery(def, {}, ctx, enginesReturning(rawRows)))
-      .rejects.toMatchObject({ code: 'zod_parse_failed' })
+      .rejects
+      .toMatchObject({ code: 'zod_parse_failed' })
   })
 
   it('receives the request context and the PARSED input', async () => {
@@ -145,7 +147,8 @@ describe('failure modes stay distinguishable', () => {
     })
 
     await expect(executeQuery(def, {}, ctx, enginesReturning([])))
-      .rejects.toMatchObject({ code: 'zod_parse_failed' })
+      .rejects
+      .toMatchObject({ code: 'zod_parse_failed' })
   })
 })
 

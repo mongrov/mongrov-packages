@@ -6,6 +6,8 @@
  * validate rules themselves.
  */
 
+import type { MetricId } from '../core/metric_metadata'
+import type { TableName } from '../core/schemas'
 import type {
   AnalyticsEngine,
   EventBus,
@@ -13,8 +15,6 @@ import type {
   KVStore,
   Unsubscribe,
 } from '../core/types'
-import type { MetricId } from '../core/metric_metadata'
-import type { TableName } from '../core/schemas'
 import type { Rule } from './schema'
 
 export type { Unsubscribe }
@@ -72,10 +72,10 @@ export interface RuleViolation {
 
 /** Structured logger (subset of AnalyticsLogger). */
 export interface RulesLogger {
-  debug(message: string, meta?: Record<string, unknown>): void
-  info(message: string, meta?: Record<string, unknown>): void
-  warn(message: string, meta?: Record<string, unknown>): void
-  error(message: string, meta?: Record<string, unknown>): void
+  debug: (message: string, meta?: Record<string, unknown>) => void
+  info: (message: string, meta?: Record<string, unknown>) => void
+  warn: (message: string, meta?: Record<string, unknown>) => void
+  error: (message: string, meta?: Record<string, unknown>) => void
 }
 
 /** Injected by tests; production defaults to `new Date()`. */
@@ -102,26 +102,26 @@ export interface RulesEngineConfig {
 
 /** Public rules engine surface. */
 export interface RulesEngine {
-  register(rules: Rule[]): Promise<void>
+  register: (rules: Rule[]) => Promise<void>
   /** Atomically swap the entire rule set; see `RulesRegistry.replace`. */
-  replace(rules: Rule[]): Promise<void>
-  enable(ruleId: string): Promise<void>
-  disable(ruleId: string): Promise<void>
-  list(): Rule[]
-  getActive(): Rule[]
-  evaluateOnBatch(batch: FlushSummary): Promise<RuleViolation[]>
-  evaluateScheduled(): Promise<RuleViolation[]>
-  on(event: 'violation', handler: (v: RuleViolation) => void): Unsubscribe
+  replace: (rules: Rule[]) => Promise<void>
+  enable: (ruleId: string) => Promise<void>
+  disable: (ruleId: string) => Promise<void>
+  list: () => Rule[]
+  getActive: () => Rule[]
+  evaluateOnBatch: (batch: FlushSummary) => Promise<RuleViolation[]>
+  evaluateScheduled: () => Promise<RuleViolation[]>
+  on: (event: 'violation', handler: (v: RuleViolation) => void) => Unsubscribe
   /**
    * Subscribe to registry mutations (register / enable / disable). Backs the
    * `useRuleRegistry` hook via `useSyncExternalStore`.
    */
-  subscribeRegistry(listener: () => void): Unsubscribe
+  subscribeRegistry: (listener: () => void) => Unsubscribe
   /**
    * Release resources held by the engine: clears all violation handlers,
    * releases the registry subscription set. After `close()`, further calls
    * to `evaluateOnBatch` / `evaluateScheduled` are no-ops that return `[]`,
    * and `on(...)` returns a subscription that never fires.
    */
-  close(): Promise<void>
+  close: () => Promise<void>
 }

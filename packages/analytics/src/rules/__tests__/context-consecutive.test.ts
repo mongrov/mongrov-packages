@@ -238,7 +238,8 @@ describe('T-42 — user_setting keys must be in the KVStore registry', () => {
 
   it('accepts a registered threshold key', () => {
     expect(() => validateRule(userSettingRule('user:spo2SafeLevel')))
-      .not.toThrow()
+      .not
+      .toThrow()
   })
 
   it('rejects an unregistered key', () => {

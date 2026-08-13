@@ -10,10 +10,11 @@
  * locate the offending brand file.
  */
 
+import type { Rule } from '../schema'
 // Direct import of parse-string avoids the parse.js -> parse-stream.js ->
 // require('stream') chain that breaks Metro (React Native has no Node stdlib).
 import parseString from '@iarna/toml/parse-string.js'
-import { RuleSchema, RuleValidationError, type Rule } from '../schema'
+import { RuleSchema, RuleValidationError } from '../schema'
 
 interface CatalogDoc {
   rule?: unknown[]

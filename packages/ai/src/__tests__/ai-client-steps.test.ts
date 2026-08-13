@@ -8,25 +8,25 @@
  * things that fix and expose that.
  */
 
-const streamTextMock = jest.fn();
-const generateTextMock = jest.fn();
+import type { CoreTool, LanguageModelV1 } from 'ai'
+
+import type { AIConfig, Message } from '../types'
+import { createAIClient } from '../ai-client'
+
+const streamTextMock = jest.fn()
+const generateTextMock = jest.fn()
 
 jest.mock('ai', () => ({
   streamText: (opts: unknown) => streamTextMock(opts),
   generateText: (opts: unknown) => generateTextMock(opts),
-}));
+}))
 
-import type { CoreTool, LanguageModelV1 } from 'ai';
-
-import { createAIClient } from '../ai-client';
-import type { AIConfig, Message } from '../types';
-
-const fakeModel = {} as LanguageModelV1;
+const fakeModel = {} as LanguageModelV1
 const fakeTool = {
   description: 'noop',
   parameters: { type: 'object', properties: {} },
   execute: async () => 'ok',
-} as unknown as CoreTool;
+} as unknown as CoreTool
 
 /** Mirrors the StreamTextResult fields the client reads on an empty stream. */
 function streamResult(chunks: string[], extra: Record<string, unknown> = {}) {
@@ -36,89 +36,89 @@ function streamResult(chunks: string[], extra: Record<string, unknown> = {}) {
     warnings: Promise.resolve(undefined),
     toolCalls: Promise.resolve([]),
     ...extra,
-  };
+  }
 }
 
 function stream(chunks: string[]): AsyncIterable<string> {
   return {
-    async *[Symbol.asyncIterator]() {
-      for (const c of chunks) yield c;
+    async* [Symbol.asyncIterator]() {
+      for (const c of chunks) yield c
     },
-  };
+  }
 }
 
 const MESSAGES: Message[] = [
   { id: '1', role: 'user', content: 'How was my sleep?', createdAt: new Date(0) },
-];
+]
 
 function logger() {
-  return { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  return { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
 }
 
 async function drain(it: AsyncIterable<string>): Promise<string> {
-  let out = '';
-  for await (const c of it) out += c;
-  return out;
+  let out = ''
+  for await (const c of it) out += c
+  return out
 }
 
 beforeEach(() => {
-  streamTextMock.mockReset();
-  generateTextMock.mockReset();
-});
+  streamTextMock.mockReset()
+  generateTextMock.mockReset()
+})
 
 describe('maxSteps', () => {
   it('is sent when tools are registered — otherwise a tool call ends the turn', async () => {
-    streamTextMock.mockReturnValue(streamResult(['hi']));
-    const log = logger();
+    streamTextMock.mockReturnValue(streamResult(['hi']))
+    const log = logger()
     const client = createAIClient({
       model: fakeModel,
       logger: log,
       tools: { getSleep: fakeTool },
-    } as unknown as AIConfig);
+    } as unknown as AIConfig)
 
-    await drain(client.chat(MESSAGES));
+    await drain(client.chat(MESSAGES))
 
-    const opts = streamTextMock.mock.calls[0][0];
-    expect(opts.maxSteps).toBeGreaterThan(1);
-    expect(opts.tools).toBeDefined();
-  });
+    const opts = streamTextMock.mock.calls[0][0]
+    expect(opts.maxSteps).toBeGreaterThan(1)
+    expect(opts.tools).toBeDefined()
+  })
 
   it('is omitted when there are no tools — nothing to step through', async () => {
-    streamTextMock.mockReturnValue(streamResult(['hi']));
-    const client = createAIClient({ model: fakeModel, logger: logger() } as unknown as AIConfig);
+    streamTextMock.mockReturnValue(streamResult(['hi']))
+    const client = createAIClient({ model: fakeModel, logger: logger() } as unknown as AIConfig)
 
-    await drain(client.chat(MESSAGES));
+    await drain(client.chat(MESSAGES))
 
-    const opts = streamTextMock.mock.calls[0][0];
-    expect(opts.maxSteps).toBeUndefined();
-    expect(opts.tools).toBeUndefined();
-  });
+    const opts = streamTextMock.mock.calls[0][0]
+    expect(opts.maxSteps).toBeUndefined()
+    expect(opts.tools).toBeUndefined()
+  })
 
   it('reaches generateText too', async () => {
-    generateTextMock.mockResolvedValue({ text: 'done' });
+    generateTextMock.mockResolvedValue({ text: 'done' })
     const client = createAIClient({
       model: fakeModel,
       logger: logger(),
       tools: { getSleep: fakeTool },
-    } as unknown as AIConfig);
+    } as unknown as AIConfig)
 
-    await client.complete('hello');
+    await client.complete('hello')
 
-    expect(generateTextMock.mock.calls[0][0].maxSteps).toBeGreaterThan(1);
-  });
-});
+    expect(generateTextMock.mock.calls[0][0].maxSteps).toBeGreaterThan(1)
+  })
+})
 
 describe('empty stream is not silent', () => {
   it('warns when the model produces no text', async () => {
-    streamTextMock.mockReturnValue(streamResult([], { finishReason: Promise.resolve('tool-calls') }));
-    const log = logger();
+    streamTextMock.mockReturnValue(streamResult([], { finishReason: Promise.resolve('tool-calls') }))
+    const log = logger()
     const client = createAIClient({
       model: fakeModel,
       logger: log,
       tools: { getSleep: fakeTool },
-    } as unknown as AIConfig);
+    } as unknown as AIConfig)
 
-    expect(await drain(client.chat(MESSAGES))).toBe('');
+    expect(await drain(client.chat(MESSAGES))).toBe('')
     expect(log.warn).toHaveBeenCalledWith(
       'Chat stream produced no text',
       expect.objectContaining({
@@ -126,42 +126,42 @@ describe('empty stream is not silent', () => {
         toolNames: ['getSleep'],
         finishReason: 'tool-calls',
       }),
-    );
-  });
+    )
+  })
 
   it('stays quiet when text did arrive', async () => {
-    streamTextMock.mockReturnValue(streamResult(['some', ' text']));
-    const log = logger();
-    const client = createAIClient({ model: fakeModel, logger: log } as unknown as AIConfig);
+    streamTextMock.mockReturnValue(streamResult(['some', ' text']))
+    const log = logger()
+    const client = createAIClient({ model: fakeModel, logger: log } as unknown as AIConfig)
 
-    expect(await drain(client.chat(MESSAGES))).toBe('some text');
+    expect(await drain(client.chat(MESSAGES))).toBe('some text')
     // Not `not.toHaveBeenCalled()` — an unrelated "expo/fetch not available"
     // warning fires under Jest, and asserting on total call count would make
     // this test about that instead.
     expect(log.warn).not.toHaveBeenCalledWith(
       'Chat stream produced no text',
       expect.anything(),
-    );
-  });
-});
+    )
+  })
+})
 
 describe('diagnostics never break the request', () => {
   it('degrades when the SDK result lacks the diagnostic fields', async () => {
     // An older SDK, or a partial mock, must not turn "no reply" into a crash.
-    streamTextMock.mockReturnValue({ textStream: stream([]) });
-    const log = logger();
+    streamTextMock.mockReturnValue({ textStream: stream([]) })
+    const log = logger()
     const client = createAIClient({
       model: fakeModel,
       logger: log,
       tools: { getSleep: fakeTool },
-    } as unknown as AIConfig);
+    } as unknown as AIConfig)
 
-    await expect(drain(client.chat(MESSAGES))).resolves.toBe('');
+    await expect(drain(client.chat(MESSAGES))).resolves.toBe('')
     expect(log.warn).toHaveBeenCalledWith(
       'Chat stream produced no text',
       expect.objectContaining({ finishReason: 'unavailable' }),
-    );
-  });
+    )
+  })
 
   it('degrades when a diagnostic promise rejects', async () => {
     streamTextMock.mockReturnValue({
@@ -169,18 +169,18 @@ describe('diagnostics never break the request', () => {
       finishReason: Promise.reject(new Error('nope')),
       warnings: Promise.reject(new Error('nope')),
       toolCalls: Promise.reject(new Error('nope')),
-    });
-    const log = logger();
+    })
+    const log = logger()
     const client = createAIClient({
       model: fakeModel,
       logger: log,
       tools: { getSleep: fakeTool },
-    } as unknown as AIConfig);
+    } as unknown as AIConfig)
 
-    await expect(drain(client.chat(MESSAGES))).resolves.toBe('');
-    expect(log.warn).toHaveBeenCalled();
-  });
-});
+    await expect(drain(client.chat(MESSAGES))).resolves.toBe('')
+    expect(log.warn).toHaveBeenCalled()
+  })
+})
 
 describe('provider rejection is not silent', () => {
   it('throws when the stream ends with finishReason error', async () => {
@@ -188,25 +188,25 @@ describe('provider rejection is not silent', () => {
     // That left the chat sitting there forever with no feedback.
     streamTextMock.mockReturnValue(
       streamResult([], { finishReason: Promise.resolve('error') }),
-    );
-    const log = logger();
-    const client = createAIClient({ model: fakeModel, logger: log } as unknown as AIConfig);
+    )
+    const log = logger()
+    const client = createAIClient({ model: fakeModel, logger: log } as unknown as AIConfig)
 
-    await expect(drain(client.chat(MESSAGES))).rejects.toThrow(/rejected the request/);
+    await expect(drain(client.chat(MESSAGES))).rejects.toThrow(/rejected the request/)
     expect(log.warn).toHaveBeenCalledWith(
       'Chat stream produced no text',
       expect.objectContaining({ finishReason: 'error' }),
-    );
-  });
+    )
+  })
 
   it('does not throw when an empty stream finished cleanly', async () => {
     // finishReason 'stop' with no text is odd but not an error — the model
     // genuinely returned nothing. Warn, do not fail the turn.
     streamTextMock.mockReturnValue(
       streamResult([], { finishReason: Promise.resolve('stop') }),
-    );
-    const client = createAIClient({ model: fakeModel, logger: logger() } as unknown as AIConfig);
+    )
+    const client = createAIClient({ model: fakeModel, logger: logger() } as unknown as AIConfig)
 
-    await expect(drain(client.chat(MESSAGES))).resolves.toBe('');
-  });
-});
+    await expect(drain(client.chat(MESSAGES))).resolves.toBe('')
+  })
+})

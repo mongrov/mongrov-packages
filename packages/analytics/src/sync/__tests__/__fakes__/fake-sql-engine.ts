@@ -41,12 +41,15 @@ export function createFakeSqlEngine(): FakeSqlEngine {
       const idx = targeted.findIndex(t => sql.includes(t.match))
       if (idx !== -1) {
         const [entry] = targeted.splice(idx, 1)
-        if (entry!.step.type === 'throw') throw entry!.step.err
+        if (entry!.step.type === 'throw')
+          throw entry!.step.err
         return entry!.step.rows
       }
       const next = script.shift()
-      if (!next) return []
-      if (next.type === 'throw') throw next.err
+      if (!next)
+        return []
+      if (next.type === 'throw')
+        throw next.err
       return next.rows
     },
   } as unknown as HybridDuckDB

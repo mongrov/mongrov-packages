@@ -160,15 +160,15 @@ export interface FlushResult {
  */
 export interface SensorSink {
   /** Enqueue pre-mapped rows for one table. */
-  push(batch: SensorBatch): Promise<void>
+  push: (batch: SensorBatch) => Promise<void>
   /** Enqueue a raw firmware export; the sink runs the mapper. */
-  pushFirmware(fw: FirmwareExport, ctx: MapperContext): Promise<void>
+  pushFirmware: (fw: FirmwareExport, ctx: MapperContext) => Promise<void>
   /** Force a flush of every buffered table. */
-  flush(): Promise<FlushResult[]>
+  flush: () => Promise<FlushResult[]>
   /** Rows buffered but not yet flushed, optionally for one table. */
-  pendingRowCount(table?: string): Promise<number>
+  pendingRowCount: (table?: string) => Promise<number>
   /** Drop all buffered rows, including MMKV overflow. */
-  clear(): Promise<void>
+  clear: () => Promise<void>
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -183,12 +183,12 @@ export interface SensorSink {
  * case-sensitive, and no other wildcards exist.
  */
 export interface EventBus {
-  emit<T>(name: string, payload: T): void
+  emit: <T>(name: string, payload: T) => void
   /** Exact-name subscription. */
-  subscribe<T>(name: string, handler: (payload: T) => void): Unsubscribe
+  subscribe: <T>(name: string, handler: (payload: T) => void) => Unsubscribe
   /** Glob subscription; the handler receives the concrete name that matched. */
-  subscribePattern<T>(
+  subscribePattern: <T>(
     pattern: string,
-    handler: (name: string, payload: T) => void
-  ): Unsubscribe
+    handler: (name: string, payload: T) => void,
+  ) => Unsubscribe
 }

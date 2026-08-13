@@ -17,10 +17,6 @@
  *      integer reaches the schema (principle 21).
  */
 
-import { describe, expect, it } from 'vitest'
-
-import { mapBattery } from '../battery'
-import { mapRingConfig } from '../ring-config'
 import type {
   DeviceConfigRow,
   FirmwareBatteryRow,
@@ -28,6 +24,10 @@ import type {
   FirmwareWeekdays,
   MapperContext,
 } from '../types'
+
+import { describe, expect, it } from 'vitest'
+import { mapBattery } from '../battery'
+import { mapRingConfig } from '../ring-config'
 
 const ctx: MapperContext = {
   brand: 'ziva',
@@ -38,8 +38,13 @@ const ctx: MapperContext = {
 }
 
 const ALL_DAYS: FirmwareWeekdays = {
-  sunday: true, monday: true, Tuesday: true, Wednesday: true,
-  Thursday: true, Friday: true, Saturday: true,
+  sunday: true,
+  monday: true,
+  Tuesday: true,
+  Wednesday: true,
+  Thursday: true,
+  Friday: true,
+  Saturday: true,
 }
 
 /** One vendor-shaped monitoring window (AutomaticMonitoring_J2301A). */
@@ -77,8 +82,8 @@ describe('mapRingConfig', () => {
   const NOW = new Date('2026-06-17T12:00:00.000Z')
   const fw: FirmwareRingConfig = {
     automaticMonitoringData: [
-      window(4, 5, 22, 8),    // HRV
-      window(2, 30, 0, 23),   // SpO2
+      window(4, 5, 22, 8), // HRV
+      window(2, 30, 0, 23), // SpO2
     ],
   }
 

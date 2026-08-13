@@ -23,11 +23,11 @@ export interface ColorTokens {
 }
 
 export interface SpacingTokens {
-  xs: number
-  sm: number
-  md: number
-  lg: number
-  xl: number
+  'xs': number
+  'sm': number
+  'md': number
+  'lg': number
+  'xl': number
   '2xl': number
   '3xl': number
 }
@@ -40,11 +40,11 @@ export interface TypographyTokens {
     bold: string
   }
   fontSize: {
-    xs: number
-    sm: number
-    base: number
-    lg: number
-    xl: number
+    'xs': number
+    'sm': number
+    'base': number
+    'lg': number
+    'xl': number
     '2xl': number
     '3xl': number
     '4xl': number

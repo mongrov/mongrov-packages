@@ -14,15 +14,16 @@
  * battery rows in `device_battery`, and asserts actual fires.
  */
 
-import { describe, expect, it } from 'vitest'
-
 import type { AnalyticsEngine } from '../../core/types'
-import { createAnalytics } from '../../core/factory'
-import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { luminxDefaults } from '../defaults'
-import { createRulesEngine, type RulesEngine } from '../index'
 
+import type { RulesEngine } from '../index'
+import { describe, expect, it } from 'vitest'
+import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
+import { createAnalytics } from '../../core/factory'
+
+import { luminxDefaults } from '../defaults'
+import { createRulesEngine } from '../index'
 
 const BRAND = 'luminx'
 const USER = 'user_asset_1'

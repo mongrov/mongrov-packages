@@ -86,7 +86,7 @@ describe('device_config override', () => {
 
     const { sql, params } = calls[0]
     expect(sql).toContain('FROM device_config')
-    expect(sql).toContain('valid_to IS NULL')       // SCD-2: current row only
+    expect(sql).toContain('valid_to IS NULL') // SCD-2: current row only
     expect(sql).toContain('ORDER BY valid_from DESC')
     expect(params).toEqual({ deviceId: 'ring_1', metric: 'spo2' })
   })
@@ -124,8 +124,8 @@ describe('memoization', () => {
     await r.resolve('spo2', 'ring_1')
     expect(calls).toHaveLength(1)
 
-    await r.resolve('hrv_ms', 'ring_1')   // different metric
-    await r.resolve('spo2', 'ring_2')     // different device
+    await r.resolve('hrv_ms', 'ring_1') // different metric
+    await r.resolve('spo2', 'ring_2') // different device
     expect(calls).toHaveLength(3)
   })
 
@@ -154,8 +154,8 @@ describe('memoization', () => {
     await r.resolve('spo2', 'ring_2')
     r.invalidate('ring_1')
 
-    await r.resolve('spo2', 'ring_1')   // re-queried
-    await r.resolve('spo2', 'ring_2')   // still cached
+    await r.resolve('spo2', 'ring_1') // re-queried
+    await r.resolve('spo2', 'ring_2') // still cached
     expect(calls).toHaveLength(3)
   })
 
@@ -173,7 +173,7 @@ describe('memoization', () => {
 describe('minimumWindowMinutes', () => {
   it('scales the window with consecutive count', () => {
     expect(minimumWindowMinutes(30, 3)).toBe(90)
-    expect(minimumWindowMinutes(5, 3)).toBe(15)   // denser device needs less
+    expect(minimumWindowMinutes(5, 3)).toBe(15) // denser device needs less
   })
 
   it('treats consecutive < 1 as 1', () => {

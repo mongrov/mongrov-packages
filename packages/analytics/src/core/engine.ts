@@ -89,7 +89,7 @@ export class HybridDuckDB {
     }
   }
 
-  async *stream<T = unknown>(
+  async* stream<T = unknown>(
     sql: string,
     params?: Record<string, unknown>,
   ): AsyncIterable<T[]> {

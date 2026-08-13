@@ -1,7 +1,7 @@
 // Mock for class-variance-authority
 
-export function cva(base: string, config?: { variants?: Record<string, Record<string, string>>; defaultVariants?: Record<string, string> }) {
-  return function(props?: Record<string, string>) {
+export function cva(base: string, config?: { variants?: Record<string, Record<string, string>>, defaultVariants?: Record<string, string> }) {
+  return function (props?: Record<string, string>) {
     const classes = [base]
     const mergedProps = { ...config?.defaultVariants, ...props }
 

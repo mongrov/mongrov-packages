@@ -7,19 +7,19 @@ const DEFAULT_MAX_RETRIES = 5
 const BASE_DELAY_MS = 1000
 
 interface MMKVStorage {
-  getString(key: string): string | undefined
-  set(key: string, value: string): void
-  delete(key: string): void
+  getString: (key: string) => string | undefined
+  set: (key: string, value: string) => void
+  delete: (key: string) => void
 }
 
 function getMMKV(): MMKVStorage {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { MMKV } = require('react-native-mmkv')
     return new MMKV()
-  } catch {
+  }
+  catch {
     throw new Error(
-      '@mongrov/core OfflineQueue requires react-native-mmkv as a peer dependency'
+      '@mongrov/core OfflineQueue requires react-native-mmkv as a peer dependency',
     )
   }
 }
@@ -39,7 +39,7 @@ export class OfflineQueue {
       maxSize?: number
       maxRetries?: number
       storage?: MMKVStorage
-    }
+    },
   ) {
     this.sendFn = sendFn
     this.maxSize = options?.maxSize ?? DEFAULT_MAX_SIZE
@@ -61,10 +61,12 @@ export class OfflineQueue {
   }
 
   async flush(): Promise<void> {
-    if (this.flushing || this.queue.length === 0) return
+    if (this.flushing || this.queue.length === 0)
+      return
 
     const networkState = await getNetworkState()
-    if (!networkState.isConnected) return
+    if (!networkState.isConnected)
+      return
 
     this.flushing = true
 
@@ -76,10 +78,12 @@ export class OfflineQueue {
       // On success, remove sent entries (preserving any enqueued during send)
       this.queue = this.queue.slice(batch.length)
       this.saveToStorage()
-    } catch {
+    }
+    catch {
       // Retries exhausted — entries stay in queue for next flush attempt
       this.saveToStorage()
-    } finally {
+    }
+    finally {
       this.flushing = false
     }
   }
@@ -100,11 +104,13 @@ export class OfflineQueue {
       try {
         await this.sendFn(entries)
         return
-      } catch (error) {
+      }
+      catch (error) {
         if (attempt < this.maxRetries - 1) {
-          const delay = BASE_DELAY_MS * Math.pow(2, attempt)
-          await new Promise<void>((resolve) => setTimeout(resolve, delay))
-        } else {
+          const delay = BASE_DELAY_MS * 2 ** attempt
+          await new Promise<void>(resolve => setTimeout(resolve, delay))
+        }
+        else {
           // All retries exhausted — throw so caller knows entries were NOT sent
           throw error
         }
@@ -121,7 +127,8 @@ export class OfflineQueue {
           this.queue = parsed as LogEntry[]
         }
       }
-    } catch {
+    }
+    catch {
       this.queue = []
     }
   }
@@ -130,10 +137,12 @@ export class OfflineQueue {
     try {
       if (this.queue.length === 0) {
         this.storage.delete(QUEUE_KEY)
-      } else {
+      }
+      else {
         this.storage.set(QUEUE_KEY, JSON.stringify(this.queue))
       }
-    } catch {
+    }
+    catch {
       // Storage failures are non-critical
     }
   }

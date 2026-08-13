@@ -6,8 +6,8 @@ export class WebhookTransport implements LogTransport {
 
   private readonly config: Required<
     Pick<WebhookConfig, 'url' | 'batchSize' | 'batchIntervalMs' | 'maxRetries'>
-  > &
-    Pick<WebhookConfig, 'headers' | 'formatPayload'>
+  >
+  & Pick<WebhookConfig, 'headers' | 'formatPayload'>
 
   private batch: LogEntry[] = []
   private timer: ReturnType<typeof setInterval> | null = null
@@ -25,8 +25,8 @@ export class WebhookTransport implements LogTransport {
     }
 
     this.offlineQueue = new OfflineQueue(
-      (entries) => this.postEntries(entries),
-      { maxRetries: this.config.maxRetries }
+      entries => this.postEntries(entries),
+      { maxRetries: this.config.maxRetries },
     )
 
     this.startTimer()
@@ -68,7 +68,8 @@ export class WebhookTransport implements LogTransport {
   }
 
   private async flushBatch(): Promise<void> {
-    if (this.flushing || this.batch.length === 0) return
+    if (this.flushing || this.batch.length === 0)
+      return
 
     this.flushing = true
     const entries = [...this.batch]
@@ -76,10 +77,14 @@ export class WebhookTransport implements LogTransport {
 
     try {
       await this.postEntries(entries)
-    } catch (error) {
-      // Delegate to offline queue for retry
+    }
+    catch {
+      // Delegate to offline queue for retry. The error itself is deliberately
+      // not inspected — every failure mode here has the same remedy, and the
+      // queue is what carries the entries forward.
       this.offlineQueue.enqueue(entries)
-    } finally {
+    }
+    finally {
       this.flushing = false
     }
   }
@@ -101,7 +106,7 @@ export class WebhookTransport implements LogTransport {
     if (response.status >= 400 && response.status < 500) {
       // Client error — drop entries, retrying won't help
       console.warn(
-        `[WebhookTransport] HTTP ${response.status}: dropping ${entries.length} entries`
+        `[WebhookTransport] HTTP ${response.status}: dropping ${entries.length} entries`,
       )
       return
     }

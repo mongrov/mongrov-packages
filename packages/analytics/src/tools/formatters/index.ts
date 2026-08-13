@@ -10,7 +10,6 @@
  * Re-exported here so call sites keep importing from `'../formatters'`.
  */
 
-export { deltaPct, formatBytes, popStddev } from './text'
 export {
   applyPreferredLanguage,
   assertNoBanTerms,
@@ -20,3 +19,4 @@ export {
   FormatterCopyError,
   PREFERRED_LANGUAGE,
 } from './copy-guidelines'
+export { deltaPct, formatBytes, popStddev } from './text'

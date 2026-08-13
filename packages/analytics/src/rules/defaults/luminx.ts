@@ -2,8 +2,8 @@
  * LuminX brand default rules. Sidecar: `luminx.toml`.
  */
 
-import { parseCatalog } from './loader'
 import type { Rule } from '../schema'
+import { parseCatalog } from './loader'
 
 const TOML = `
 # LuminX brand default rules.

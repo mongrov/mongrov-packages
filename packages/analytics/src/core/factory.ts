@@ -11,25 +11,9 @@
  * stick to the 1-arg form.
  */
 
-import { createActor } from 'xstate'
-
-import { AnalyticsError, describeError, NotImplementedError } from './errors'
 import type { DuckDBFactory, DuckDBInstance } from './engine'
-import { HybridDuckDB } from './engine'
-import { bootstrapExtensions } from './extensions'
-import { resolveLogger } from './logger'
+
 import type { MachineActors } from './machine'
-import { analyticsMachine } from './machine'
-import { dismissInsight as dismissInsightImpl } from './insight'
-import { ensureMigrations } from './migrations'
-import {
-  clearLastAttach,
-  loadLastAttach,
-  loadRetentionOverride,
-  saveLastAttach,
-  saveRetentionOverride,
-} from './persistence'
-import { resolveEffectiveRetention, runRetentionSweep } from './retention'
 import type {
   AnalyticsAppender,
   AnalyticsConfig,
@@ -39,6 +23,22 @@ import type {
   R2AnalyticsConfig,
   Unsubscribe,
 } from './types'
+import { createActor } from 'xstate'
+import { HybridDuckDB } from './engine'
+import { AnalyticsError, describeError, NotImplementedError } from './errors'
+import { bootstrapExtensions } from './extensions'
+import { dismissInsight as dismissInsightImpl } from './insight'
+import { resolveLogger } from './logger'
+import { analyticsMachine } from './machine'
+import { ensureMigrations } from './migrations'
+import {
+  clearLastAttach,
+  loadLastAttach,
+  loadRetentionOverride,
+  saveLastAttach,
+  saveRetentionOverride,
+} from './persistence'
+import { resolveEffectiveRetention, runRetentionSweep } from './retention'
 import {
   attachLocal,
   attachWarehouse,
@@ -87,7 +87,7 @@ export interface CreateAnalyticsInternal {
 
 /**
  * Resolve when the actor next enters one of `targets` (excluding its
- * *current* state at the time of subscription).
+ * current* state at the time of subscription).
  */
 function waitForNextState<S extends string>(
   actor: ReturnType<typeof createActor<typeof analyticsMachine>>,
@@ -321,9 +321,11 @@ export function createAnalytics(
   async function getFamilyMembers(): Promise<string[]> {
     // Org tenants + local mode have no family fanout; unattached has no
     // tenant at all. Empty means "no fanout", never "denied".
-    if (!currentCtx || currentCtx.tenantScope !== 'family') return []
+    if (!currentCtx || currentCtx.tenantScope !== 'family')
+      return []
     const r2 = config as Partial<R2AnalyticsConfig>
-    if (typeof r2.familyMembersProvider !== 'function') return []
+    if (typeof r2.familyMembersProvider !== 'function')
+      return []
 
     const key = `${currentCtx.brand}:${currentCtx.tenantId}`
     const now = Date.now()
@@ -373,7 +375,8 @@ export function createAnalytics(
     )
     if (typeof iso === 'string') {
       const parsed = new Date(iso)
-      if (!Number.isNaN(parsed.getTime())) return parsed
+      if (!Number.isNaN(parsed.getTime()))
+        return parsed
     }
     return null
   }
@@ -389,7 +392,8 @@ export function createAnalytics(
     const brandDefault = brandCfg?.days ?? 0
     const userOverride = (await loadRetentionOverride(config.storage, ctx)) ?? undefined
     const effectiveDays = resolveEffectiveRetention({ brandDefault, userOverride })
-    if (effectiveDays <= 0) return
+    if (effectiveDays <= 0)
+      return
     const target = localCatalogName ?? await probeLocalCatalog(db)
     await runRetentionSweep(db, target, {
       effectiveDays,
@@ -415,7 +419,8 @@ export function createAnalytics(
   async function ensureReadyForAttach(): Promise<void> {
     for (let i = 0; i < 1000; i++) { // ~10s cap
       const s = currentState(actor)
-      if (s === 'ready' || s === 'attached') return
+      if (s === 'ready' || s === 'attached')
+        return
       if (s === 'error') {
         throw actor.getSnapshot().context.lastError
           ?? new AnalyticsError('engine_open_failed', 'engine transitioned to error before ready')

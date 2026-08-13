@@ -16,14 +16,14 @@ export type Unsubscribe = () => void
 export type TenantScope = 'family' | 'org'
 
 /** Machine state per analytics-core/spec.md §State machine. */
-export type AnalyticsState =
-  | 'idle'
-  | 'opening'
-  | 'ready'
-  | 'attaching'
-  | 'attached'
-  | 'detaching'
-  | 'error'
+export type AnalyticsState
+  = | 'idle'
+    | 'opening'
+    | 'ready'
+    | 'attaching'
+    | 'attached'
+    | 'detaching'
+    | 'error'
 
 // -------------------- attach / token --------------------
 
@@ -52,7 +52,7 @@ export interface TokenResponse {
 }
 
 export interface TokenVendor {
-  fetch(context: TokenContext): Promise<TokenResponse>
+  fetch: (context: TokenContext) => Promise<TokenResponse>
 }
 
 /** App-provided family membership. Reads Family.memberIds from RxDB in v1. */
@@ -64,10 +64,10 @@ export type FamilyMembersProvider = (ctx: {
 // -------------------- logging --------------------
 
 export interface AnalyticsLogger {
-  debug(message: string, meta?: Record<string, unknown>): void
-  info(message: string, meta?: Record<string, unknown>): void
-  warn(message: string, meta?: Record<string, unknown>): void
-  error(message: string, meta?: Record<string, unknown>): void
+  debug: (message: string, meta?: Record<string, unknown>) => void
+  info: (message: string, meta?: Record<string, unknown>) => void
+  warn: (message: string, meta?: Record<string, unknown>) => void
+  error: (message: string, meta?: Record<string, unknown>) => void
 }
 
 // -------------------- storage / event bus (structural, no runtime dep) --------------------
@@ -78,9 +78,9 @@ export interface AnalyticsLogger {
  * The app supplies an implementation (typically @mongrov/db KVStore).
  */
 export interface KVStore {
-  get<T = unknown>(key: string): Promise<T | undefined>
-  set<T = unknown>(key: string, value: T): Promise<void>
-  delete(key: string): Promise<void>
+  get: <T = unknown>(key: string) => Promise<T | undefined>
+  set: <T = unknown>(key: string, value: T) => Promise<void>
+  delete: (key: string) => Promise<void>
 }
 
 /**
@@ -89,12 +89,12 @@ export interface KVStore {
  * semantics documented in data-access/spec.md.
  */
 export interface EventBus {
-  emit<T>(name: string, payload: T): void
-  subscribe<T>(name: string, handler: (payload: T) => void): Unsubscribe
-  subscribePattern<T>(
+  emit: <T>(name: string, payload: T) => void
+  subscribe: <T>(name: string, handler: (payload: T) => void) => Unsubscribe
+  subscribePattern: <T>(
     pattern: string,
-    handler: (name: string, payload: T) => void
-  ): Unsubscribe
+    handler: (name: string, payload: T) => void,
+  ) => Unsubscribe
 }
 
 // -------------------- config --------------------
@@ -121,7 +121,7 @@ interface CommonAnalyticsConfig {
   retention: Record<string, { days: number }>
   extensions?: string[]
   dbPath?: string
-  duckdb?: { memoryLimit?: string; threads?: string }
+  duckdb?: { memoryLimit?: string, threads?: string }
   eventBus?: EventBus
 }
 
@@ -142,7 +142,7 @@ export interface R2AnalyticsConfig extends CommonAnalyticsConfig {
   warehouseUriBuilder: (
     brand: string,
     tenantScope: TenantScope,
-    tenantId: string
+    tenantId: string,
   ) => string
   catalogEndpoint: string
   tokenVendor: TokenVendor
@@ -154,17 +154,17 @@ export type AnalyticsConfig = LocalAnalyticsConfig | R2AnalyticsConfig
 // -------------------- engine + appender --------------------
 
 export interface AnalyticsAppender {
-  appendRow(values: unknown[]): void
-  flush(): void
-  close(): void
+  appendRow: (values: unknown[]) => void
+  flush: () => void
+  close: () => void
 }
 
 export interface AnalyticsEngine {
-  attach(ctx: AttachContext): Promise<void>
-  detach(): Promise<void>
-  execute<T = unknown>(sql: string, params?: Record<string, unknown>): Promise<T[]>
-  stream<T = unknown>(sql: string, params?: Record<string, unknown>): AsyncIterable<T[]>
-  createAppender(table: string): AnalyticsAppender
+  attach: (ctx: AttachContext) => Promise<void>
+  detach: () => Promise<void>
+  execute: <T = unknown>(sql: string, params?: Record<string, unknown>) => Promise<T[]>
+  stream: <T = unknown>(sql: string, params?: Record<string, unknown>) => AsyncIterable<T[]>
+  createAppender: (table: string) => AnalyticsAppender
   readonly state: AnalyticsState
   /** Last machine error surfaced; cleared on successful recovery. */
   readonly lastError: Error | null
@@ -177,7 +177,7 @@ export interface AnalyticsEngine {
    * wiring the R2 pusher/fetcher in local mode.
    */
   readonly mode: AnalyticsMode
-  subscribe(listener: (s: AnalyticsState) => void): Unsubscribe
+  subscribe: (listener: (s: AnalyticsState) => void) => Unsubscribe
   /**
    * Family member userIds for the current attach context (principle 39 —
    * "Rules engine and AI tools share the same source of truth").
@@ -191,7 +191,7 @@ export interface AnalyticsEngine {
    * local mode (no family fanout) — callers treat empty as "no fanout",
    * never as "denied".
    */
-  getFamilyMembers(): Promise<string[]>
+  getFamilyMembers: () => Promise<string[]>
   /**
    * Stamp `dismissed_at` on one insight (Sprint 5 §7b). Backs the app
    * registry's `insight.dismiss` mutation — `@mongrov/data-access` types
@@ -199,15 +199,15 @@ export interface AnalyticsEngine {
    *
    * Authorized by ownership: `userId` must match the insight's owner.
    */
-  dismissInsight(args: { insightId: string, userId: string }): Promise<void>
-  setRetention(days: number): Promise<void>
+  dismissInsight: (args: { insightId: string, userId: string }) => Promise<void>
+  setRetention: (days: number) => Promise<void>
   /**
    * Return the last successfully-attached ctx (persisted via KVStore) if it
    * was written within the freshness window (24h). Apps may pass the result
    * to `attach()` to auto-restore after a cold start.
    */
-  getLastAttach(brand: string): Promise<AttachContext | null>
-  close(): Promise<void>
+  getLastAttach: (brand: string) => Promise<AttachContext | null>
+  close: () => Promise<void>
 }
 
 // -------------------- insight (row in `insight` table) --------------------

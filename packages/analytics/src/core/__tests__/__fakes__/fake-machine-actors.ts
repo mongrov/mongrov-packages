@@ -6,8 +6,8 @@
  * refreshing, detaching) without racing timers.
  */
 
-import type { AttachContext } from '../../types'
 import type { AttachSuccess, MachineActors, RefreshSuccess } from '../../machine'
+import type { AttachContext } from '../../types'
 
 export interface Deferred<T> {
   promise: Promise<T>

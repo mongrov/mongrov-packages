@@ -28,7 +28,7 @@ export interface LogFilter {
 
 export interface LogTransport {
   name: string
-  send(entries: LogEntry[]): Promise<void>
+  send: (entries: LogEntry[]) => Promise<void>
 }
 
 export interface RingBufferConfig {

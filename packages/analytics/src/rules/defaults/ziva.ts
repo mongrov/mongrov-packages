@@ -6,8 +6,8 @@
  * back into this literal. Metro/tsup do not read `.toml` files directly.
  */
 
-import { parseCatalog } from './loader'
 import type { Rule } from '../schema'
+import { parseCatalog } from './loader'
 
 const TOML = `
 # Ziva brand default rules.

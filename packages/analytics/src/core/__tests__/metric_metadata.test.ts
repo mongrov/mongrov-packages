@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import type { MetricId } from '../metric_metadata'
 
+import { describe, expect, it } from 'vitest'
 import {
   getExposedMetricIds,
   isMetricExposed,
   METRIC_METADATA,
-  type MetricId,
+
 } from '../metric_metadata'
 import { TABLE_NAMES } from '../schemas'
 

@@ -25,13 +25,13 @@
  *   await t.close()
  */
 
-import { timingSafeEqual } from 'node:crypto'
-import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http'
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import type { Server as HttpServer, IncomingMessage, ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import type { ToolsLogger } from '../../types'
+import { timingSafeEqual } from 'node:crypto'
+import { createServer } from 'node:http'
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { assertMcpAllowed } from '../guard'
 
 export interface CreateHttpTransportConfig {
@@ -63,11 +63,13 @@ const UNAUTHORIZED_BODY = 'Unauthorized\n'
 const NOT_FOUND_BODY = 'Not Found\n'
 
 function bearerMatches(header: string | undefined, expected: string): boolean {
-  if (!header || !header.startsWith('Bearer ')) return false
+  if (!header || !header.startsWith('Bearer '))
+    return false
   const presented = header.slice('Bearer '.length)
   const a = Buffer.from(presented)
   const b = Buffer.from(expected)
-  if (a.length !== b.length) return false
+  if (a.length !== b.length)
+    return false
   return timingSafeEqual(a, b)
 }
 
@@ -76,7 +78,8 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', () => {
-      if (chunks.length === 0) return resolve(undefined)
+      if (chunks.length === 0)
+        return resolve(undefined)
       const raw = Buffer.concat(chunks).toString('utf8')
       try {
         resolve(raw.length > 0 ? JSON.parse(raw) : undefined)

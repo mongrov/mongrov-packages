@@ -24,10 +24,12 @@ import type { RequestContext } from './types'
  * and all three failed the first time the SQL was executed against a real
  * engine.
  */
+// `g` + `.exec`: the loop below runs to exhaustion, so lastIndex resets to 0.
+const PLACEHOLDER_RE = /\$([A-Z_]\w*)/gi
+
 export function referencedPlaceholders(sql: string): Set<string> {
   const out = new Set<string>()
-  const re = /\$([A-Za-z_][A-Za-z0-9_]*)/g
-  for (let m = re.exec(sql); m !== null; m = re.exec(sql)) out.add(m[1])
+  for (let m = PLACEHOLDER_RE.exec(sql); m !== null; m = PLACEHOLDER_RE.exec(sql)) out.add(m[1])
   return out
 }
 
@@ -44,7 +46,7 @@ export function referencedPlaceholders(sql: string): Set<string> {
 export function mergeTenantParams(
   input: unknown,
   ctx: RequestContext,
-  sql?: string
+  sql?: string,
 ): Record<string, unknown> {
   const base: Record<string, unknown> = {
     brand: ctx.brand,
@@ -59,12 +61,13 @@ export function mergeTenantParams(
       ? base
       : { ...(input as Record<string, unknown>), ...base }
 
-  if (sql === undefined) return merged
+  if (sql === undefined)
+    return merged
 
   // Drop anything the statement does not declare. Binding a parameter
   // DuckDB has never heard of is an error, not a no-op.
   const referenced = referencedPlaceholders(sql)
   return Object.fromEntries(
-    Object.entries(merged).filter(([key]) => referenced.has(key))
+    Object.entries(merged).filter(([key]) => referenced.has(key)),
   )
 }

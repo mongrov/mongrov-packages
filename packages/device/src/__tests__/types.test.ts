@@ -133,7 +133,7 @@ describe('Scan handling', () => {
     const adapter = createFakeAdapter()
     const candidates: ScanCandidate[] = []
 
-    await adapter.startScan((c) => candidates.push(c))
+    await adapter.startScan(c => candidates.push(c))
     expect(adapter.isScanning()).toBe(true)
 
     adapter.emitScanCandidate({ id: 'aa:bb', rssi: -60 })

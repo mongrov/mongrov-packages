@@ -1,25 +1,25 @@
-// Provider
-export { AIProvider, useAIClient, useAIConfig, useAIContext } from './ai-provider';
-export type { AIProviderProps } from './ai-provider';
-
-// Hooks
-export { useAIChat } from './use-ai-chat';
-export { useAICompletion } from './use-ai-completion';
-
 // Client
-export { createAIClient } from './ai-client';
+export { createAIClient } from './ai-client'
+// Provider
+export { AIProvider, useAIClient, useAIConfig, useAIContext } from './ai-provider'
 
+export type { AIProviderProps } from './ai-provider'
 // Types
 export type {
+  AIClient,
   AIConfig,
   AILogger,
-  AIClient,
-  Message,
-  MessageRole,
-  UseAIChatReturn,
-  UseAICompletionReturn,
   ChatScreenProps,
   ChatTheme,
-  StreamingTextProps,
+  Message,
+  MessageRole,
   QuickReplyBarProps,
-} from './types';
+  StreamingTextProps,
+  UseAIChatReturn,
+  UseAICompletionReturn,
+} from './types'
+
+// Hooks
+export { useAIChat } from './use-ai-chat'
+
+export { useAICompletion } from './use-ai-completion'

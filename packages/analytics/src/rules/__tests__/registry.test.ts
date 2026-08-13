@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createRulesRegistry } from '../registry'
 import { createFakeStorage } from '../__fakes__/fakeStorage'
+import { createRulesRegistry } from '../registry'
 import { RuleValidationError } from '../schema'
 
 const rule = {

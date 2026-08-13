@@ -3,24 +3,24 @@
 // Sprint 5 Phase 7 — T-34 implicit asyncFetch + T-35 `fetching` state
 // (spec §8, principle 57).
 
-import { QueryClient } from '@tanstack/react-query'
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import * as React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { z } from 'zod'
-
-import {
-  DataAccessProvider,
-  defineQuery,
-  resolveAsyncFetch,
-  useAppQuery,
-} from '../index'
 import type { EngineAdapters, FetchOnDemandRequest } from '../dispatcher'
 import type {
   QueryDefinition,
   Registry,
   RequestContext,
 } from '../types'
+import { QueryClient } from '@tanstack/react-query'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import * as React from 'react'
+
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
+import {
+  DataAccessProvider,
+  defineQuery,
+  resolveAsyncFetch,
+  useAppQuery,
+} from '../index'
 
 // --- fixtures ---------------------------------------------------------
 
@@ -35,7 +35,7 @@ function makeCtx(): RequestContext {
 }
 
 function makeRegistry(
-  queries: Record<string, QueryDefinition<unknown, unknown>>
+  queries: Record<string, QueryDefinition<unknown, unknown>>,
 ): Registry {
   return { queries, mutations: {}, events: {} }
 }
@@ -115,16 +115,16 @@ describe('T-34 · resolveAsyncFetch', () => {
 
   it('explicit asyncFetch: false is respected over inference', () => {
     expect(resolveAsyncFetch({ asyncFetch: false }, { days: 180 }, 90)).toBe(
-      false
+      false,
     )
   })
 
   it('explicit asyncFetch: true wins without any days input', () => {
     expect(resolveAsyncFetch({ asyncFetch: true }, { userId: 'u1' }, 90)).toBe(
-      true
+      true,
     )
     expect(
-      resolveAsyncFetch({ asyncFetch: true }, undefined, undefined)
+      resolveAsyncFetch({ asyncFetch: true }, undefined, undefined),
     ).toBe(true)
   })
 
@@ -160,7 +160,7 @@ describe('T-35 · useAppQuery fetching state', () => {
           engines: { duckdb: { execute, fetchOnDemand } },
           brandRetentionDays: 90,
         }),
-      }
+      },
     )
 
     // Local data serves normally while the R2 fetch is in flight.
@@ -204,7 +204,7 @@ describe('T-35 · useAppQuery fetching state', () => {
           engines: { duckdb: { execute, fetchOnDemand } },
           brandRetentionDays: 90,
         }),
-      }
+      },
     )
 
     await waitFor(() => expect(result.current.data).toEqual({ n: 7 }))
@@ -235,7 +235,7 @@ describe('T-35 · useAppQuery fetching state', () => {
           engines: { duckdb: { execute, fetchOnDemand } },
           brandRetentionDays: 90,
         }),
-      }
+      },
     )
 
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -258,7 +258,7 @@ describe('T-35 · useAppQuery fetching state', () => {
           engines: { duckdb: { execute, fetchOnDemand } },
           brandRetentionDays: 90,
         }),
-      }
+      },
     )
 
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -278,7 +278,7 @@ describe('T-35 · useAppQuery fetching state', () => {
           engines: { duckdb: { execute } },
           brandRetentionDays: 90,
         }),
-      }
+      },
     )
 
     await waitFor(() => expect(result.current.data).toEqual({ n: 1 }))
@@ -298,7 +298,7 @@ describe('T-35 · useAppQuery fetching state', () => {
           registry: makeRegistry({ 'spo2.range': rangeQuery() }),
           engines: { duckdb: { execute, fetchOnDemand } },
         }),
-      }
+      },
     )
 
     await waitFor(() => expect(result.current.loading).toBe(false))

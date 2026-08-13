@@ -7,8 +7,8 @@
  */
 
 import type { AnalyticsEngine, AttachContext } from '../core/types'
-import type { BatchFlusher } from './flusher'
 import type { FetchResult, R2Fetcher } from './fetcher'
+import type { BatchFlusher } from './flusher'
 import type { FirmwareExport, MapperContext } from './mapper/types'
 import type { R2Pusher } from './pusher'
 import type {

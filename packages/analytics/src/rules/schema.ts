@@ -7,8 +7,9 @@
  * via `rawSql` + `exposureOverride: true` (see validator.ts).
  */
 
+import type { MetricId } from '../core/metric_metadata'
 import { z } from 'zod'
-import { getExposedMetricIds, type MetricId } from '../core/metric_metadata'
+import { getExposedMetricIds } from '../core/metric_metadata'
 
 /** Custom error class for rule-schema / validator failures. */
 export class RuleValidationError extends Error {

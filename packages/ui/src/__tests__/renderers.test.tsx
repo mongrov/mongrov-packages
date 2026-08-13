@@ -1,44 +1,48 @@
-import React from 'react'
-import { renderHook, act } from '@testing-library/react'
+import type { Attachment, Message, Reaction } from '@mongrov/types'
+import { act, renderHook } from '@testing-library/react'
+import * as React from 'react'
 import { create } from 'react-test-renderer'
 import {
-  MessageRenderer,
-  useMessageRenderer,
   AttachmentRenderer,
-  useAttachmentRenderer,
+  MessageRenderer,
   ReactionPicker,
+  useAttachmentRenderer,
+  useMessageRenderer,
   useReactionPicker,
 } from '../renderers'
-import type { Message, Attachment, Reaction } from '@mongrov/types'
 
 // ─── Test Data ──────────────────────────────────────────────────────────────
 
-const createMessage = (overrides?: Partial<Message>): Message => ({
-  id: 'msg-1',
-  conversationId: 'conv-1',
-  sender: {
-    id: 'user-1',
-    name: 'Alice',
-    type: 'human',
-  },
-  content: {
-    type: 'text',
-    text: 'Hello world',
-  },
-  deliveryStatus: 'sent',
-  createdAt: new Date().toISOString(),
-  ...overrides,
-})
+function createMessage(overrides?: Partial<Message>): Message {
+  return {
+    id: 'msg-1',
+    conversationId: 'conv-1',
+    sender: {
+      id: 'user-1',
+      name: 'Alice',
+      type: 'human',
+    },
+    content: {
+      type: 'text',
+      text: 'Hello world',
+    },
+    deliveryStatus: 'sent',
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  }
+}
 
-const createAttachment = (overrides?: Partial<Attachment>): Attachment => ({
-  id: 'att-1',
-  type: 'image',
-  uri: 'https://example.com/image.jpg',
-  fileName: 'image.jpg',
-  mimeType: 'image/jpeg',
-  size: 1024 * 100, // 100KB
-  ...overrides,
-})
+function createAttachment(overrides?: Partial<Attachment>): Attachment {
+  return {
+    id: 'att-1',
+    type: 'image',
+    uri: 'https://example.com/image.jpg',
+    fileName: 'image.jpg',
+    mimeType: 'image/jpeg',
+    size: 1024 * 100, // 100KB
+    ...overrides,
+  }
+}
 
 // ─── MessageRenderer Tests ──────────────────────────────────────────────────
 // Hook tests are skipped due to React instance mismatch in monorepo
@@ -172,7 +176,7 @@ describe('MessageRenderer', () => {
           expect(props.content.text).toBe('Hello world')
           return null
         }}
-      </MessageRenderer>
+      </MessageRenderer>,
     )
 
     expect(renderPropsReceived).toBe(true)
@@ -242,7 +246,7 @@ describe.skip('useAttachmentRenderer', () => {
       fileName: 'doc.pdf',
     })
     const { result: pdfResult } = renderHook(() =>
-      useAttachmentRenderer(pdfAttachment)
+      useAttachmentRenderer(pdfAttachment),
     )
     expect(pdfResult.current.mimeCategory).toBe('pdf')
 
@@ -252,7 +256,7 @@ describe.skip('useAttachmentRenderer', () => {
       fileName: 'doc.doc',
     })
     const { result: docResult } = renderHook(() =>
-      useAttachmentRenderer(docAttachment)
+      useAttachmentRenderer(docAttachment),
     )
     expect(docResult.current.mimeCategory).toBe('document')
   })
@@ -260,7 +264,7 @@ describe.skip('useAttachmentRenderer', () => {
   it('should track loading state', () => {
     const attachment = createAttachment()
     const { result } = renderHook(() =>
-      useAttachmentRenderer(attachment, { isLoading: true, progress: 50 })
+      useAttachmentRenderer(attachment, { isLoading: true, progress: 50 }),
     )
 
     expect(result.current.isLoading).toBe(true)
@@ -270,7 +274,7 @@ describe.skip('useAttachmentRenderer', () => {
   it('should provide icon name', () => {
     const imageAtt = createAttachment({ type: 'image' })
     const { result: imgResult } = renderHook(() =>
-      useAttachmentRenderer(imageAtt)
+      useAttachmentRenderer(imageAtt),
     )
     expect(imgResult.current.iconName).toBe('image')
 
@@ -297,7 +301,7 @@ describe('AttachmentRenderer', () => {
           expect(props.isImage).toBe(true)
           return null
         }}
-      </AttachmentRenderer>
+      </AttachmentRenderer>,
     )
 
     expect(renderPropsReceived).toBe(true)
@@ -319,7 +323,7 @@ describe.skip('useReactionPicker', () => {
         currentUserId: 'user-1',
         onReactionToggle: jest.fn(),
         quickReactions: ['👍', '❤️', '😂'],
-      })
+      }),
     )
 
     expect(result.current.quickReactions).toHaveLength(3)
@@ -341,7 +345,7 @@ describe.skip('useReactionPicker', () => {
         reactions,
         currentUserId: 'user-2',
         onReactionToggle: jest.fn(),
-      })
+      }),
     )
 
     expect(result.current.currentReactions).toHaveLength(2)
@@ -356,7 +360,7 @@ describe.skip('useReactionPicker', () => {
         reactions: [],
         currentUserId: 'user-1',
         onReactionToggle: onToggle,
-      })
+      }),
     )
 
     act(() => {
@@ -374,7 +378,7 @@ describe.skip('useReactionPicker', () => {
         currentUserId: 'user-1',
         onReactionToggle: jest.fn(),
         onToggleFullPicker,
-      })
+      }),
     )
 
     expect(result.current.isFullPickerOpen).toBe(false)
@@ -398,7 +402,7 @@ describe.skip('useReactionPicker', () => {
         reactions,
         currentUserId: 'user-1',
         onReactionToggle: jest.fn(),
-      })
+      }),
     )
 
     expect(result.current.totalReactionCount).toBe(3)
@@ -411,7 +415,7 @@ describe.skip('useReactionPicker', () => {
         reactions: [],
         currentUserId: 'user-1',
         onReactionToggle: jest.fn(),
-      })
+      }),
     )
 
     expect(result.current.quickReactions.length).toBeGreaterThan(0)
@@ -434,7 +438,7 @@ describe('ReactionPicker', () => {
           expect(props.quickReactions).toBeDefined()
           return null
         }}
-      </ReactionPicker>
+      </ReactionPicker>,
     )
 
     expect(renderPropsReceived).toBe(true)

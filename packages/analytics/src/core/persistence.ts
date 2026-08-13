@@ -65,7 +65,8 @@ export async function loadLastAttach(
   now: number = Date.now(),
 ): Promise<AttachContext | null> {
   const record = await kv.get<LastAttachRecord>(lastAttachKey(brand))
-  if (!record) return null
+  if (!record)
+    return null
   if (now - record.attachedAt > LAST_ATTACH_TTL_MS) {
     // Best-effort cleanup — swallow errors so a flaky KV can't wedge callers.
     try {

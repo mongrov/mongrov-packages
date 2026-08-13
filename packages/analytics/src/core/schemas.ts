@@ -22,8 +22,8 @@
  * `LOCAL_SCHEMAS`.
  */
 
-import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
+import { AnalyticsError } from './errors'
 
 /** Ordered list of every warehouse table. Order = creation order. */
 export const TABLE_NAMES = [
@@ -384,8 +384,12 @@ const REMOTE_NAMESPACE_VIEW = 'default'
  * parameters, so brand/familyId are inlined — escaping is mandatory, not
  * optional, even though both values are server-issued.
  */
+const SINGLE_QUOTE_RE = /'/g
+const BARE_IDENT_RE = /^[A-Z_]\w*$/i
+const PARTITIONED_BY_TAIL_RE = /\)\s*PARTITIONED BY[\s\S]*$/
+
 function sqlLiteral(value: string): string {
-  return `'${value.replace(/'/g, `''`)}'`
+  return `'${value.replace(SINGLE_QUOTE_RE, `''`)}'`
 }
 
 /** `DROP VIEW IF EXISTS v_{table}` for detach + brand switch. */
@@ -412,12 +416,14 @@ export function quoteQualifier(qualifier: string): string {
   return qualifier
     .split('.')
     .map((part) => {
-      if (part.startsWith('"') && part.endsWith('"')) return part
+      if (part.startsWith('"') && part.endsWith('"'))
+        return part
       // Leave plain identifiers bare. Quoting everything would work, but it
       // churns every emitted statement and makes the SQL harder to read for
       // the common `memory` / `main` case; only names that actually need it
       // get quoted.
-      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(part)) return part
+      if (BARE_IDENT_RE.test(part))
+        return part
       return `"${part.split('"').join('""')}"`
     })
     .join('.')
@@ -446,7 +452,7 @@ export function toLocalDdl(baseDdl: string): string {
   // The clause always terminates the DDL, and its column list contains
   // nested parens (`day(ts)`), so strip from the closing table paren to
   // end-of-string rather than trying to match the paren group.
-  return baseDdl.replace(/\)\s*PARTITIONED BY[\s\S]*$/, ');')
+  return baseDdl.replace(PARTITIONED_BY_TAIL_RE, ');')
 }
 
 /**

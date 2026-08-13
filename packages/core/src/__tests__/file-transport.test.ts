@@ -1,8 +1,8 @@
-import { FileTransport } from '../transports/file'
-import type { LogEntry, LogContext } from '../types'
-
+import type { LogContext, LogEntry } from '../types'
 // Import the auto-mapped mock
 import * as ExpoFileSystem from 'expo-file-system'
+
+import { FileTransport } from '../transports/file'
 
 const mockFs = ExpoFileSystem as unknown as {
   documentDirectory: string
@@ -33,7 +33,7 @@ function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
 
 function clearMockFiles() {
   const files = mockFs.__mockFiles
-  Object.keys(files).forEach((k) => delete files[k])
+  Object.keys(files).forEach(k => delete files[k])
 }
 
 describe('FileTransport', () => {
@@ -108,7 +108,7 @@ describe('FileTransport', () => {
     await transport.send([makeEntry()])
 
     const paths = Object.keys(mockFs.__mockFiles)
-    expect(paths.some((p) => p.startsWith('/custom/logs/'))).toBe(true)
+    expect(paths.some(p => p.startsWith('/custom/logs/'))).toBe(true)
   })
 
   it('should ensure directory exists on first write', async () => {
@@ -123,7 +123,7 @@ describe('FileTransport', () => {
 
     expect(mockFs.makeDirectoryAsync).toHaveBeenCalledWith(
       '/mock/documents/logs/',
-      { intermediates: true }
+      { intermediates: true },
     )
   })
 
@@ -135,7 +135,7 @@ describe('FileTransport', () => {
 
     expect(mockFs.deleteAsync).toHaveBeenCalledWith(
       '/mock/documents/logs/logs-2020-01-01.txt',
-      { idempotent: true }
+      { idempotent: true },
     )
   })
 
@@ -168,7 +168,7 @@ describe('FileTransport', () => {
     const newFile = `/mock/documents/logs/logs-${fmtDate(yesterday)}.txt`
 
     // Create files whose total size exceeds 1 MB (using string length as byte size in mock)
-    const bigContent = 'x'.repeat(600_000) + '\n' // ~600 KB each
+    const bigContent = `${'x'.repeat(600_000)}\n` // ~600 KB each
     mockFs.__mockFiles[oldFile] = bigContent
     mockFs.__mockFiles[newFile] = bigContent
 
@@ -179,15 +179,15 @@ describe('FileTransport', () => {
     // The oldest file should have been deleted to bring total under 1 MB
     expect(mockFs.deleteAsync).toHaveBeenCalledWith(
       oldFile,
-      { idempotent: true }
+      { idempotent: true },
     )
     // The newer file should still exist
     expect(mockFs.__mockFiles[newFile]).toBeDefined()
   })
 
   it('should read a specific log file', async () => {
-    mockFs.__mockFiles['/mock/documents/logs/logs-2024-06-01.txt'] =
-      '{"level":"info","message":"hello"}\n'
+    mockFs.__mockFiles['/mock/documents/logs/logs-2024-06-01.txt']
+      = '{"level":"info","message":"hello"}\n'
 
     const transport = new FileTransport()
     const content = await transport.readFile('logs-2024-06-01.txt')

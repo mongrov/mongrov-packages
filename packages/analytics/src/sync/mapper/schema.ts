@@ -15,8 +15,8 @@
  * exactly this set.
  */
 
-import { z } from 'zod'
 import type { FirmwareExport } from './types'
+import { z } from 'zod'
 
 /** Firmware timestamp: `"YYYY.MM.DD HH:MM:SS"` UTC wall-clock (see time.ts). */
 const firmwareTimestamp = z.string().regex(

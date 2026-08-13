@@ -8,12 +8,12 @@
  *   3. block awaits drain() before accepting subsequent pushes.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SensorBatch } from '../types'
 
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { SensorBuffer } from '../buffer'
 import { OverflowStore } from '../overflow'
-import type { SensorBatch } from '../types'
 
 function makeBatch(table: string, rows: number, seed = 0): SensorBatch {
   return {

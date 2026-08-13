@@ -15,8 +15,14 @@ import { createBaselineReader } from '../baseline-reader'
 const CTX = { brand: 'ziva', familyId: 'fam1' }
 
 const STORED = {
-  p05: 92, p10: 93, p50: 96, p90: 98, p95: 99,
-  mean: 96, stddev: 1.5, sample_count: 28,
+  p05: 92,
+  p10: 93,
+  p50: 96,
+  p90: 98,
+  p95: 99,
+  mean: 96,
+  stddev: 1.5,
+  sample_count: 28,
 }
 
 /** Engine stub: separate scripts for the stored read and the on-read compute. */
@@ -32,7 +38,8 @@ function engineWith(opts: {
       async execute(sql: string, params?: Record<string, unknown>) {
         calls.push({ sql, params: params ?? {} })
         if (sql.includes('FROM user_baseline')) {
-          if (opts.throwOn === 'stored') throw new Error('table missing')
+          if (opts.throwOn === 'stored')
+            throw new Error('table missing')
           return opts.stored ? [opts.stored] : []
         }
         return opts.computed ? [opts.computed] : []
@@ -51,8 +58,11 @@ describe('stored path', () => {
     expect(b).toMatchObject({ p10: 93, p50: 96, sampleCount: 28, computedOnRead: false })
     expect(calls[0].sql).toContain('FROM user_baseline')
     expect(calls[0].params).toMatchObject({
-      brand: 'ziva', familyId: 'fam1', userId: 'alice',
-      metric: 'spo2', windowDays: 30,
+      brand: 'ziva',
+      familyId: 'fam1',
+      userId: 'alice',
+      metric: 'spo2',
+      windowDays: 30,
     })
   })
 

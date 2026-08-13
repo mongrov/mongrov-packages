@@ -1,6 +1,6 @@
+import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, formatBytes, popStddev } from '../formatters'
-import type { ToolImpl, ToolResult } from '../types'
 
 export const detectAnomalyInputSchema = z.object({
   userId: z.string(),
@@ -94,10 +94,10 @@ export const detectAnomaly: ToolImpl<DetectAnomalyInput> = async (
 
   const text
     = `${spec.label} anomalies (last ${input.lookbackDays}d, `
-    + `threshold ${input.stddevThreshold}σ):\n`
-    + `  baseline: mean ${mean.toFixed(1)}${spec.unit}, `
-    + `stddev ${stddev.toFixed(1)}${spec.unit}\n`
-    + `${outlierText}`
+      + `threshold ${input.stddevThreshold}σ):\n`
+      + `  baseline: mean ${mean.toFixed(1)}${spec.unit}, `
+      + `stddev ${stddev.toFixed(1)}${spec.unit}\n`
+      + `${outlierText}`
 
   return finalize(text, outliers.length)
 }

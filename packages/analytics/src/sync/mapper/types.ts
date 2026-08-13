@@ -2,7 +2,7 @@
  * Firmware and mapped-row types shared across every mapper module.
  *
  * Firmware shapes (`Firmware*Row`, `FirmwareExport`, `FirmwareRingConfig`) are
- * *input* — they mirror the JSON the ring firmware emits at sync time.
+ * input* — they mirror the JSON the ring firmware emits at sync time.
  *
  * Row shapes (`HrvRow`, `HeartRateRow`, ...) are *output* — they match the
  * warehouse DDL in `core/schemas.ts`. Every mapper is a pure function from

@@ -11,41 +11,6 @@ export * from './audit'
 export * from './authorize'
 export * from './budget'
 export * from './factory'
-export * from './rate-limit'
-export * from './types'
-export * from './wrap'
-
-export {
-  getHRV,
-  getHRVInputSchema,
-  type GetHRVInput,
-} from './impls/hrv'
-export {
-  getSleepSummary,
-  getSleepSummaryInputSchema,
-  type GetSleepSummaryInput,
-} from './impls/sleep'
-export {
-  getActivityTotal,
-  getActivityTotalInputSchema,
-  type GetActivityTotalInput,
-} from './impls/activity'
-export {
-  compareTrend,
-  compareTrendInputSchema,
-  type CompareTrendInput,
-} from './impls/compare'
-export {
-  detectAnomaly,
-  detectAnomalyInputSchema,
-  type DetectAnomalyInput,
-} from './impls/anomaly'
-export {
-  getInsights,
-  getInsightsInputSchema,
-  type GetInsightsInput,
-} from './impls/insights'
-
 // Copy guardrails (Sprint 5 T-29, principle 37). Exported so app-side
 // formatters and registry `transform` functions can apply the same
 // contract to text they generate.
@@ -58,3 +23,38 @@ export {
   FormatterCopyError,
   PREFERRED_LANGUAGE,
 } from './formatters'
+export {
+  getActivityTotal,
+  type GetActivityTotalInput,
+  getActivityTotalInputSchema,
+} from './impls/activity'
+export {
+  detectAnomaly,
+  type DetectAnomalyInput,
+  detectAnomalyInputSchema,
+} from './impls/anomaly'
+
+export {
+  compareTrend,
+  type CompareTrendInput,
+  compareTrendInputSchema,
+} from './impls/compare'
+export {
+  getHRV,
+  type GetHRVInput,
+  getHRVInputSchema,
+} from './impls/hrv'
+export {
+  getInsights,
+  type GetInsightsInput,
+  getInsightsInputSchema,
+} from './impls/insights'
+export {
+  getSleepSummary,
+  type GetSleepSummaryInput,
+  getSleepSummaryInputSchema,
+} from './impls/sleep'
+export * from './rate-limit'
+export * from './types'
+
+export * from './wrap'

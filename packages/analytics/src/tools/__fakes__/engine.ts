@@ -35,14 +35,17 @@ export function createFakeEngine(): FakeEngine {
     async getFamilyMembers() {
       // Honour `setError` so fail-closed tests exercise a real throw from
       // the membership path, not an incidental empty roster.
-      if (error) throw error
+      if (error)
+        throw error
       return familyMembers
     },
     async execute<T>(sql: string, params?: Record<string, unknown>): Promise<T[]> {
       calls.push({ sql, params: params ?? {} })
-      if (error) throw error
+      if (error)
+        throw error
       const idx = queues.findIndex(q => sql.includes(q.substring))
-      if (idx === -1) return [] as T[]
+      if (idx === -1)
+        return [] as T[]
       const [q] = queues.splice(idx, 1)
       return q.rows as T[]
     },

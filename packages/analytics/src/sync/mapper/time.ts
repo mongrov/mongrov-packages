@@ -52,7 +52,7 @@ export function parseTimestamp(fwStr: string): Date {
   const iso = `${y}-${pad(m)}-${pad(d)}T${pad(hh)}:${pad(mm)}:${pad(ss)}.000Z`
   const parsed = new Date(iso)
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error(
+    throw new TypeError(
       `parseTimestamp: produced an invalid Date from ${JSON.stringify(fwStr)}`,
     )
   }

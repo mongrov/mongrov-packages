@@ -9,6 +9,8 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { createFakeEngine } from '../__fakes__/engine'
+import { createAnalyticsTools } from '../factory'
 import {
   applyPreferredLanguage,
   assertNoBanTerms,
@@ -18,8 +20,6 @@ import {
   PREFERRED_LANGUAGE,
 } from '../formatters'
 import { formatSpO2 } from '../formatters/spo2'
-import { createAnalyticsTools } from '../factory'
-import { createFakeEngine } from '../__fakes__/engine'
 
 describe('assertNoBanTerms', () => {
   it.each(BANNED_MEDICAL_VOCABULARY)('throws on %s', (term) => {

@@ -1,13 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import type { Migration } from '../migrations'
 
+import { describe, expect, it } from 'vitest'
 import { HybridDuckDB } from '../engine'
-import { LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
 import {
   CURRENT_VERSION,
   ensureMigrations,
-  type Migration,
+
   schemaVersionKey,
 } from '../migrations'
+import { LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
 import { createFakeKV } from './__fakes__/fake-kv'

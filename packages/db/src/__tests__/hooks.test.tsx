@@ -2,18 +2,18 @@
  * Tests for React hooks
  */
 
-import React from 'react'
-import { renderHook, act, waitFor } from '@testing-library/react'
+import type { DatabaseConfig } from '../types'
+import { act, renderHook, waitFor } from '@testing-library/react'
+import * as React from 'react'
+import { __clearAllDatabases } from '../../__mocks__/rxdb'
+import { createDatabase } from '../database'
 import {
   DatabaseProvider,
-  useDatabase,
   useCollection,
-  useQuery,
+  useDatabase,
   useDocument,
+  useQuery,
 } from '../hooks'
-import { createDatabase } from '../database'
-import type { DatabaseConfig } from '../types'
-import { __clearAllDatabases } from '../../__mocks__/rxdb'
 
 // Sample schema for testing
 const messageSchema = {
@@ -72,14 +72,15 @@ describe('useDatabase', () => {
     const { result } = renderHook(() => {
       try {
         return useDatabase()
-      } catch (error) {
+      }
+      catch (error) {
         return error
       }
     })
 
     expect(result.current).toBeInstanceOf(Error)
     expect((result.current as Error).message).toContain(
-      '[useDatabase] Hook called outside of DatabaseProvider'
+      '[useDatabase] Hook called outside of DatabaseProvider',
     )
   })
 })
@@ -194,7 +195,7 @@ describe('useQuery', () => {
         useQuery('messages', {
           selector: { createdAt: { $gt: 150 } },
         }),
-      { wrapper }
+      { wrapper },
     )
 
     await waitFor(() => {
@@ -330,7 +331,7 @@ describe('useDocument', () => {
 
     const { result } = renderHook(
       () => useDocument('messages', 'msg-refetch-doc'),
-      { wrapper }
+      { wrapper },
     )
 
     await waitFor(() => {

@@ -14,41 +14,41 @@ export { createDatabase, destroyDatabase } from './database'
 // React hooks
 export {
   DatabaseProvider,
-  useDatabase,
   useCollection,
-  useQuery,
+  useDatabase,
   useDocument,
+  useQuery,
 } from './hooks'
 export type {
   DatabaseProviderProps,
-  QueryResult,
   DocumentResult,
+  QueryResult,
 } from './hooks'
 
 // Replication
 export {
-  createReplicationState,
   cancelReplication,
+  createReplicationState,
   resyncReplication,
 } from './replication'
 
 // Types — re-exported for convenience so consumers can import everything from
 // the engine subpath without dipping into the root entry.
 export type {
-  DBLogger,
-  DatabaseConfig,
   CollectionConfig,
+  DatabaseConfig,
+  DBLogger,
+  MangoQueryType,
   MigrationStrategies,
   MigrationStrategy,
-  RxStorageType,
-  RxJsonSchemaType,
-  RxDatabaseType,
-  RxCollectionType,
-  RxDocumentType,
-  MangoQueryType,
-  RxReplicationStateType,
   ReplicationCheckpoint,
-  ReplicationPushHandler,
-  ReplicationPullHandler,
   ReplicationConfig,
+  ReplicationPullHandler,
+  ReplicationPushHandler,
+  RxCollectionType,
+  RxDatabaseType,
+  RxDocumentType,
+  RxJsonSchemaType,
+  RxReplicationStateType,
+  RxStorageType,
 } from './types'

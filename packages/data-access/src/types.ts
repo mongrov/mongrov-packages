@@ -47,12 +47,12 @@ export type Unsubscribe = () => void
  * See spec.md §Invalidation event bus for the full matching table.
  */
 export interface EventBus {
-  emit<T>(name: string, payload: T): void
-  subscribe<T>(name: string, handler: (payload: T) => void): Unsubscribe
-  subscribePattern<T>(
+  emit: <T>(name: string, payload: T) => void
+  subscribe: <T>(name: string, handler: (payload: T) => void) => Unsubscribe
+  subscribePattern: <T>(
     pattern: string,
-    handler: (name: string, payload: T) => void
-  ): Unsubscribe
+    handler: (name: string, payload: T) => void,
+  ) => Unsubscribe
 }
 
 /**
@@ -64,7 +64,7 @@ interface QueryConfigBase<TInput, TOutput> {
   invalidatedBy?: string[]
   authorize?: (
     input: TInput,
-    ctx: RequestContext
+    ctx: RequestContext,
   ) => boolean | Promise<boolean>
   staleTime?: number
   gcTime?: number
@@ -82,7 +82,7 @@ export interface DeriveContext<TInput = unknown> extends RequestContext {
 /** Pure derivation from raw engine rows to the declared output shape. */
 export type TransformFn<TInput, TOutput> = (
   raw: unknown,
-  ctx: DeriveContext<TInput>
+  ctx: DeriveContext<TInput>,
 ) => TOutput
 
 export interface DuckdbQueryConfig<TInput, TOutput>
@@ -137,10 +137,10 @@ export interface KvQueryConfig<TInput, TOutput>
  * Union of engine-specific query configs. Screens supply the appropriate
  * branch; `defineQuery` enforces the required field at runtime as well.
  */
-export type QueryConfig<TInput, TOutput> =
-  | DuckdbQueryConfig<TInput, TOutput>
-  | RxdbQueryConfig<TInput, TOutput>
-  | KvQueryConfig<TInput, TOutput>
+export type QueryConfig<TInput, TOutput>
+  = | DuckdbQueryConfig<TInput, TOutput>
+    | RxdbQueryConfig<TInput, TOutput>
+    | KvQueryConfig<TInput, TOutput>
 
 /**
  * Opaque handle returned by defineQuery. Screens read via
@@ -150,7 +150,7 @@ export type QueryConfig<TInput, TOutput> =
 export interface QueryDefinition<TInput, TOutput> {
   readonly __kind: 'query'
   readonly config: QueryConfig<TInput, TOutput>
-  readonly __types?: { input: TInput; output: TOutput }
+  readonly __types?: { input: TInput, output: TOutput }
 }
 
 /**
@@ -163,19 +163,19 @@ export interface QueryDefinition<TInput, TOutput> {
 export interface MutationContext extends RequestContext {
   /** KV write access (MMKV/SecureStore via the provider's kv engine). */
   kv: {
-    get(key: string): Promise<unknown>
-    set(key: string, value: unknown): Promise<void>
-    delete?(key: string): Promise<void>
+    get: (key: string) => Promise<unknown>
+    set: (key: string, value: unknown) => Promise<void>
+    delete?: (key: string) => Promise<void>
   }
   /** Analytics engine access — for internal mutations like dismissInsight. */
   analytics: {
-    dismissInsight(args: { insightId: string; userId: string }): Promise<void>
-    execute?(sql: string, params?: Record<string, unknown>): Promise<unknown[]>
+    dismissInsight: (args: { insightId: string, userId: string }) => Promise<void>
+    execute?: (sql: string, params?: Record<string, unknown>) => Promise<unknown[]>
   }
   /** RxDB write access — for collab mutations. Opaque handle. */
   rxdb?: unknown
   /** Emit an event manually (in addition to auto-emit from `invalidates`). */
-  emit(event: string, payload?: unknown): void
+  emit: (event: string, payload?: unknown) => void
 }
 
 export interface MutationConfig<TInput, TOutput> {
@@ -185,7 +185,7 @@ export interface MutationConfig<TInput, TOutput> {
   invalidates?: string[]
   authorize?: (
     input: TInput,
-    ctx: RequestContext
+    ctx: RequestContext,
   ) => boolean | Promise<boolean>
   optimistic?: (input: TInput, ctx: RequestContext) => TOutput
 }
@@ -193,7 +193,7 @@ export interface MutationConfig<TInput, TOutput> {
 export interface MutationDefinition<TInput, TOutput> {
   readonly __kind: 'mutation'
   readonly config: MutationConfig<TInput, TOutput>
-  readonly __types?: { input: TInput; output: TOutput }
+  readonly __types?: { input: TInput, output: TOutput }
 }
 
 export interface EventDefinition<TPayload> {

@@ -16,10 +16,10 @@
  * observe via `subscribe`.
  */
 
-import { assign, fromPromise, setup } from 'xstate'
-
-import { AnalyticsError } from './errors'
 import type { AttachContext } from './types'
+
+import { assign, fromPromise, setup } from 'xstate'
+import { AnalyticsError } from './errors'
 
 // -------------------- token TTL math --------------------
 
@@ -78,26 +78,26 @@ export interface MachineContext {
   lastError: AnalyticsError | undefined
 }
 
-export type MachineEvent =
-  | { type: 'OPEN' }
-  | { type: 'ATTACH'; ctx: AttachContext }
-  | { type: 'DETACH' }
-  | { type: 'CLOSE' }
-  | { type: 'TOKEN_REFRESH_TICK' }
+export type MachineEvent
+  = | { type: 'OPEN' }
+    | { type: 'ATTACH', ctx: AttachContext }
+    | { type: 'DETACH' }
+    | { type: 'CLOSE' }
+    | { type: 'TOKEN_REFRESH_TICK' }
 
 export interface MachineInput {
   deps: MachineActors
 }
 
-export type MachineState =
-  | 'idle'
-  | 'opening'
-  | 'ready'
-  | 'attaching'
-  | 'attached'
-  | 'refreshing'
-  | 'detaching'
-  | 'error'
+export type MachineState
+  = | 'idle'
+    | 'opening'
+    | 'ready'
+    | 'attaching'
+    | 'attached'
+    | 'refreshing'
+    | 'detaching'
+    | 'error'
 
 // -------------------- error normalisation --------------------
 
@@ -123,21 +123,22 @@ export const analyticsMachine = setup({
     openEngine: fromPromise<void, { deps: MachineActors }>(async ({ input }) => {
       await input.deps.openEngine()
     }),
-    attachEngine: fromPromise<AttachSuccess, { deps: MachineActors; ctx: AttachContext }>(
+    attachEngine: fromPromise<AttachSuccess, { deps: MachineActors, ctx: AttachContext }>(
       async ({ input }) => input.deps.attachEngine({ ctx: input.ctx }),
     ),
-    detachEngine: fromPromise<void, { deps: MachineActors; ctx: AttachContext }>(
+    detachEngine: fromPromise<void, { deps: MachineActors, ctx: AttachContext }>(
       async ({ input }) => {
         await input.deps.detachEngine({ ctx: input.ctx })
       },
     ),
-    refreshToken: fromPromise<RefreshSuccess, { deps: MachineActors; ctx: AttachContext }>(
+    refreshToken: fromPromise<RefreshSuccess, { deps: MachineActors, ctx: AttachContext }>(
       async ({ input }) => input.deps.refreshToken({ ctx: input.ctx }),
     ),
   },
   actions: {
     assignAttachCtx: assign(({ event }) => {
-      if (event.type !== 'ATTACH') return {}
+      if (event.type !== 'ATTACH')
+        return {}
       return { ctx: event.ctx }
     }),
     assignAttachSuccess: assign((_, params: { output: AttachSuccess }) => ({

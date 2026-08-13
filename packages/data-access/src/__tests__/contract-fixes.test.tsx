@@ -12,12 +12,20 @@
  *   rename · RequestContext.userId canonical + requesterUserId alias
  */
 
+import type { DuckdbEngine, EngineAdapters, KvEngine } from '../dispatcher'
+import type {
+  DuckdbQueryConfig,
+  MutationContext,
+  Registry,
+  RequestContext,
+} from '../types'
 import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react'
 import * as React from 'react'
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-
+import { DataAccessError } from '../errors'
 import {
   createEventBus,
   DataAccessProvider,
@@ -27,14 +35,6 @@ import {
   useAppQuery,
   useRequestContext,
 } from '../index'
-import type { DuckdbEngine, EngineAdapters, KvEngine } from '../dispatcher'
-import { DataAccessError } from '../errors'
-import type {
-  DuckdbQueryConfig,
-  MutationContext,
-  Registry,
-  RequestContext,
-} from '../types'
 
 afterEach(() => {
   cleanup()
@@ -104,7 +104,7 @@ describe('DA-1 · duckdb `transform` field', () => {
     })
     const config = def.config as DuckdbQueryConfig<{ userId: string }, { n: number }>
     expect(config.transform).toBe(
-      'apps/zivaone/src/features/spo2/utils/derive-day.ts'
+      'apps/zivaone/src/features/spo2/utils/derive-day.ts',
     )
   })
 
@@ -125,7 +125,7 @@ describe('DA-2 · MutationContext passed to exec', () => {
   it('wires kv.set / kv.get through the provider kv engine', async () => {
     const store = new Map<string, unknown>()
     const kv: KvEngine = {
-      get: (key) => store.get(key),
+      get: key => store.get(key),
       set: (key, value) => {
         store.set(key, value)
       },
@@ -145,10 +145,10 @@ describe('DA-2 · MutationContext passed to exec', () => {
     }
 
     const { result } = renderHook(
-      () => useAppMutation<{ userId: string; value: number }, void>(
-        'user.setSpo2SafeLevel'
+      () => useAppMutation<{ userId: string, value: number }, void>(
+        'user.setSpo2SafeLevel',
       ),
-      { wrapper: wrapperWith(registry, { kv }) }
+      { wrapper: wrapperWith(registry, { kv }) },
     )
 
     await act(async () => {
@@ -158,7 +158,7 @@ describe('DA-2 · MutationContext passed to exec', () => {
   })
 
   it('wires analytics.dismissInsight through the duckdb engine', async () => {
-    const dismissInsight = vi.fn(async (_args: { insightId: string; userId: string }) => {})
+    const dismissInsight = vi.fn(async (_args: { insightId: string, userId: string }) => {})
     const duckdb: DuckdbEngine = {
       execute: async () => [],
       dismissInsight,
@@ -178,10 +178,10 @@ describe('DA-2 · MutationContext passed to exec', () => {
     }
 
     const { result } = renderHook(
-      () => useAppMutation<{ insightId: string; userId: string }, void>(
-        'insight.dismiss'
+      () => useAppMutation<{ insightId: string, userId: string }, void>(
+        'insight.dismiss',
       ),
-      { wrapper: wrapperWith(registry, { duckdb }) }
+      { wrapper: wrapperWith(registry, { duckdb }) },
     )
 
     await act(async () => {
@@ -220,7 +220,7 @@ describe('DA-2 · MutationContext passed to exec', () => {
     // Subscribe via a probe component using the same provider bus.
     const client = makeQueryClient()
     const bus = createEventBus()
-    bus.subscribe('manual:event', (payload) => heard.push(payload))
+    bus.subscribe('manual:event', payload => heard.push(payload))
 
     const { getByTestId } = render(
       <DataAccessProvider
@@ -231,7 +231,7 @@ describe('DA-2 · MutationContext passed to exec', () => {
         queryClient={client}
       >
         <Screen />
-      </DataAccessProvider>
+      </DataAccessProvider>,
     )
 
     await act(async () => {
@@ -262,12 +262,12 @@ describe('DA-2 · MutationContext passed to exec', () => {
 
     const { result } = renderHook(
       () => useAppMutation<{ k: string }, void>('kv.write'),
-      { wrapper: wrapperWith(registry, {}) }
+      { wrapper: wrapperWith(registry, {}) },
     )
 
     await act(async () => {
       await expect(result.current.mutateAsync({ k: 'a' })).rejects.toMatchObject(
-        { code: 'engine_missing' }
+        { code: 'engine_missing' },
       )
     })
   })
@@ -288,10 +288,10 @@ describe('DA-2 · MutationContext passed to exec', () => {
 
     // duckdb engine present but without the dismissInsight surface.
     const { result } = renderHook(
-      () => useAppMutation<{ insightId: string; userId: string }, void>(
-        'insight.dismiss'
+      () => useAppMutation<{ insightId: string, userId: string }, void>(
+        'insight.dismiss',
       ),
-      { wrapper: wrapperWith(registry, { duckdb: { execute: async () => [] } }) }
+      { wrapper: wrapperWith(registry, { duckdb: { execute: async () => [] } }) },
     )
 
     let thrown: unknown
@@ -320,7 +320,7 @@ describe('DA-3 · timezone auto-binding', () => {
       output: z.object({ n: z.number() }),
       // References every tenant placeholder, so all four survive the
       // referenced-placeholder filter.
-      sql: "SELECT timezone($tz, now()) AS n WHERE $userId = $userId AND $brand = $brand AND $familyId = $familyId",
+      sql: 'SELECT timezone($tz, now()) AS n WHERE $userId = $userId AND $brand = $brand AND $familyId = $familyId',
     })
 
     const registry: Registry = {
@@ -333,7 +333,7 @@ describe('DA-3 · timezone auto-binding', () => {
       () => useAppQuery<{ userId: string }, { n: number }>('tz.probe', {
         userId: 'u1',
       }),
-      { wrapper: wrapperWith(registry, { duckdb: { execute } }) }
+      { wrapper: wrapperWith(registry, { duckdb: { execute } }) },
     )
 
     await waitFor(() => {
@@ -346,7 +346,7 @@ describe('DA-3 · timezone auto-binding', () => {
         brand: 'zivaone',
         familyId: 'f1',
         tz: 'America/New_York',
-      })
+      }),
     )
   })
 })
@@ -354,7 +354,7 @@ describe('DA-3 · timezone auto-binding', () => {
 // --- DA-4 · wildcard invalidates --------------------------------------
 
 describe('DA-4 · glob entries in mutation `invalidates`', () => {
-  it("mutation declaring 'spo2:*' refetches a query subscribed to 'spo2:insert'", async () => {
+  it('mutation declaring \'spo2:*\' refetches a query subscribed to \'spo2:insert\'', async () => {
     const state = { n: 0 }
     const engine: DuckdbEngine = {
       async execute() {
@@ -417,7 +417,7 @@ describe('DA-4 · glob entries in mutation `invalidates`', () => {
         queryClient={makeQueryClient()}
       >
         <Screen />
-      </DataAccessProvider>
+      </DataAccessProvider>,
     )
 
     await waitFor(() => {
@@ -472,7 +472,7 @@ describe('DA-4 · glob entries in mutation `invalidates`', () => {
         queryClient={makeQueryClient()}
       >
         <Screen />
-      </DataAccessProvider>
+      </DataAccessProvider>,
     )
 
     await act(async () => {
@@ -504,7 +504,7 @@ describe('DA-5 · Registry.events accepts undefined values', () => {
     const { getByTestId } = render(
       <Providers registry={registry} engines={{}}>
         <div data-testid="ok">ok</div>
-      </Providers>
+      </Providers>,
     )
     expect(getByTestId('ok').textContent).toBe('ok')
   })

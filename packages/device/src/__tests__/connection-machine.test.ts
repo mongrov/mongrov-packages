@@ -5,12 +5,13 @@
  * so `jest.advanceTimersByTime` can step through phases synchronously.
  */
 
-import { createActor } from 'xstate'
+import type { ConnectionDelays } from '../registry/connection-machine'
 
+import { createActor } from 'xstate'
 import { createFakeAdapter } from '../__mocks__/fake-adapter'
 import {
+
   createConnectionMachine,
-  type ConnectionDelays,
 } from '../registry/connection-machine'
 
 const TEST_DELAYS: ConnectionDelays = {

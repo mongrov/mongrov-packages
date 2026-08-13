@@ -20,24 +20,19 @@
  * blocks the rest of the pass.
  */
 
-import { nanoid } from 'nanoid'
+import type { MetricId } from '../core/metric_metadata'
 
-import { METRIC_METADATA, type MetricId } from '../core/metric_metadata'
-import { AnalyticsError, describeError } from '../core/errors'
 import type { AnalyticsEngine, EventBus, KVStore } from '../core/types'
-import { USER_SETTING_PARAM } from './compiler'
 import type { CompilerCache } from './compiler-cache'
-import type { CompiledRule } from './types'
 import type { createEmitter } from './emitter'
 import type { RulesRegistry } from './registry'
 import type { Rule } from './schema'
 import type { createThrottleStore } from './throttle'
-import type {
-  Clock,
-  RuleViolation,
-  RulesLogger,
-  FlushSummary,
-} from './types'
+import type { Clock, CompiledRule, FlushSummary, RulesLogger, RuleViolation } from './types'
+import { nanoid } from 'nanoid'
+import { AnalyticsError, describeError } from '../core/errors'
+import { METRIC_METADATA } from '../core/metric_metadata'
+import { USER_SETTING_PARAM } from './compiler'
 
 export interface EvaluatorConfig {
   registry: RulesRegistry
@@ -79,8 +74,8 @@ const INSIGHT_SEVERITY: Record<Rule['severity'], 'info' | 'warn' | 'urgent'> = {
 }
 
 export interface Evaluator {
-  evaluateOnBatch(batch: FlushSummary): Promise<RuleViolation[]>
-  evaluateScheduled(): Promise<RuleViolation[]>
+  evaluateOnBatch: (batch: FlushSummary) => Promise<RuleViolation[]>
+  evaluateScheduled: () => Promise<RuleViolation[]>
 }
 
 export function createEvaluator(config: EvaluatorConfig): Evaluator {
@@ -123,7 +118,8 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
   ): Promise<number> {
     const cacheKey = `${userId} ${key}`
     const cached = settingCache.get(cacheKey)
-    if (cached !== undefined) return cached
+    if (cached !== undefined)
+      return cached
 
     let value = defaultValue
     let source = 'default'
@@ -147,7 +143,10 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     }
     if (source === 'default') {
       logger?.debug('rules.evaluator: user_setting fallback to defaultValue', {
-        ruleId, userId, key, defaultValue,
+        ruleId,
+        userId,
+        key,
+        defaultValue,
       })
     }
     settingCache.set(cacheKey, value)
@@ -334,7 +333,8 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       for (const rule of relevant) {
         for (const userId of batch.affectedUserIds) {
           const v = await evaluateRule(rule, { userId, familyId })
-          if (v) violations.push(v)
+          if (v)
+            violations.push(v)
         }
       }
       return violations
@@ -367,7 +367,8 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       for (const rule of active) {
         for (const userId of members) {
           const v = await evaluateRule(rule, { userId, familyId })
-          if (v) violations.push(v)
+          if (v)
+            violations.push(v)
         }
       }
       return violations

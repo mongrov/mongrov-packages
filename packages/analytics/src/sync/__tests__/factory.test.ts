@@ -12,11 +12,11 @@
  *   8. Event bus receives `{table}:insert` after a flush.
  */
 
-import { describe, expect, it, vi } from 'vitest'
-
-import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import type { AnalyticsEngine, AttachContext } from '../../core/types'
+
 import type { EventBus } from '../events'
+import { describe, expect, it, vi } from 'vitest'
+import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { createSyncManager } from '../factory'
 import { createFakeEngine } from './__fakes__/fake-engine'
 
@@ -40,17 +40,19 @@ function makeBus(): EventBus & { calls: Array<{ name: string, payload: unknown }
   }
 }
 
-const baseConfig = () => ({
-  analytics: makeAnalytics(),
-  storage: createFakeKV().kv,
-  ctx,
-  tables: ['hrv', 'heart_rate'] as const,
-  columnOrder: {
-    hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms'] as const,
-    heart_rate: ['user_id', 'device_id', 'ts', 'bpm'] as const,
-  },
-  prefetchPolicy: { kind: 'lazy' } as const,
-})
+function baseConfig() {
+  return {
+    analytics: makeAnalytics(),
+    storage: createFakeKV().kv,
+    ctx,
+    tables: ['hrv', 'heart_rate'] as const,
+    columnOrder: {
+      hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms'] as const,
+      heart_rate: ['user_id', 'device_id', 'ts', 'bpm'] as const,
+    },
+    prefetchPolicy: { kind: 'lazy' } as const,
+  }
+}
 
 describe('createSyncManager — validation', () => {
   it('throws ZodError on empty tables array', () => {
@@ -342,30 +344,55 @@ describe('scheduler wiring', () => {
 
 describe('device_config sink (SCD-2 close semantics)', () => {
   const deviceConfigColumns = [
-    'device_id', 'brand', 'family_id', 'user_id', 'metric',
-    'interval_minutes', 'start_time', 'end_time', 'weeks',
-    'valid_from', 'valid_to',
+    'device_id',
+    'brand',
+    'family_id',
+    'user_id',
+    'metric',
+    'interval_minutes',
+    'start_time',
+    'end_time',
+    'weeks',
+    'valid_from',
+    'valid_to',
   ] as const
 
-const ALL_DAYS = {
-  sunday: true, monday: true, Tuesday: true, Wednesday: true,
-  Thursday: true, Friday: true, Saturday: true,
-}
-/** Vendor-shaped monitoring window (AutomaticMonitoring_J2301A). */
-const window = (dataType: number, intervalTime: number, sh: number, eh: number) => ({
-  dataType, intervalTime,
-  startTime_Hour: sh, startTime_Minutes: 0,
-  endTime_Hour: eh, endTime_Minutes: 0,
-  weeks: { ...ALL_DAYS }, mode: 1,
-})
+  const ALL_DAYS = {
+    sunday: true,
+    monday: true,
+    Tuesday: true,
+    Wednesday: true,
+    Thursday: true,
+    Friday: true,
+    Saturday: true,
+  }
+  /** Vendor-shaped monitoring window (AutomaticMonitoring_J2301A). */
+  const window = (dataType: number, intervalTime: number, sh: number, eh: number) => ({
+    dataType,
+    intervalTime,
+    startTime_Hour: sh,
+    startTime_Minutes: 0,
+    endTime_Hour: eh,
+    endTime_Minutes: 0,
+    weeks: { ...ALL_DAYS },
+    mode: 1,
+  })
 
   const emptyFirmware = {
-    heartrate: [], hrv_table: [], spo2: [], temperature_table: [],
-    activitydetails: [], sleep_processed: [], battery_table: [],
+    heartrate: [],
+    hrv_table: [],
+    spo2: [],
+    temperature_table: [],
+    activitydetails: [],
+    sleep_processed: [],
+    battery_table: [],
   }
   const mapperCtx = {
-    brand: 'ziva', familyId: 'fam_A', userId: 'u1',
-    deviceId: 'ring_1', userTimezone: 'UTC',
+    brand: 'ziva',
+    familyId: 'fam_A',
+    userId: 'u1',
+    deviceId: 'ring_1',
+    userTimezone: 'UTC',
   }
 
   function makeMgr(fake: ReturnType<typeof createFakeEngine>) {
@@ -404,10 +431,17 @@ const window = (dataType: number, intervalTime: number, sh: number, eh: number) 
     const fake = createFakeEngine()
     // SELECT returns one open HRV config.
     fake.mockExecuteNext([{
-      device_id: 'ring_1', brand: 'ziva', family_id: 'fam_A', user_id: 'u1',
-      metric: 'hrv', interval_minutes: 10,
-      start_time: '22:00', end_time: '08:00', weeks: 0x7F,
-      valid_from: '2026-06-01T00:00:00.000Z', valid_to: null,
+      device_id: 'ring_1',
+      brand: 'ziva',
+      family_id: 'fam_A',
+      user_id: 'u1',
+      metric: 'hrv',
+      interval_minutes: 10,
+      start_time: '22:00',
+      end_time: '08:00',
+      weeks: 0x7F,
+      valid_from: '2026-06-01T00:00:00.000Z',
+      valid_to: null,
     }])
     fake.mockExecuteNext([]) // UPDATE returns nothing.
     const mgr = makeMgr(fake)
@@ -436,10 +470,17 @@ const window = (dataType: number, intervalTime: number, sh: number, eh: number) 
     const fake = createFakeEngine()
     // 1. SELECT prior configs → returns one open HRV
     fake.mockExecuteNext([{
-      device_id: 'ring_1', brand: 'ziva', family_id: 'fam_A', user_id: 'u1',
-      metric: 'hrv', interval_minutes: 10,
-      start_time: '22:00', end_time: '08:00', weeks: 0x7F,
-      valid_from: '2026-06-01T00:00:00.000Z', valid_to: null,
+      device_id: 'ring_1',
+      brand: 'ziva',
+      family_id: 'fam_A',
+      user_id: 'u1',
+      metric: 'hrv',
+      interval_minutes: 10,
+      start_time: '22:00',
+      end_time: '08:00',
+      weeks: 0x7F,
+      valid_from: '2026-06-01T00:00:00.000Z',
+      valid_to: null,
     }])
     // 2. Local UPDATE returns nothing.
     fake.mockExecuteNext([])

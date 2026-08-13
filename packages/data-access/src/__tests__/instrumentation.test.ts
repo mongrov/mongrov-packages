@@ -83,10 +83,12 @@ describe('rolling window', () => {
     // A slow cold start must not poison p95 for the rest of the pilot.
     const c = clock()
     const inst = createQueryInstrumentation({
-      enabled: true, windowMs: 60_000, now: c.now,
+      enabled: true,
+      windowMs: 60_000,
+      now: c.now,
     })
 
-    inst.record('spo2.day', 900, true)   // cold start
+    inst.record('spo2.day', 900, true) // cold start
     c.advance(61_000)
     for (let i = 0; i < 5; i++) inst.record('spo2.day', 3, true)
 
@@ -98,7 +100,9 @@ describe('rolling window', () => {
   it('reports null once every sample ages out', () => {
     const c = clock()
     const inst = createQueryInstrumentation({
-      enabled: true, windowMs: 1_000, now: c.now,
+      enabled: true,
+      windowMs: 1_000,
+      now: c.now,
     })
     inst.record('spo2.day', 5, true)
     c.advance(2_000)

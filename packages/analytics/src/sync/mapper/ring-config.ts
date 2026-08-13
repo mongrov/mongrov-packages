@@ -105,7 +105,13 @@ export function firmwareDataTypeToMetrics(dataType: number): string[] {
 
 /** Vendor weekday order, LSB = Sunday. */
 const WEEKDAY_ORDER: readonly (keyof FirmwareWeekdays)[] = [
-  'sunday', 'monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+  'sunday',
+  'monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
 ]
 
 /**
@@ -113,18 +119,22 @@ const WEEKDAY_ORDER: readonly (keyof FirmwareWeekdays)[] = [
  * Bit 0 = Sunday … bit 6 = Saturday. All-days is `0x7F`.
  */
 export function weekdaysToBitmask(weeks: FirmwareWeekdays | undefined): number | null {
-  if (!weeks) return null
+  if (!weeks)
+    return null
   let mask = 0
   WEEKDAY_ORDER.forEach((day, i) => {
-    if (weeks[day]) mask |= 1 << i
+    if (weeks[day])
+      mask |= 1 << i
   })
   return mask
 }
 
 /** `HH:MM`, zero-padded. Null when the firmware supplied out-of-range values. */
 export function formatClockTime(hour: number, minutes: number): string | null {
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null
-  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59) return null
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23)
+    return null
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59)
+    return null
   return `${String(hour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
 }
 

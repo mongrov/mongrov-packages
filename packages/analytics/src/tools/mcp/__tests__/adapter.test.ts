@@ -1,8 +1,8 @@
+import type { ToolContext } from '../../types'
 import { describe, expect, it } from 'vitest'
 import { createFakeEngine } from '../../__fakes__/engine'
 import { createAnalyticsTools } from '../../factory'
 import { toMcpTools } from '../adapter'
-import type { ToolContext } from '../../types'
 
 const baseCtx: ToolContext = {
   requesterUserId: 'alice',

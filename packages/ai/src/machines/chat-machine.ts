@@ -1,8 +1,8 @@
-import { setup, assign } from 'xstate';
-import type { ChatContext, ChatEvent, Message } from '../types';
+import type { ChatContext, ChatEvent, Message } from '../types'
+import { assign, setup } from 'xstate'
 
 function generateId(): string {
-  return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 }
 
 export const chatMachine = setup({
@@ -13,14 +13,15 @@ export const chatMachine = setup({
   actions: {
     addUserMessage: assign({
       messages: ({ context, event }) => {
-        if (event.type !== 'SEND') return context.messages;
+        if (event.type !== 'SEND')
+          return context.messages
         const userMessage: Message = {
           id: generateId(),
           role: 'user',
           content: event.content,
           createdAt: new Date(),
-        };
-        return [...context.messages, userMessage];
+        }
+        return [...context.messages, userMessage]
       },
     }),
     startAssistantMessage: assign({
@@ -30,27 +31,29 @@ export const chatMachine = setup({
           role: 'assistant',
           content: '',
           createdAt: new Date(),
-        };
-        return [...context.messages, assistantMessage];
+        }
+        return [...context.messages, assistantMessage]
       },
       currentStreamedContent: '',
     }),
     appendStreamChunk: assign({
       currentStreamedContent: ({ context, event }) => {
-        if (event.type !== 'STREAM_CHUNK') return context.currentStreamedContent;
-        return context.currentStreamedContent + event.chunk;
+        if (event.type !== 'STREAM_CHUNK')
+          return context.currentStreamedContent
+        return context.currentStreamedContent + event.chunk
       },
       messages: ({ context, event }) => {
-        if (event.type !== 'STREAM_CHUNK') return context.messages;
-        const messages = [...context.messages];
-        const lastMessage = messages[messages.length - 1];
+        if (event.type !== 'STREAM_CHUNK')
+          return context.messages
+        const messages = [...context.messages]
+        const lastMessage = messages[messages.length - 1]
         if (lastMessage && lastMessage.role === 'assistant') {
           messages[messages.length - 1] = {
             ...lastMessage,
             content: context.currentStreamedContent + event.chunk,
-          };
+          }
         }
-        return messages;
+        return messages
       },
     }),
     finalizeStream: assign({
@@ -58,8 +61,9 @@ export const chatMachine = setup({
     }),
     setError: assign({
       error: ({ event }) => {
-        if (event.type !== 'ERROR') return null;
-        return event.error;
+        if (event.type !== 'ERROR')
+          return null
+        return event.error
       },
     }),
     clearError: assign({
@@ -67,8 +71,9 @@ export const chatMachine = setup({
     }),
     setMessages: assign({
       messages: ({ event }) => {
-        if (event.type !== 'SET_MESSAGES') return [];
-        return event.messages;
+        if (event.type !== 'SET_MESSAGES')
+          return []
+        return event.messages
       },
     }),
     clearMessages: assign({
@@ -81,8 +86,8 @@ export const chatMachine = setup({
     }),
     cancelRequest: assign({
       abortController: ({ context }) => {
-        context.abortController?.abort();
-        return null;
+        context.abortController?.abort()
+        return null
       },
     }),
     clearAbortController: assign({
@@ -91,8 +96,9 @@ export const chatMachine = setup({
   },
   guards: {
     hasContent: ({ event }) => {
-      if (event.type !== 'SEND') return false;
-      return event.content.trim().length > 0;
+      if (event.type !== 'SEND')
+        return false
+      return event.content.trim().length > 0
     },
   },
 }).createMachine({
@@ -157,6 +163,6 @@ export const chatMachine = setup({
       },
     },
   },
-});
+})
 
-export type ChatMachine = typeof chatMachine;
+export type ChatMachine = typeof chatMachine

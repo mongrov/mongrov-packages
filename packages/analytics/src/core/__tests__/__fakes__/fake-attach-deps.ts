@@ -7,15 +7,15 @@
  * Not a test file (no `.test.ts` suffix); vitest's include glob skips it.
  */
 
-import type { AttachDeps } from '../../warehouse'
 import type { FamilyMembersProvider, TokenContext, TokenResponse, TokenVendor } from '../../types'
+import type { AttachDeps } from '../../warehouse'
 
 export interface FakeAttachDeps {
   deps: AttachDeps
   /** Call history for each dep, in invocation order. */
-  builderCalls: { brand: string; tenantScope: string; tenantId: string }[]
+  builderCalls: { brand: string, tenantScope: string, tenantId: string }[]
   tokenCalls: TokenContext[]
-  familyCalls: { brand: string; familyId: string }[]
+  familyCalls: { brand: string, familyId: string }[]
   /** Script builder failure on the next call. */
   failBuilder: (err: unknown) => void
   /** Script token vendor failure on the next call. */

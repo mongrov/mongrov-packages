@@ -24,7 +24,7 @@ export interface FakeReadingSink {
   /** Every reading passed to `write()`, in call order. */
   writes: DeviceReading[]
   /** Clear the recorded writes. */
-  reset(): void
+  reset: () => void
 }
 
 export function createFakeReadingSink(): FakeReadingSink {
@@ -48,9 +48,9 @@ export function createFakeReadingSink(): FakeReadingSink {
 export interface FakeConfigStore {
   store: ConfigStore
   /** Read the raw in-memory map (for assertions). */
-  snapshot(): Record<string, number>
+  snapshot: () => Record<string, number>
   /** Wipe the map. */
-  reset(): void
+  reset: () => void
 }
 
 export function createFakeConfigStore(): FakeConfigStore {
@@ -83,7 +83,7 @@ export interface FakeLogger {
   logger: DeviceLogger
   /** Every event passed to `log()`, in call order. */
   events: DeviceDiagnosticEvent[]
-  reset(): void
+  reset: () => void
 }
 
 export function createFakeLogger(): FakeLogger {
@@ -107,9 +107,9 @@ export function createFakeLogger(): FakeLogger {
 export interface FakeLifecycle {
   lifecycle: LifecyclePort
   /** Drive a state change through every subscriber. */
-  setState(next: LifecycleState): void
+  setState: (next: LifecycleState) => void
   /** Snapshot of active subscriber count (for cleanup assertions). */
-  subscriberCount(): number
+  subscriberCount: () => number
 }
 
 export function createFakeLifecycle(): FakeLifecycle {

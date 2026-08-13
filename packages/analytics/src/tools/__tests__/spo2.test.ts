@@ -4,9 +4,9 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { createFakeEngine } from '../__fakes__/engine'
 import { createAnalyticsTools } from '../factory'
 import { getSpO2, LOW_MOMENT_THRESHOLD } from '../impls/spo2'
-import { createFakeEngine } from '../__fakes__/engine'
 
 const CTX = { brand: 'ziva', familyId: 'fam1', requesterUserId: 'alice' } as never
 
@@ -43,7 +43,10 @@ describe('getSpO2 query shape', () => {
     engine.queueRows('FROM v_spo2', [])
     await getSpO2({ userId: 'alice', days: 1 }, { analytics: engine, ...CTX } as never)
     expect(engine.calls[0].params).toMatchObject({
-      userId: 'alice', brand: 'ziva', familyId: 'fam1', days: 1,
+      userId: 'alice',
+      brand: 'ziva',
+      familyId: 'fam1',
+      days: 1,
     })
   })
 

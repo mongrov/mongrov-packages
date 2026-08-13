@@ -77,25 +77,26 @@ interface Sample {
 export interface QueryInstrumentation {
   readonly enabled: boolean
   /** Record one completed execution. */
-  record(queryName: string, durationMs: number, ok: boolean): void
+  record: (queryName: string, durationMs: number, ok: boolean) => void
   /** Time a thunk, recording success or failure. Rethrows. */
-  measure<T>(queryName: string, run: () => Promise<T>): Promise<T>
+  measure: <T>(queryName: string, run: () => Promise<T>) => Promise<T>
   /** Stats for one query, or null if it has no samples in-window. */
-  statsFor(queryName: string): QueryLatencyStats | null
+  statsFor: (queryName: string) => QueryLatencyStats | null
   /** Full report, worst p95 first. */
-  report(): InstrumentationReport
-  reset(): void
+  report: () => InstrumentationReport
+  reset: () => void
 }
 
 /** Nearest-rank percentile over a sorted array. 0 for an empty sample. */
 function percentile(sorted: readonly number[], p: number): number {
-  if (sorted.length === 0) return 0
+  if (sorted.length === 0)
+    return 0
   const rank = Math.ceil((p / 100) * sorted.length)
   return sorted[Math.min(sorted.length - 1, Math.max(0, rank - 1))]
 }
 
 export function createQueryInstrumentation(
-  config: QueryInstrumentationConfig = {}
+  config: QueryInstrumentationConfig = {},
 ): QueryInstrumentation {
   const enabled = config.enabled ?? false
   const windowMs = config.windowMs ?? DEFAULT_WINDOW_MS
@@ -110,13 +111,15 @@ export function createQueryInstrumentation(
     const cutoff = now() - windowMs
     let i = 0
     while (i < list.length && list[i].at < cutoff) i += 1
-    if (i > 0) list.splice(0, i)
+    if (i > 0)
+      list.splice(0, i)
     return list
   }
 
   function buildStats(name: string, list: Sample[]): QueryLatencyStats | null {
-    if (list.length === 0) return null
-    const durations = list.map((s) => s.ms).sort((a, b) => a - b)
+    if (list.length === 0)
+      return null
+    const durations = list.map(s => s.ms).sort((a, b) => a - b)
     const p95 = percentile(durations, 95)
     return {
       queryName: name,
@@ -136,7 +139,8 @@ export function createQueryInstrumentation(
     enabled,
 
     record(queryName, durationMs, ok) {
-      if (!enabled) return
+      if (!enabled)
+        return
       if (!ok) {
         errors.set(queryName, (errors.get(queryName) ?? 0) + 1)
         // A failure's duration is real but not a read latency — counting it
@@ -151,11 +155,13 @@ export function createQueryInstrumentation(
       list.push({ at: now(), ms: durationMs })
       prune(list)
       // Bounded: an unbounded array on a long-lived process is a leak.
-      if (list.length > maxSamples) list.splice(0, list.length - maxSamples)
+      if (list.length > maxSamples)
+        list.splice(0, list.length - maxSamples)
     },
 
     async measure(queryName, run) {
-      if (!enabled) return run()
+      if (!enabled)
+        return run()
       const started = now()
       try {
         const result = await run()
@@ -170,7 +176,8 @@ export function createQueryInstrumentation(
 
     statsFor(queryName) {
       const list = samples.get(queryName)
-      if (!list) return null
+      if (!list)
+        return null
       return buildStats(queryName, prune(list))
     },
 
@@ -178,14 +185,15 @@ export function createQueryInstrumentation(
       const queries: QueryLatencyStats[] = []
       for (const [name, list] of samples) {
         const stats = buildStats(name, prune(list))
-        if (stats) queries.push(stats)
+        if (stats)
+          queries.push(stats)
       }
       queries.sort((a, b) => b.p95 - a.p95)
       return {
         windowMs,
         generatedAt: new Date(now()).toISOString(),
         queries,
-        overGate: queries.filter((q) => q.exceedsGate).map((q) => q.queryName),
+        overGate: queries.filter(q => q.exceedsGate).map(q => q.queryName),
       }
     },
 
@@ -207,7 +215,7 @@ export function formatReport(report: InstrumentationReport): string {
     return 'No query samples recorded.'
   }
   const hours = Math.round(report.windowMs / 3_600_000)
-  const rows = report.queries.map((q) => ({
+  const rows = report.queries.map(q => ({
     name: q.queryName,
     n: String(q.count),
     p50: q.p50.toFixed(1),
@@ -218,7 +226,7 @@ export function formatReport(report: InstrumentationReport): string {
     gate: q.exceedsGate ? ' OVER' : '',
   }))
   const w = (key: keyof (typeof rows)[number], head: string) =>
-    Math.max(head.length, ...rows.map((r) => r[key].length))
+    Math.max(head.length, ...rows.map(r => r[key].length))
   const wName = w('name', 'query')
 
   const lines = [
@@ -226,8 +234,8 @@ export function formatReport(report: InstrumentationReport): string {
     `${'query'.padEnd(wName)}  ${'n'.padStart(5)}  ${'p50'.padStart(7)}  ${'p95'.padStart(7)}  ${'p99'.padStart(7)}  ${'max'.padStart(7)}  ${'err'.padStart(4)}`,
     '-'.repeat(wName + 44),
     ...rows.map(
-      (r) =>
-        `${r.name.padEnd(wName)}  ${r.n.padStart(5)}  ${r.p50.padStart(7)}  ${r.p95.padStart(7)}  ${r.p99.padStart(7)}  ${r.max.padStart(7)}  ${r.err.padStart(4)}${r.gate}`
+      r =>
+        `${r.name.padEnd(wName)}  ${r.n.padStart(5)}  ${r.p50.padStart(7)}  ${r.p95.padStart(7)}  ${r.p99.padStart(7)}  ${r.max.padStart(7)}  ${r.err.padStart(4)}${r.gate}`,
     ),
   ]
 
@@ -235,15 +243,14 @@ export function formatReport(report: InstrumentationReport): string {
     lines.push(
       '',
       `${report.overGate.length} quer${report.overGate.length === 1 ? 'y' : 'ies'} over the ${WATERMARK_CACHE_GATE_LABEL} gate: ${report.overGate.join(', ')}`,
-      'Watermark caching is worth enabling (analytics `watermarkCache: true`).'
+      'Watermark caching is worth enabling (analytics `watermarkCache: true`).',
     )
   }
   else {
     lines.push(
       '',
-      `All queries under the ${WATERMARK_CACHE_GATE_LABEL} gate — leave watermark caching off.`
+      `All queries under the ${WATERMARK_CACHE_GATE_LABEL} gate — leave watermark caching off.`,
     )
   }
   return lines.join('\n')
 }
-

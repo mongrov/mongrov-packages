@@ -21,14 +21,15 @@
  * renaming a field on a mapped row — fails here rather than on-device.
  */
 
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-
-import { describe, expect, it } from 'vitest'
-
-import { LOCAL_SCHEMAS, type TableName } from '../../../core/schemas'
-import { mapFirmwareExport } from '../firmware'
+import type { TableName } from '../../../core/schemas'
 import type { FirmwareExport, MapperContext, RingConfigTranslator } from '../types'
+
+import { readFileSync } from 'node:fs'
+
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { LOCAL_SCHEMAS } from '../../../core/schemas'
+import { mapFirmwareExport } from '../firmware'
 
 // -------------------- DDL introspection --------------------
 
@@ -51,12 +52,15 @@ export function parseDdlColumns(ddl: string): DdlColumn[] {
 
   for (const rawLine of body.split('\n')) {
     const line = rawLine.trim().replace(/,$/, '')
-    if (line.length === 0) continue
+    if (line.length === 0)
+      continue
     // Table-level constraints + the DDL terminator, not columns.
-    if (/^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT|\)|\);)/i.test(line)) continue
+    if (/^(?:PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT|\))/i.test(line))
+      continue
 
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)\s+/.exec(line)
-    if (!match) continue
+    const match = /^([A-Z_]\w*)\s+/i.exec(line)
+    if (!match)
+      continue
     columns.push({ name: match[1], notNull: /\bNOT NULL\b/i.test(line) })
   }
   return columns
@@ -65,10 +69,16 @@ export function parseDdlColumns(ddl: string): DdlColumn[] {
 // -------------------- fixture batch --------------------
 
 const METRIC_ENUM: Record<string, number> = {
-  hrv: 1, spo2: 2, heart_rate: 3, temperature: 4,
+  hrv: 1,
+  spo2: 2,
+  heart_rate: 3,
+  temperature: 4,
 }
 const ENUM_METRIC: Record<number, string> = {
-  1: 'hrv', 2: 'spo2', 3: 'heart_rate', 4: 'temperature',
+  1: 'hrv',
+  2: 'spo2',
+  3: 'heart_rate',
+  4: 'temperature',
 }
 const translator: RingConfigTranslator = {
   metricToDataType: metric => METRIC_ENUM[metric] ?? 99,
@@ -129,7 +139,8 @@ describe('mapper ↔ DDL column contract', () => {
     // Guards against this suite silently passing because the fixture stopped
     // producing rows for a table.
     for (const table of MAPPED_TABLES) {
-      if (table === 'device_event') continue
+      if (table === 'device_event')
+        continue
       expect(
         batch[table].length,
         `fixture produced no ${table} rows — contract unverified`,
@@ -188,6 +199,7 @@ describe('parseDdlColumns', () => {
     })
     // The `PRIMARY KEY (...)` line in device_config is not a column.
     expect(parseDdlColumns(LOCAL_SCHEMAS.device_config).map(c => c.name))
-      .not.toContain('PRIMARY')
+      .not
+      .toContain('PRIMARY')
   })
 })

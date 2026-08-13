@@ -1,5 +1,5 @@
-import { setup, assign } from 'xstate';
-import type { CompletionContext, CompletionEvent } from '../types';
+import type { CompletionContext, CompletionEvent } from '../types'
+import { assign, setup } from 'xstate'
 
 export const completionMachine = setup({
   types: {
@@ -12,14 +12,16 @@ export const completionMachine = setup({
     }),
     setResult: assign({
       result: ({ event }) => {
-        if (event.type !== 'COMPLETE') return null;
-        return event.result;
+        if (event.type !== 'COMPLETE')
+          return null
+        return event.result
       },
     }),
     setError: assign({
       error: ({ event }) => {
-        if (event.type !== 'ERROR') return null;
-        return event.error;
+        if (event.type !== 'ERROR')
+          return null
+        return event.error
       },
     }),
     clearError: assign({
@@ -30,8 +32,8 @@ export const completionMachine = setup({
     }),
     cancelRequest: assign({
       abortController: ({ context }) => {
-        context.abortController?.abort();
-        return null;
+        context.abortController?.abort()
+        return null
       },
     }),
     clearAbortController: assign({
@@ -40,8 +42,9 @@ export const completionMachine = setup({
   },
   guards: {
     hasPrompt: ({ event }) => {
-      if (event.type !== 'GENERATE') return false;
-      return event.prompt.trim().length > 0;
+      if (event.type !== 'GENERATE')
+        return false
+      return event.prompt.trim().length > 0
     },
   },
 }).createMachine({
@@ -88,6 +91,6 @@ export const completionMachine = setup({
       },
     },
   },
-});
+})
 
-export type CompletionMachine = typeof completionMachine;
+export type CompletionMachine = typeof completionMachine

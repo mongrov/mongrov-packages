@@ -11,7 +11,9 @@ import { describe, it } from 'vitest'
 import rule from '../rules/no-storage-engine-imports'
 
 // eslint 8 RuleTester expects describe/it in module scope.
-;(RuleTester as unknown as { describe: unknown }).describe = describe
+;
+
+(RuleTester as unknown as { describe: unknown }).describe = describe
 ;(RuleTester as unknown as { it: unknown }).it = it
 
 const tester = new RuleTester({
@@ -118,23 +120,23 @@ describe('config schema', () => {
     }
     if (optionSchema.additionalProperties !== false) {
       throw new Error(
-        'expected additionalProperties: false so typos are rejected'
+        'expected additionalProperties: false so typos are rejected',
       )
     }
     const props = optionSchema.properties as
-      | Record<string, { type: string; items?: { type: string } }>
+      | Record<string, { type: string, items?: { type: string } }>
       | undefined
     if (!props || !props.allowedDirs || !props.blockedPackages) {
       throw new Error(
-        'expected properties.allowedDirs and properties.blockedPackages'
+        'expected properties.allowedDirs and properties.blockedPackages',
       )
     }
     if (props.allowedDirs.type !== 'array' || props.allowedDirs.items?.type !== 'string') {
       throw new Error('expected allowedDirs to be string[]')
     }
     if (
-      props.blockedPackages.type !== 'array' ||
-      props.blockedPackages.items?.type !== 'string'
+      props.blockedPackages.type !== 'array'
+      || props.blockedPackages.items?.type !== 'string'
     ) {
       throw new Error('expected blockedPackages to be string[]')
     }

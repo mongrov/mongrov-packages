@@ -6,12 +6,12 @@
  * needs `sleep_session`.
  */
 
-import { describe, expect, it } from 'vitest'
+import type { BatchCompleteEvent, SyncEmitter } from '../flusher'
 
+import { describe, expect, it } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { SensorBuffer } from '../buffer'
 import { bindFlushEvents } from '../events'
-import type { BatchCompleteEvent, SyncEmitter } from '../flusher'
 import { BatchFlusher } from '../flusher'
 import { OverflowStore } from '../overflow'
 

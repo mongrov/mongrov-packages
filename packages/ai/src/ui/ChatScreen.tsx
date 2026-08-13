@@ -1,12 +1,15 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { View, useColorScheme as useSystemColorScheme, Text, TextInput, TouchableOpacity } from 'react-native';
-import { GiftedChat, Bubble, type BubbleProps } from 'react-native-gifted-chat';
-import { useAIChat } from '../use-ai-chat';
-import type { ChatScreenProps, ChatTheme } from '../types';
-import { toGiftedMessages, type AdapterConfig, type GiftedMessage } from './message-adapter';
-import { ChatEmptyState } from './ChatEmptyState';
-import { QuickReplyBar } from './QuickReplyBar';
-import { StreamingText } from './StreamingText';
+import type { BubbleProps } from 'react-native-gifted-chat'
+import type { ChatScreenProps, ChatTheme } from '../types'
+import type { AdapterConfig, GiftedMessage } from './message-adapter'
+import * as React from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { Text, TextInput, TouchableOpacity, useColorScheme as useSystemColorScheme, View } from 'react-native'
+import { Bubble, GiftedChat } from 'react-native-gifted-chat'
+import { useAIChat } from '../use-ai-chat'
+import { ChatEmptyState } from './ChatEmptyState'
+import { toGiftedMessages } from './message-adapter'
+import { QuickReplyBar } from './QuickReplyBar'
+import { StreamingText } from './StreamingText'
 
 /**
  * The few colours that cannot be classNames.
@@ -28,7 +31,7 @@ const lightBubbles: ChatTheme = {
   userText: '#FFFFFF',
   assistantBubble: '#f5f5f5',
   assistantText: '#0a0a0a',
-};
+}
 
 const darkBubbles: ChatTheme = {
   placeholder: '#a3a3a3',
@@ -36,7 +39,7 @@ const darkBubbles: ChatTheme = {
   userText: '#FFFFFF',
   assistantBubble: '#262626',
   assistantText: '#fafafa',
-};
+}
 
 export function ChatScreen({
   placeholder = 'Type a message...',
@@ -49,51 +52,54 @@ export function ChatScreen({
   theme: themeOverride,
   testID,
 }: ChatScreenProps) {
-  const { messages, send, isStreaming, error } = useAIChat();
+  const { messages, send, isStreaming, error } = useAIChat()
   // Scheme is still read for the raw-colour values above; everything else is
   // a className, so the consumer's `dark` class drives it.
-  const isDark = useSystemColorScheme() === 'dark';
+  const isDark = useSystemColorScheme() === 'dark'
   const theme = useMemo(
     () => ({ ...(isDark ? darkBubbles : lightBubbles), ...themeOverride }),
     [isDark, themeOverride],
-  );
-  const [inputText, setInputText] = useState('');
+  )
+  const [inputText, setInputText] = useState('')
 
   const adapterConfig: AdapterConfig = useMemo(
     () => ({
       assistantName,
       assistantAvatar,
     }),
-    [assistantName, assistantAvatar]
-  );
+    [assistantName, assistantAvatar],
+  )
 
   const giftedMessages = useMemo(
     () => toGiftedMessages(messages, adapterConfig),
-    [messages, adapterConfig]
-  );
+    [messages, adapterConfig],
+  )
 
   const handleSendMessage = useCallback(() => {
-    const text = inputText.trim();
-    if (!text) return;
+    const text = inputText.trim()
+    if (!text)
+      return
 
-    setInputText('');
+    setInputText('')
     if (onSendOverride) {
-      onSendOverride(text);
-    } else {
-      send(text);
+      onSendOverride(text)
     }
-  }, [inputText, send, onSendOverride]);
+    else {
+      send(text)
+    }
+  }, [inputText, send, onSendOverride])
 
   const handleQuickReply = useCallback(
     (reply: string) => {
       if (onSendOverride) {
-        onSendOverride(reply);
-      } else {
-        send(reply);
+        onSendOverride(reply)
+      }
+      else {
+        send(reply)
       }
     },
-    [send, onSendOverride]
-  );
+    [send, onSendOverride],
+  )
 
   const renderChatEmpty = useCallback(
     () => (
@@ -103,17 +109,17 @@ export function ChatScreen({
         testID={testID ? `${testID}-empty` : undefined}
       />
     ),
-    [emptyTitle, emptySubtitle, testID]
-  );
+    [emptyTitle, emptySubtitle, testID],
+  )
 
   const renderMessageText = useCallback(
     (props: { currentMessage?: GiftedMessage }) => {
-      const { currentMessage } = props;
-      const isAssistant = currentMessage?.user?._id === 'assistant';
-      const isLastMessage =
-        giftedMessages.length > 0 &&
-        giftedMessages[0]?._id === currentMessage?._id;
-      const showStreaming = isAssistant && isLastMessage && isStreaming;
+      const { currentMessage } = props
+      const isAssistant = currentMessage?.user?._id === 'assistant'
+      const isLastMessage
+        = giftedMessages.length > 0
+          && giftedMessages[0]?._id === currentMessage?._id
+      const showStreaming = isAssistant && isLastMessage && isStreaming
 
       return (
         <StreamingText
@@ -122,10 +128,10 @@ export function ChatScreen({
           className="px-3 py-2"
           testID={testID ? `${testID}-message-${currentMessage?._id}` : undefined}
         />
-      );
+      )
     },
-    [giftedMessages, isStreaming, testID]
-  );
+    [giftedMessages, isStreaming, testID],
+  )
 
   const renderBubble = useCallback(
     (props: BubbleProps<GiftedMessage>) => (
@@ -149,10 +155,10 @@ export function ChatScreen({
         }}
       />
     ),
-    [theme]
-  );
+    [theme],
+  )
 
-  const canSend = inputText.trim().length > 0 && !isStreaming;
+  const canSend = inputText.trim().length > 0 && !isStreaming
 
   /**
    * gifted-chat 3.x removed the `isTyping` prop in favour of
@@ -161,7 +167,8 @@ export function ChatScreen({
    * no boolean to toggle any more.
    */
   const renderTypingIndicator = useCallback(() => {
-    if (!isStreaming) return null;
+    if (!isStreaming)
+      return null
     return (
       <View
         className="mb-2 ml-3 self-start rounded-2xl bg-muted px-3 py-2"
@@ -169,8 +176,8 @@ export function ChatScreen({
       >
         <Text className="text-sm text-foreground">…</Text>
       </View>
-    );
-  }, [isStreaming, theme, testID]);
+    )
+  }, [isStreaming, theme, testID])
 
   return (
     <View className="flex-1 bg-background" testID={testID}>
@@ -236,5 +243,5 @@ export function ChatScreen({
         </TouchableOpacity>
       </View>
     </View>
-  );
+  )
 }

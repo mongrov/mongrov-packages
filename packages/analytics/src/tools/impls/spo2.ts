@@ -13,10 +13,10 @@
  *    clinical word for it is banned. See `formatters/spo2.ts`.
  */
 
-import { z } from 'zod'
-import { formatSpO2 } from '../formatters/spo2'
-import { formatBytes } from '../formatters'
 import type { ToolImpl, ToolResult } from '../types'
+import { z } from 'zod'
+import { formatBytes } from '../formatters'
+import { formatSpO2 } from '../formatters/spo2'
 
 export const getSpO2InputSchema = z.object({
   userId: z.string(),

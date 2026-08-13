@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import type { AttachContext } from '../types'
 
+import { describe, expect, it } from 'vitest'
 import {
   clearLastAttach,
   LAST_ATTACH_TTL_MS,
@@ -8,7 +9,6 @@ import {
   saveLastAttach,
   saveRetentionOverride,
 } from '../persistence'
-import type { AttachContext } from '../types'
 
 import { createFakeKV } from './__fakes__/fake-kv'
 

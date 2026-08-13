@@ -15,11 +15,11 @@ const REFRESH_KEY = 'mongrov.auth-refresh'
  * Re-defined here to avoid circular dependency.
  */
 export interface TokenStore {
-  getAccessToken(): Promise<string | null>
-  setAccessToken(token: string): Promise<void>
-  getRefreshToken(): Promise<string | null>
-  setRefreshToken(token: string): Promise<void>
-  clear(): Promise<void>
+  getAccessToken: () => Promise<string | null>
+  setAccessToken: (token: string) => Promise<void>
+  getRefreshToken: () => Promise<string | null>
+  setRefreshToken: (token: string) => Promise<void>
+  clear: () => Promise<void>
 }
 
 /**

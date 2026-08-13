@@ -4,23 +4,23 @@
  * Provides common functionality for all adapters (event handling).
  */
 
+import type { Message, Participant, Unsubscribe } from '@mongrov/types'
 import type {
+  AdapterCredentials,
   CollabAdapter,
   CollabConnectionStatus,
-  CollabEventName,
   CollabEventHandler,
+  CollabEventName,
   CollabEvents,
-  AdapterCredentials,
-  SendMessageParams,
-  SendMessageResult,
-  PresenceState,
-  FetchMessagesOptions,
-  FetchMessagesResult,
   FetchConversationsOptions,
   FetchConversationsResult,
+  FetchMessagesOptions,
+  FetchMessagesResult,
+  PresenceState,
   SearchOptions,
+  SendMessageParams,
+  SendMessageResult,
 } from '../types'
-import type { Message, Participant, Unsubscribe } from '@mongrov/types'
 
 /**
  * Abstract base class for collaboration adapters.
@@ -123,7 +123,7 @@ export abstract class BaseAdapter implements CollabAdapter {
    */
   on<T extends CollabEventName>(
     event: T,
-    handler: CollabEventHandler<T>
+    handler: CollabEventHandler<T>,
   ): Unsubscribe {
     if (!this.eventHandlers.has(event)) {
       this.eventHandlers.set(event, new Set())
@@ -161,7 +161,8 @@ export abstract class BaseAdapter implements CollabAdapter {
       for (const handler of handlers) {
         try {
           handler(payload)
-        } catch (error) {
+        }
+        catch (error) {
           console.error(`Error in event handler for ${event}:`, error)
         }
       }

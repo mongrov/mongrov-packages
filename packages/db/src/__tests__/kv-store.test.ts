@@ -2,10 +2,10 @@
  * Tests for createKVStore factory
  */
 
-import { createKVStore } from '../kv-store'
 import type { KVStore } from '../types'
-import { __resetAllInstances } from '../../__mocks__/react-native-mmkv'
 import { __resetSecureStore } from '../../__mocks__/expo-secure-store'
+import { __resetAllInstances } from '../../__mocks__/react-native-mmkv'
+import { createKVStore } from '../kv-store'
 
 describe('createKVStore', () => {
   beforeEach(() => {

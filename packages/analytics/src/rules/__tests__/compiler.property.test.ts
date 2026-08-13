@@ -1,8 +1,8 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
+import { getExposedMetricIds } from '../../core/metric_metadata'
 import { compileRule } from '../compiler'
 import { createCompilerCache } from '../compiler-cache'
-import { getExposedMetricIds } from '../../core/metric_metadata'
 import {
   AGGREGATIONS,
   COMPARES,
@@ -67,7 +67,7 @@ describe('compileRule — property tests', () => {
         // Extract "FROM <ident>" and check it.
         const fromMatch = compiled.sql.match(/FROM\s+(\w+)/i)
         expect(fromMatch).not.toBeNull()
-        expect(fromMatch![1]).toMatch(/^[A-Za-z0-9_]+$/)
+        expect(fromMatch![1]).toMatch(/^\w+$/)
       }),
       { numRuns: RUNS },
     )

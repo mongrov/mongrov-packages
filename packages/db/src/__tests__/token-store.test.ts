@@ -2,11 +2,11 @@
  * Tests for createTokenStore (KVStore → TokenStore adapter)
  */
 
+import type { TokenStore } from '../token-store'
+import { __resetSecureStore } from '../../__mocks__/expo-secure-store'
+import { __resetAllInstances } from '../../__mocks__/react-native-mmkv'
 import { createKVStore } from '../kv-store'
 import { createTokenStore } from '../token-store'
-import type { TokenStore } from '../token-store'
-import { __resetAllInstances } from '../../__mocks__/react-native-mmkv'
-import { __resetSecureStore } from '../../__mocks__/expo-secure-store'
 
 describe('createTokenStore', () => {
   beforeEach(() => {

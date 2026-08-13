@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, Text } from 'react-native';
-import type { StreamingTextProps } from '../types';
+import type { StreamingTextProps } from '../types'
+import * as React from 'react'
+import { useEffect, useRef } from 'react'
+import { Animated, Text } from 'react-native'
 
 export function StreamingText({
   text,
@@ -9,8 +10,8 @@ export function StreamingText({
   className = '',
   testID,
 }: StreamingTextProps) {
-  const cursorOpacity = useRef(new Animated.Value(1)).current;
-  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const cursorOpacity = useRef(new Animated.Value(1)).current
+  const animationRef = useRef<Animated.CompositeAnimation | null>(null)
 
   useEffect(() => {
     if (isStreaming) {
@@ -27,18 +28,19 @@ export function StreamingText({
             duration: 500,
             useNativeDriver: true,
           }),
-        ])
-      );
-      animationRef.current.start();
-    } else {
-      animationRef.current?.stop();
-      cursorOpacity.setValue(0);
+        ]),
+      )
+      animationRef.current.start()
+    }
+    else {
+      animationRef.current?.stop()
+      cursorOpacity.setValue(0)
     }
 
     return () => {
-      animationRef.current?.stop();
-    };
-  }, [isStreaming, cursorOpacity]);
+      animationRef.current?.stop()
+    }
+  }, [isStreaming, cursorOpacity])
 
   return (
     <Text className={`text-foreground ${className}`} testID={testID}>
@@ -49,5 +51,5 @@ export function StreamingText({
         </Animated.Text>
       )}
     </Text>
-  );
+  )
 }

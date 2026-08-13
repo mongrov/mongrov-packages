@@ -9,7 +9,7 @@
  * The naive implementation quantiles raw readings. That is wrong, and
  * wrong in a way that looks plausible: SpO₂ sampled every 30 minutes dips
  * during deep sleep on most nights, so a raw p10 across 30 days reports the
- * *dip* (~87%) as the bottom of the user's usual range. It isn't — it's a
+ * dip* (~87%) as the bottom of the user's usual range. It isn't — it's a
  * normal nightly event that happens every day. The user's day-to-day
  * variation is much narrower.
  *
@@ -22,17 +22,18 @@
  * populate a baseline.
  */
 
-import {
-  baselineAggregateFor,
-  BASELINE_MIN_DAYS,
-  BASELINE_WINDOW_DAYS,
-  type BaselineWindowDays,
-  getBaselineMetricIds,
-  METRIC_METADATA,
-  type MetricId,
-} from '../core/metric_metadata'
+import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine, EventBus } from '../core/types'
 import type { SchedulerLogger } from './scheduler'
+import {
+  BASELINE_MIN_DAYS,
+  BASELINE_WINDOW_DAYS,
+  baselineAggregateFor,
+
+  getBaselineMetricIds,
+  METRIC_METADATA,
+
+} from '../core/metric_metadata'
 
 /** One computed baseline row, as read back from the aggregate query. */
 interface BaselineRow {
@@ -79,7 +80,7 @@ export interface BaselineComputeResult {
  */
 export function buildBaselineSql(
   metric: MetricId,
-  windowDays: BaselineWindowDays,
+  _windowDays: BaselineWindowDays,
 ): string {
   const meta = METRIC_METADATA[metric]
   const aggregate = baselineAggregateFor(metric)
@@ -178,13 +179,13 @@ ON CONFLICT (brand, family_id, user_id, metric, window_days) DO UPDATE SET
 
 export interface BaselineComputer {
   /** Compute one (metric, window). Returns true when a row was written. */
-  computeOne(
+  computeOne: (
     metric: MetricId,
     windowDays: BaselineWindowDays,
     ctx: BaselineComputeContext,
-  ): Promise<boolean>
+  ) => Promise<boolean>
   /** Compute every configured metric x window for one user. */
-  computeAll(ctx: BaselineComputeContext): Promise<BaselineComputeResult>
+  computeAll: (ctx: BaselineComputeContext) => Promise<BaselineComputeResult>
 }
 
 export function createBaselineComputer(
@@ -263,7 +264,8 @@ export function createBaselineComputer(
         for (const windowDays of windows) {
           try {
             const written = await computeOne(metric, windowDays, ctx)
-            if (written) computed += 1
+            if (written)
+              computed += 1
             else skipped += 1
           }
           catch (err) {

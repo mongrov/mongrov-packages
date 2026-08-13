@@ -1,5 +1,5 @@
-import { createStore } from 'zustand/vanilla'
 import type { ColorScheme } from './types'
+import { createStore } from 'zustand/vanilla'
 
 const DEFAULT_STORAGE_KEY = '@mongrov/color-scheme'
 
@@ -9,16 +9,16 @@ interface ColorSchemeState {
 }
 
 interface StorageBackend {
-  getString(key: string): string | undefined
-  set(key: string, value: string): void
+  getString: (key: string) => string | undefined
+  set: (key: string, value: string) => void
 }
 
 function getMMKVStorage(): StorageBackend | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { MMKV } = require('react-native-mmkv') as { MMKV: new () => StorageBackend }
     return new MMKV()
-  } catch {
+  }
+  catch {
     return null
   }
 }
@@ -40,7 +40,7 @@ export function createColorSchemeStore(options?: {
     }
   }
 
-  const store = createStore<ColorSchemeState>((set) => ({
+  const store = createStore<ColorSchemeState>(set => ({
     colorScheme: initial,
     setColorScheme: (scheme: ColorScheme) => {
       storage?.set(storageKey, scheme)

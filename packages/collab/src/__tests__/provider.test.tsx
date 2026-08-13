@@ -2,12 +2,12 @@
  * Tests for CollabProvider and hooks
  */
 
-import React from 'react'
-import { render, screen, act, waitFor, renderHook } from '@testing-library/react'
-import { CollabProvider, useCollab, useTyping, useMessages, usePresence } from '../provider'
-import { MockAdapter } from './mock-adapter'
-import type { CollabConfig } from '../types'
 import type { Message } from '@mongrov/types'
+import type { CollabConfig } from '../types'
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
+import * as React from 'react'
+import { CollabProvider, useCollab, useMessages, usePresence, useTyping } from '../provider'
+import { MockAdapter } from './mock-adapter'
 
 // ─── Test Utilities ──────────────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ describe('CollabProvider', () => {
     render(
       <CollabProvider config={config}>
         <div data-testid="child">Hello</div>
-      </CollabProvider>
+      </CollabProvider>,
     )
 
     expect(screen.getByTestId('child').textContent).toBe('Hello')
@@ -51,7 +51,7 @@ describe('CollabProvider', () => {
     render(
       <CollabProvider config={config}>
         <TestComponent />
-      </CollabProvider>
+      </CollabProvider>,
     )
 
     expect(screen.getByTestId('status').textContent).toBe('disconnected')
@@ -67,7 +67,7 @@ describe('CollabProvider', () => {
     render(
       <CollabProvider config={config}>
         <TestComponent onRender={(value) => { capturedAdapter = value.adapter as MockAdapter }} />
-      </CollabProvider>
+      </CollabProvider>,
     )
 
     expect(capturedAdapter).toBe(adapter)

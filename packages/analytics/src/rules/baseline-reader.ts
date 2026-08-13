@@ -18,14 +18,14 @@
  * across batches, fresh reads pick up the latest compute.
  */
 
-import { buildBaselineSql } from '../sync/baseline-compute'
-import {
-  BASELINE_MIN_DAYS,
-  type BaselineWindowDays,
-  type MetricId,
-} from '../core/metric_metadata'
+import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine } from '../core/types'
 import type { RulesLogger } from './types'
+import {
+  BASELINE_MIN_DAYS,
+
+} from '../core/metric_metadata'
+import { buildBaselineSql } from '../sync/baseline-compute'
 
 export interface Baseline {
   p05: number | null
@@ -53,14 +53,14 @@ export interface BaselineReaderConfig {
 
 export interface BaselineReader {
   /** Null when the user has fewer than `BASELINE_MIN_DAYS` days of data. */
-  getBaseline(
+  getBaseline: (
     userId: string,
     metric: MetricId,
     windowDays: BaselineWindowDays,
     ctx: { brand: string, familyId: string },
-  ): Promise<Baseline | null>
+  ) => Promise<Baseline | null>
   /** Drop the per-batch cache. Called at the start of each evaluation pass. */
-  resetCache(): void
+  resetCache: () => void
 }
 
 interface StoredRow {
@@ -149,7 +149,8 @@ export function createBaselineReader(
 
     async getBaseline(userId, metric, windowDays, ctx) {
       const k = key(userId, metric, windowDays, ctx.brand, ctx.familyId)
-      if (cache.has(k)) return cache.get(k) ?? null
+      if (cache.has(k))
+        return cache.get(k) ?? null
 
       let result: Baseline | null = null
       try {
@@ -158,7 +159,9 @@ export function createBaselineReader(
           result = await computeOnRead(userId, metric, windowDays, ctx)
           if (result !== null) {
             logger?.debug('rules.baseline: stored row absent, computed on read', {
-              userId, metric, windowDays,
+              userId,
+              metric,
+              windowDays,
             })
           }
         }

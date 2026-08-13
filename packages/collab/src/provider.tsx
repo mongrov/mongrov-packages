@@ -4,39 +4,39 @@
  * Manages connection state machine and provides hooks for components.
  */
 
+import type { Message, Unsubscribe } from '@mongrov/types'
+import type { ReactNode } from 'react'
+import type {
+  AdapterCredentials,
+  CollabAdapter,
+  CollabConfig,
+  CollabConnectionStatus,
+  CollabEventHandler,
+  CollabEventName,
+  PresenceState,
+  SendMessageParams,
+  SendMessageResult,
+  TypingUser,
+  UserPresence,
+} from './types'
+
+import { useSelector } from '@xstate/react'
 import {
   createContext,
+
+  useCallback,
   useContext,
   useEffect,
   useMemo,
-  useCallback,
-  useState,
   useRef,
-  type ReactNode,
+  useState,
 } from 'react'
 import { createActor } from 'xstate'
-import { useSelector } from '@xstate/react'
-
 import {
   collabMachine,
-  getConnectionStatus,
   createMachineInput,
-  type CollabMachineEvent,
+  getConnectionStatus,
 } from './machine'
-import type {
-  CollabConfig,
-  CollabAdapter,
-  CollabConnectionStatus,
-  AdapterCredentials,
-  SendMessageParams,
-  SendMessageResult,
-  PresenceState,
-  UserPresence,
-  TypingUser,
-  CollabEventName,
-  CollabEventHandler,
-} from './types'
-import type { Message, Unsubscribe } from '@mongrov/types'
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
@@ -74,7 +74,7 @@ interface CollabContextValue {
   /** Subscribe to adapter events */
   on: <T extends CollabEventName>(
     event: T,
-    handler: CollabEventHandler<T>
+    handler: CollabEventHandler<T>,
   ) => Unsubscribe
   /** The underlying adapter */
   adapter: CollabAdapter
@@ -108,7 +108,14 @@ export interface CollabProviderProps {
  * ```
  */
 export function CollabProvider({ config, children }: CollabProviderProps): ReactNode {
-  const { adapter, autoConnect = false } = config
+  // NOTE: `config.autoConnect` is declared in `CollabProviderProps` and shown
+  // in the docblock above, but nothing implements it. The machine starts in
+  // `disconnected` and this provider only calls `actorRef.start()`, which does
+  // not send CONNECT — so `autoConnect: true` never connects. It was
+  // destructured here and never read, which is how it stayed unnoticed.
+  // Deliberately not wired up in a lint pass: making it work would start
+  // connecting for consumers who set it, which is a behaviour change.
+  const { adapter } = config
 
   // Create the state machine actor
   const actorRef = useMemo(() => {
@@ -125,8 +132,8 @@ export function CollabProvider({ config, children }: CollabProviderProps): React
   }, [actorRef])
 
   // Get state from machine
-  const stateValue = useSelector(actorRef, (state) => state.value as string)
-  const error = useSelector(actorRef, (state) => state.context.error)
+  const stateValue = useSelector(actorRef, state => state.value as string)
+  const error = useSelector(actorRef, state => state.context.error)
 
   const status = useMemo(() => getConnectionStatus(stateValue), [stateValue])
   const isConnected = status === 'connected'
@@ -137,7 +144,7 @@ export function CollabProvider({ config, children }: CollabProviderProps): React
     (credentials: AdapterCredentials) => {
       actorRef.send({ type: 'CONNECT', credentials })
     },
-    [actorRef]
+    [actorRef],
   )
 
   const disconnect = useCallback(() => {
@@ -172,51 +179,51 @@ export function CollabProvider({ config, children }: CollabProviderProps): React
   // Adapter method wrappers
   const sendMessage = useCallback(
     (params: SendMessageParams) => adapter.sendMessage(params),
-    [adapter]
+    [adapter],
   )
 
   const sendTyping = useCallback(
     (conversationId: string, isTyping: boolean) =>
       adapter.sendTyping(conversationId, isTyping),
-    [adapter]
+    [adapter],
   )
 
   const setPresence = useCallback(
     (presenceStatus: PresenceState) => adapter.setPresence(presenceStatus),
-    [adapter]
+    [adapter],
   )
 
   const addReaction = useCallback(
     (messageId: string, emoji: string) => adapter.addReaction(messageId, emoji),
-    [adapter]
+    [adapter],
   )
 
   const removeReaction = useCallback(
     (messageId: string, emoji: string) => adapter.removeReaction(messageId, emoji),
-    [adapter]
+    [adapter],
   )
 
   const editMessage = useCallback(
     (messageId: string, newContent: string) =>
       adapter.editMessage(messageId, newContent),
-    [adapter]
+    [adapter],
   )
 
   const deleteMessage = useCallback(
     (messageId: string) => adapter.deleteMessage(messageId),
-    [adapter]
+    [adapter],
   )
 
   const markAsRead = useCallback(
     (conversationId: string, messageId?: string) =>
       adapter.markAsRead(conversationId, messageId),
-    [adapter]
+    [adapter],
   )
 
   const on = useCallback(
     <T extends CollabEventName>(event: T, handler: CollabEventHandler<T>) =>
       adapter.on(event, handler),
-    [adapter]
+    [adapter],
   )
 
   const value = useMemo<CollabContextValue>(
@@ -257,7 +264,7 @@ export function CollabProvider({ config, children }: CollabProviderProps): React
       markAsRead,
       on,
       adapter,
-    ]
+    ],
   )
 
   return <CollabContext.Provider value={value}>{children}</CollabContext.Provider>
@@ -273,16 +280,16 @@ export function useCollab(): CollabContextValue {
   const context = useContext(CollabContext)
   if (!context) {
     throw new Error(
-      '[useCollab] Hook called outside of CollabProvider.\n\n' +
-      'To fix this, wrap your component tree with CollabProvider:\n\n' +
-      '  import { CollabProvider } from "@mongrov/collab"\n\n' +
-      '  function App() {\n' +
-      '    return (\n' +
-      '      <CollabProvider config={{ adapter }}>\n' +
-      '        <YourComponent />\n' +
-      '      </CollabProvider>\n' +
-      '    )\n' +
-      '  }'
+      '[useCollab] Hook called outside of CollabProvider.\n\n'
+      + 'To fix this, wrap your component tree with CollabProvider:\n\n'
+      + '  import { CollabProvider } from "@mongrov/collab"\n\n'
+      + '  function App() {\n'
+      + '    return (\n'
+      + '      <CollabProvider config={{ adapter }}>\n'
+      + '        <YourComponent />\n'
+      + '      </CollabProvider>\n'
+      + '    )\n'
+      + '  }',
     )
   }
   return context
@@ -362,33 +369,37 @@ export function useTyping(conversationId: string): {
 
   // Listen for typing events
   useEffect(() => {
-    if (!isConnected) return
+    if (!isConnected)
+      return
 
     const unsubStart = adapter.on('typing:start', ({ conversationId: cid, userId, userName }) => {
-      if (cid !== conversationId) return
+      if (cid !== conversationId)
+        return
 
       setTypingUsers((prev) => {
         // Remove existing entry for this user
-        const filtered = prev.filter((u) => u.userId !== userId)
+        const filtered = prev.filter(u => u.userId !== userId)
         return [...filtered, { userId, userName, startedAt: Date.now() }]
       })
 
       // Clear existing timeout
       const existing = typingTimeoutsRef.current.get(userId)
-      if (existing) clearTimeout(existing)
+      if (existing)
+        clearTimeout(existing)
 
       // Set timeout to remove typing after 5s of no updates
       const timeout = setTimeout(() => {
-        setTypingUsers((prev) => prev.filter((u) => u.userId !== userId))
+        setTypingUsers(prev => prev.filter(u => u.userId !== userId))
         typingTimeoutsRef.current.delete(userId)
       }, 5000)
       typingTimeoutsRef.current.set(userId, timeout)
     })
 
     const unsubStop = adapter.on('typing:stop', ({ conversationId: cid, userId }) => {
-      if (cid !== conversationId) return
+      if (cid !== conversationId)
+        return
 
-      setTypingUsers((prev) => prev.filter((u) => u.userId !== userId))
+      setTypingUsers(prev => prev.filter(u => u.userId !== userId))
       const timeout = typingTimeoutsRef.current.get(userId)
       if (timeout) {
         clearTimeout(timeout)
@@ -413,7 +424,7 @@ export function useTyping(conversationId: string): {
         sendTypingToServer(conversationId, isTyping)
       }
     },
-    [isConnected, conversationId, sendTypingToServer]
+    [isConnected, conversationId, sendTypingToServer],
   )
 
   return { typingUsers, sendTyping }
@@ -463,7 +474,8 @@ export function useMessages(conversationId: string): {
           if (message.conversationId === conversationId) {
             setMessages((prev) => {
               // Check if message already exists (dedup)
-              if (prev.some((m) => m.id === message.id)) return prev
+              if (prev.some(m => m.id === message.id))
+                return prev
               return [...prev, message]
             })
           }
@@ -472,8 +484,8 @@ export function useMessages(conversationId: string): {
         // Listen for updated messages
         const unsubUpdated = adapter.on('message:updated', (message) => {
           if (message.conversationId === conversationId) {
-            setMessages((prev) =>
-              prev.map((m) => (m.id === message.id ? message : m))
+            setMessages(prev =>
+              prev.map(m => (m.id === message.id ? message : m)),
             )
           }
         })
@@ -481,7 +493,7 @@ export function useMessages(conversationId: string): {
         // Listen for deleted messages
         const unsubDeleted = adapter.on('message:deleted', ({ messageId, conversationId: cid }) => {
           if (cid === conversationId) {
-            setMessages((prev) => prev.filter((m) => m.id !== messageId))
+            setMessages(prev => prev.filter(m => m.id !== messageId))
           }
         })
 
@@ -492,7 +504,8 @@ export function useMessages(conversationId: string): {
           unsubUpdated()
           unsubDeleted()
         }
-      } catch (err) {
+      }
+      catch (err) {
         setError(err instanceof Error ? err : new Error(String(err)))
         setIsLoading(false)
       }
@@ -511,7 +524,8 @@ export function useMessages(conversationId: string): {
   }, [adapter, isConnected, conversationId])
 
   const loadMore = useCallback(async () => {
-    if (!hasMore || isLoading || messages.length === 0) return
+    if (!hasMore || isLoading || messages.length === 0)
+      return
 
     try {
       const oldestMessage = messages[0]
@@ -519,15 +533,17 @@ export function useMessages(conversationId: string): {
         before: oldestMessage.id,
         limit: 50,
       })
-      setMessages((prev) => [...result.messages, ...prev])
+      setMessages(prev => [...result.messages, ...prev])
       setHasMore(result.hasMore)
-    } catch (err) {
+    }
+    catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)))
     }
   }, [adapter, conversationId, hasMore, isLoading, messages])
 
   const refresh = useCallback(async () => {
-    if (!isConnected) return
+    if (!isConnected)
+      return
 
     setIsLoading(true)
     try {
@@ -535,9 +551,11 @@ export function useMessages(conversationId: string): {
       setMessages(result.messages)
       setHasMore(result.hasMore)
       setError(null)
-    } catch (err) {
+    }
+    catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)))
-    } finally {
+    }
+    finally {
       setIsLoading(false)
     }
   }, [adapter, conversationId, isConnected])

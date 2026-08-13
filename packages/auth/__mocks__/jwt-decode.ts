@@ -4,15 +4,15 @@ let mockDecoded: Record<string, unknown> = {
   name: 'Test User',
   roles: ['user'],
   exp: Math.floor(Date.now() / 1000) + 3600,
-};
+}
 
 export function jwtDecode(_token: string): Record<string, unknown> {
-  return { ...mockDecoded };
+  return { ...mockDecoded }
 }
 
 // Test helpers
 export function __setDecoded(val: Record<string, unknown>): void {
-  mockDecoded = val;
+  mockDecoded = val
 }
 
 export function __reset(): void {
@@ -22,5 +22,5 @@ export function __reset(): void {
     name: 'Test User',
     roles: ['user'],
     exp: Math.floor(Date.now() / 1000) + 3600,
-  };
+  }
 }

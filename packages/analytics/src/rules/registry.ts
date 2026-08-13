@@ -8,12 +8,13 @@
  * `useSyncExternalStore`.
  */
 
-import { describeError } from '../core/errors'
-import type { KVStore, Unsubscribe } from '../core/types'
 import type { MetricId } from '../core/metric_metadata'
-import { RuleSchema, RuleValidationError, type Rule } from './schema'
-import { validateRule } from './validator'
+import type { KVStore, Unsubscribe } from '../core/types'
+import type { Rule } from './schema'
 import type { RulesLogger } from './types'
+import { describeError } from '../core/errors'
+import { RuleSchema, RuleValidationError } from './schema'
+import { validateRule } from './validator'
 
 const KV_ENABLED_PREFIX = 'analytics:rules:'
 
@@ -22,23 +23,23 @@ function enabledKey(ruleId: string): string {
 }
 
 export interface RulesRegistry {
-  register(rules: Rule[]): Promise<void>
+  register: (rules: Rule[]) => Promise<void>
   /**
    * Atomically swap the entire rule set: clears existing entries, validates
    * every incoming rule, rehydrates each rule's `enabled` state from KV,
    * bumps `rev` once, and notifies subscribers exactly once.
    */
-  replace(rules: Rule[]): Promise<void>
-  enable(ruleId: string): Promise<void>
-  disable(ruleId: string): Promise<void>
-  list(): Rule[]
-  getActive(): Rule[]
-  getByMetric(metric: MetricId): Rule[]
-  getByBrand(brand: string): Rule[]
-  subscribe(listener: () => void): Unsubscribe
+  replace: (rules: Rule[]) => Promise<void>
+  enable: (ruleId: string) => Promise<void>
+  disable: (ruleId: string) => Promise<void>
+  list: () => Rule[]
+  getActive: () => Rule[]
+  getByMetric: (metric: MetricId) => Rule[]
+  getByBrand: (brand: string) => Rule[]
+  subscribe: (listener: () => void) => Unsubscribe
   readonly rev: number
   /** Drop every subscribed listener. Idempotent. Used by `RulesEngine.close()`. */
-  close(): void
+  close: () => void
 }
 
 export interface CreateRegistryConfig {
@@ -140,7 +141,8 @@ export function createRulesRegistry({
     getActive() {
       const active: Rule[] = []
       for (const entry of entries.values()) {
-        if (entry.enabled) active.push(entry.rule)
+        if (entry.enabled)
+          active.push(entry.rule)
       }
       return active
     },

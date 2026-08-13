@@ -2,8 +2,8 @@
  * YogaRing brand default rules. Sidecar: `yogaring.toml`.
  */
 
-import { parseCatalog } from './loader'
 import type { Rule } from '../schema'
+import { parseCatalog } from './loader'
 
 const TOML = `
 # YogaRing brand default rules (placeholder set for v0.1.0).

@@ -15,7 +15,7 @@
  *
  */
 
-import { z } from 'zod';
+import { z } from 'zod'
 
 /**
  * Every value legal in `device_event.event_type`.
@@ -132,7 +132,8 @@ export function decodeDeviceEventPayload<T extends DeviceEventType>(
   eventType: T,
   raw: string | null | undefined,
 ): DeviceEventPayload<T> | null {
-  if (typeof raw !== 'string' || raw.length === 0) return null
+  if (typeof raw !== 'string' || raw.length === 0)
+    return null
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)

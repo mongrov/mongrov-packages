@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
-
-import { HybridDuckDB } from '../engine'
 import type { AttachContext } from '../types'
+
+import { describe, expect, it } from 'vitest'
+import { HybridDuckDB } from '../engine'
 import {
   attachWarehouse,
   detachWarehouse,

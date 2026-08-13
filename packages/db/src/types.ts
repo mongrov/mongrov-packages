@@ -10,25 +10,25 @@
  */
 export interface KVStore {
   /** Get a string value by key */
-  get(key: string): Promise<string | null>
+  get: (key: string) => Promise<string | null>
 
   /** Set a string value */
-  set(key: string, value: string): Promise<void>
+  set: (key: string, value: string) => Promise<void>
 
   /** Delete a key */
-  delete(key: string): Promise<void>
+  delete: (key: string) => Promise<void>
 
   /** Get and parse a JSON object */
-  getObject<T>(key: string): Promise<T | null>
+  getObject: <T>(key: string) => Promise<T | null>
 
   /** Stringify and set a JSON object */
-  setObject<T>(key: string, value: T): Promise<void>
+  setObject: <T>(key: string, value: T) => Promise<void>
 
   /** Clear all keys in this store */
-  clear(): Promise<void>
+  clear: () => Promise<void>
 
   /** Get all keys (for migration/debugging) */
-  getAllKeys(): Promise<string[]>
+  getAllKeys: () => Promise<string[]>
 }
 
 /**
@@ -56,10 +56,10 @@ export interface KVStoreConfig {
  * Logger interface for database operations.
  */
 export interface DBLogger {
-  debug(msg: string, data?: Record<string, unknown>): void
-  info(msg: string, data?: Record<string, unknown>): void
-  warn(msg: string, data?: Record<string, unknown>): void
-  error(msg: string, data?: Record<string, unknown>): void
+  debug: (msg: string, data?: Record<string, unknown>) => void
+  info: (msg: string, data?: Record<string, unknown>) => void
+  warn: (msg: string, data?: Record<string, unknown>) => void
+  error: (msg: string, data?: Record<string, unknown>) => void
 }
 
 /**
@@ -125,31 +125,31 @@ export type MigrationStrategy = (oldDoc: Record<string, unknown>) => Record<stri
 // The actual types come from rxdb when it's installed.
 
 /** RxDB storage adapter type (from rxdb) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export type RxStorageType = any
 
 /** RxDB JSON schema type (from rxdb) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export type RxJsonSchemaType = any
 
 /** RxDB database instance type (from rxdb) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export type RxDatabaseType = any
 
 /** RxDB collection instance type (from rxdb) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export type RxCollectionType = any
 
 /** RxDB document instance type (from rxdb) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export type RxDocumentType = any
 
 /** RxDB query type (from rxdb) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export type MangoQueryType = any
 
 /** RxDB replication state type (from rxdb) */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 export type RxReplicationStateType = any
 
 // ─── Replication ──────────────────────────────────────────────────────────────
@@ -165,7 +165,7 @@ export type ReplicationCheckpoint = Record<string, unknown>
  * Called by RxDB when local documents change.
  */
 export type ReplicationPushHandler<T = RxDocumentType> = (
-  docs: T[]
+  docs: T[],
 ) => Promise<void>
 
 /**
@@ -174,7 +174,7 @@ export type ReplicationPushHandler<T = RxDocumentType> = (
  */
 export type ReplicationPullHandler<T = RxDocumentType> = (
   checkpoint: ReplicationCheckpoint | null,
-  batchSize: number
+  batchSize: number,
 ) => Promise<{
   documents: T[]
   checkpoint: ReplicationCheckpoint | null
@@ -198,7 +198,7 @@ export type TimeseriesHWM = unknown
  * Satisfies `@mongrov/device`'s `ReadingSink` port (see device-design §3).
  */
 export interface ReadingSink<TReading = unknown> {
-  write(batch: TReading[]): Promise<void>
+  write: (batch: TReading[]) => Promise<void>
 }
 
 /**
@@ -207,8 +207,8 @@ export interface ReadingSink<TReading = unknown> {
  * docs; S3-parquet/InfluxDB/HTTP-batch for timeseries).
  */
 export interface RemoteTarget<TBatch, THWM = TimeseriesHWM> {
-  pull?(since: THWM | null): AsyncIterable<TBatch>
-  push?(batch: TBatch): Promise<{ ack: THWM }>
+  pull?: (since: THWM | null) => AsyncIterable<TBatch>
+  push?: (batch: TBatch) => Promise<{ ack: THWM }>
 }
 
 /**
@@ -221,28 +221,28 @@ export interface TimeseriesEngine<TReading = unknown> {
   readonly id: string
 
   /** Append batch to local storage. Idempotent on (deviceId, metric, ts). */
-  write(batch: TReading[]): Promise<void>
+  write: (batch: TReading[]) => Promise<void>
 
   /**
    * Range query against local storage. `kind`-aware: engines pick column
    * layout based on the reading kind, but query results are opaque to db.
    */
-  query<T = TReading>(args: {
+  query: <T = TReading>(args: {
     deviceId?: string
     metric?: string
     from?: number
     to?: number
     limit?: number
-  }): Promise<T[]>
+  }) => Promise<T[]>
 
   /**
    * Drain a batch of un-flushed readings for replication. Returns the batch
    * + the HWM to record after a successful remote ack.
    */
-  drain?(maxBatchSize?: number): Promise<{ batch: TReading[], nextHwm: TimeseriesHWM } | null>
+  drain?: (maxBatchSize?: number) => Promise<{ batch: TReading[], nextHwm: TimeseriesHWM } | null>
 
   /** Record the HWM after a successful remote push. */
-  advanceHwm?(hwm: TimeseriesHWM): Promise<void>
+  advanceHwm?: (hwm: TimeseriesHWM) => Promise<void>
 }
 
 /**

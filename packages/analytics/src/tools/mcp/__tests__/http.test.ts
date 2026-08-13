@@ -1,9 +1,12 @@
+import type { AnalyticsToolsHandle } from '../../factory'
+import type { ToolContext } from '../../types'
+import type { McpServerHandle } from '../server'
+import type { HttpTransportHandle } from '../transports/http'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createFakeEngine } from '../../__fakes__/engine'
-import { createAnalyticsTools, type AnalyticsToolsHandle } from '../../factory'
-import type { ToolContext } from '../../types'
-import { createMcpServer, type McpServerHandle } from '../server'
-import { createHttpTransport, type HttpTransportHandle } from '../transports/http'
+import { createAnalyticsTools } from '../../factory'
+import { createMcpServer } from '../server'
+import { createHttpTransport } from '../transports/http'
 
 // Both `createMcpServer` and `createHttpTransport` enforce the principle-41
 // guard: dev build AND flag. Satisfy both for the suite; restore afterwards.
@@ -22,7 +25,8 @@ afterAll(() => {
   else {
     ;(globalThis as Record<string, unknown>).__DEV__ = originalDev
   }
-  if (originalFlag === undefined) delete process.env.ENABLE_MCP_SERVER
+  if (originalFlag === undefined)
+    delete process.env.ENABLE_MCP_SERVER
   else process.env.ENABLE_MCP_SERVER = originalFlag
 })
 
@@ -86,7 +90,8 @@ describe('createHttpTransport', () => {
   let wired: Wired
 
   afterEach(async () => {
-    if (wired) await wired.dispose()
+    if (wired)
+      await wired.dispose()
   })
 
   describe('no authToken (dev mode)', () => {

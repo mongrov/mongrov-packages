@@ -6,15 +6,11 @@
  * NotImplementedError.
  */
 
-export * from './errors'
-export * from './types'
+export * from './context'
 export * from './define'
 export * from './dispatcher'
+export * from './errors'
 export * from './hooks'
-export * from './invalidation'
-export * from './context'
-export * from './tenant'
-
 // Query latency instrumentation (Sprint 5 T-45). Off by default — it exists
 // to decide whether the analytics watermark cache is worth enabling.
 export {
@@ -30,3 +26,7 @@ export type {
   QueryInstrumentationConfig,
   QueryLatencyStats,
 } from './instrumentation'
+export * from './invalidation'
+
+export * from './tenant'
+export * from './types'

@@ -5,12 +5,12 @@
  * sentinel handling. Compact suite verifying rename + row count + ts parse.
  */
 
-import { describe, expect, it } from 'vitest'
+import type { MapperContext } from '../types'
 
+import { describe, expect, it } from 'vitest'
 import { mapHeartRate } from '../heart-rate'
 import { mapSpo2 } from '../spo2'
 import { mapTemperature } from '../temperature'
-import type { MapperContext } from '../types'
 
 const ctx: MapperContext = {
   brand: 'ziva',

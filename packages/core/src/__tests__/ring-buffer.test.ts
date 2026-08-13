@@ -1,5 +1,5 @@
+import type { LogContext, LogEntry } from '../types'
 import { RingBufferTransport } from '../transports/ring-buffer'
-import type { LogEntry, LogContext } from '../types'
 
 function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
   const context: LogContext = {
@@ -44,19 +44,18 @@ describe('RingBufferTransport', () => {
     await transport.send([e1, e2, e3])
 
     const entries = transport.getEntries()
-    expect(entries.map((e) => e.message)).toEqual(['third', 'second', 'first'])
+    expect(entries.map(e => e.message)).toEqual(['third', 'second', 'first'])
   })
 
   it('should overwrite oldest entries when full (circular buffer)', async () => {
     const entries = Array.from({ length: 7 }, (_, i) =>
-      makeEntry({ id: `${i}`, message: `msg-${i}` })
-    )
+      makeEntry({ id: `${i}`, message: `msg-${i}` }))
     await transport.send(entries)
 
     const result = transport.getEntries()
     // Buffer size is 5, so only last 5 entries should remain
     expect(result).toHaveLength(5)
-    expect(result.map((e) => e.message)).toEqual([
+    expect(result.map(e => e.message)).toEqual([
       'msg-6',
       'msg-5',
       'msg-4',
@@ -75,7 +74,7 @@ describe('RingBufferTransport', () => {
 
     const warnings = transport.getEntries({ level: 'warn' })
     expect(warnings).toHaveLength(2)
-    expect(warnings.map((e) => e.level)).toEqual(['error', 'warn'])
+    expect(warnings.map(e => e.level)).toEqual(['error', 'warn'])
   })
 
   it('should filter by time range (since)', async () => {
@@ -160,8 +159,7 @@ describe('RingBufferTransport', () => {
     const defaultTransport = new RingBufferTransport()
     // We can't directly inspect maxSize, but we can verify it works with many entries
     const entries = Array.from({ length: 1001 }, (_, i) =>
-      makeEntry({ id: `${i}`, message: `msg-${i}` })
-    )
+      makeEntry({ id: `${i}`, message: `msg-${i}` }))
     defaultTransport.send(entries)
 
     const result = defaultTransport.getEntries()

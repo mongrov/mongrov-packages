@@ -11,13 +11,13 @@
  *   6. `fetchOnDemand` respects params + limit + bypasses watermark.
  */
 
-import { describe, expect, it } from 'vitest'
+import type { AttachContext } from '../../core/types'
 
+import { describe, expect, it } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { R2Fetcher } from '../fetcher'
 import { WatermarkStore } from '../watermark'
 import { createFakeSqlEngine } from './__fakes__/fake-sql-engine'
-import type { AttachContext } from '../../core/types'
 
 const ctx: AttachContext = {
   brand: 'ziva',

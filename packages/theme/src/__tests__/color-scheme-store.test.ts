@@ -1,7 +1,7 @@
 import { createColorSchemeStore } from '../color-scheme-store'
 
 // Mock is loaded via moduleNameMapper in jest.config.js
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+
 const { __resetMMKV } = require('react-native-mmkv') as { __resetMMKV: () => void }
 
 beforeEach(() => {
@@ -44,7 +44,7 @@ describe('createColorSchemeStore', () => {
 
   it('should ignore invalid persisted values', () => {
     // Manually write an invalid value to MMKV
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+
     const { MMKV } = require('react-native-mmkv') as { MMKV: new () => { set: (k: string, v: string) => void } }
     const mmkv = new MMKV()
     mmkv.set('@mongrov/color-scheme', 'invalid-value')

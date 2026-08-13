@@ -1,12 +1,12 @@
-import * as React from 'react';
-import { View, Text } from 'react-native';
+import * as React from 'react'
+import { Text, View } from 'react-native'
 
-import { cn } from './primitives/utils';
+import { cn } from './primitives/utils'
 
 export interface AuthDividerProps {
   /** Text to display in the divider. Default: "or continue with" */
-  text?: string;
-  className?: string;
+  text?: string
+  className?: string
 }
 
 /**
@@ -25,5 +25,5 @@ export function AuthDivider({
       </Text>
       <View className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
     </View>
-  );
+  )
 }

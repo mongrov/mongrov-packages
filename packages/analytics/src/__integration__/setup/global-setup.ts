@@ -53,7 +53,8 @@ async function waitForOk(url: string): Promise<void> {
   while (Date.now() - start < WAIT_TIMEOUT_MS) {
     try {
       const res = await fetch(url)
-      if (res.ok) return
+      if (res.ok)
+        return
       lastErr = new Error(`HTTP ${res.status}`)
     }
     catch (e) {
@@ -78,6 +79,7 @@ export async function setup(): Promise<void> {
 }
 
 export async function teardown(): Promise<void> {
-  if (isExternal()) return
+  if (isExternal())
+    return
   compose('down', '-v')
 }

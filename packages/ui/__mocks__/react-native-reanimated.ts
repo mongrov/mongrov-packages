@@ -1,5 +1,5 @@
 // Mock for react-native-reanimated
-import React from 'react'
+import * as React from 'react'
 
 const Animated = {
   View: ({ children, style, testID, className, ...props }: any) =>
@@ -16,10 +16,10 @@ export function useAnimatedStyle(styleFactory: () => object) {
   return styleFactory()
 }
 
-export function withRepeat(animation: any, numberOfReps?: number, reverse?: boolean) {
+export function withRepeat(animation: any, _numberOfReps?: number, _reverse?: boolean) {
   return animation
 }
 
-export function withTiming(toValue: number, config?: { duration?: number }) {
+export function withTiming(toValue: number, _config?: { duration?: number }) {
   return toValue
 }

@@ -34,8 +34,8 @@ describe('T-37 · extractReferencedTables', () => {
 
   it('collects FROM + JOIN tables, deduplicated', () => {
     const tables = extractReferencedTables(
-      'SELECT * FROM v_spo2 s JOIN v_sleep_session ss ON s.ts = ss.ts ' +
-        'LEFT JOIN v_spo2 dup ON dup.ts = s.ts'
+      'SELECT * FROM v_spo2 s JOIN v_sleep_session ss ON s.ts = ss.ts '
+      + 'LEFT JOIN v_spo2 dup ON dup.ts = s.ts',
     )
     expect(tables.sort()).toEqual(['sleep_session', 'spo2'])
   })
@@ -62,15 +62,15 @@ describe('T-37 · extractReferencedTables', () => {
 
   it('ignores schema-qualified internals like information_schema', () => {
     const tables = extractReferencedTables(
-      'SELECT * FROM information_schema.tables JOIN user_baseline ub ON 1=1'
+      'SELECT * FROM information_schema.tables JOIN user_baseline ub ON 1=1',
     )
     expect(tables).toEqual(['user_baseline'])
   })
 
   it('ignores tables mentioned only inside comments', () => {
     const tables = extractReferencedTables(
-      '-- reuses spo2Day base; derived FROM v_sleep_session in transform\n' +
-        'SELECT * FROM insight /* was: JOIN v_activity */'
+      '-- reuses spo2Day base; derived FROM v_sleep_session in transform\n'
+      + 'SELECT * FROM insight /* was: JOIN v_activity */',
     )
     expect(tables).toEqual(['insight'])
   })
@@ -79,8 +79,8 @@ describe('T-37 · extractReferencedTables', () => {
 // --- validator behavior at defineQuery time ---------------------------
 
 describe('T-37 · JOIN invalidation validator', () => {
-  const TWO_TABLE_SQL =
-    'SELECT * FROM v_spo2 s JOIN v_sleep_session ss ON s.ts = ss.ts'
+  const TWO_TABLE_SQL
+    = 'SELECT * FROM v_spo2 s JOIN v_sleep_session ss ON s.ts = ss.ts'
 
   it('warns when 2 tables referenced but only 1 covered, naming the missing table', () => {
     defineDuckdb(TWO_TABLE_SQL, ['spo2:insert', 'spo2:sync_complete'])
@@ -213,7 +213,7 @@ describe('T-37 · frozen contract (techspec/queries.ts) stays warning-free', () 
         'activity:sync_complete',
         'batch:complete',
         'user_setting:changed:spo2SafeLevel',
-      ]
+      ],
     )
     expect(warnSpy).not.toHaveBeenCalled()
   })
@@ -251,7 +251,7 @@ describe('T-37 · frozen contract (techspec/queries.ts) stays warning-free', () 
     WHERE v.user_id = $userId AND v.brand = $brand AND v.family_id = $familyId
     GROUP BY ub.sample_count
   `,
-      ['spo2:sync_complete', 'user_baseline:updated', 'batch:complete']
+      ['spo2:sync_complete', 'user_baseline:updated', 'batch:complete'],
     )
     expect(warnSpy).not.toHaveBeenCalled()
   })
@@ -279,12 +279,12 @@ describe('T-37 · frozen contract (techspec/queries.ts) stays warning-free', () 
     GROUP BY dr.day
     ORDER BY dr.day
   `,
-      ['spo2:insert', 'spo2:sync_complete', 'batch:complete']
+      ['spo2:insert', 'spo2:sync_complete', 'batch:complete'],
     )
     expect(warnSpy).not.toHaveBeenCalled()
   })
 
-  it("device.lastSyncedAt — extract('minute' FROM (...)) is not a table → silent", () => {
+  it('device.lastSyncedAt — extract(\'minute\' FROM (...)) is not a table → silent', () => {
     defineDuckdb(
       `
     SELECT
@@ -294,7 +294,7 @@ describe('T-37 · frozen contract (techspec/queries.ts) stays warning-free', () 
     WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
       AND event_type = 'sync_completed'
   `,
-      ['device_event:insert', 'device_event:sync_complete']
+      ['device_event:insert', 'device_event:sync_complete'],
     )
     expect(warnSpy).not.toHaveBeenCalled()
   })
@@ -308,7 +308,7 @@ describe('T-37 · frozen contract (techspec/queries.ts) stays warning-free', () 
         'sleep_session:insert',
         'activity:insert',
         'batch:complete',
-      ]
+      ],
     )
     expect(warnSpy).not.toHaveBeenCalled()
   })

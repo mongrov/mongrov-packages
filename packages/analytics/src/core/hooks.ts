@@ -7,10 +7,10 @@
  * detach + re-attach (family switch) refires them via the state subscription.
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useSyncExternalStore } from 'react'
-
-import { useAnalyticsEngine } from './context'
 import type { AnalyticsEngine, AnalyticsState, Insight } from './types'
+
+import { useCallback, useEffect, useMemo, useReducer, useRef, useSyncExternalStore } from 'react'
+import { useAnalyticsEngine } from './context'
 import { quoteQualifier } from './schemas'
 
 // -------------------- useAnalytics --------------------
@@ -113,11 +113,13 @@ export function useTimeseries<T = unknown>(
       dispatch({ type: 'start' })
       try {
         const rows = await engine.execute<T>(sql, latestParamsRef.current)
-        if (abortRef.aborted) return
+        if (abortRef.aborted)
+          return
         dispatch({ type: 'success', data: rows })
       }
       catch (cause) {
-        if (abortRef.aborted) return
+        if (abortRef.aborted)
+          return
         dispatch({
           type: 'failure',
           error: cause instanceof Error ? cause : new Error(String(cause)),
@@ -150,11 +152,11 @@ export function useTimeseries<T = unknown>(
       }
     }
     // paramsKey is a stable stringified marker; sql + key + attached round out deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, sql, paramsKey, attached, runQuery])
 
   const refetch = useCallback(async (): Promise<void> => {
-    if (key === undefined || !attached) return
+    if (key === undefined || !attached)
+      return
     // Cancel any in-flight query so its result can't overwrite ours.
     if (activeAbortRef.current) {
       activeAbortRef.current.aborted = true
@@ -202,7 +204,7 @@ export function useInsight(id: string): UseInsightResult {
 function useEngineState(engine: AnalyticsEngine): AnalyticsState {
   return useSyncExternalStore(
     useCallback(
-      (onStoreChange) => engine.subscribe(onStoreChange),
+      onStoreChange => engine.subscribe(onStoreChange),
       [engine],
     ),
     useCallback(() => engine.state, [engine]),

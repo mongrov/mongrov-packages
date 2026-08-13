@@ -6,7 +6,7 @@
  * `Binder Error: Referenced table "system" not found!`, which took attach
  * down before any table was touched. The probe must survive that.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { probeLocalCatalog } from '../warehouse'
 
@@ -44,7 +44,8 @@ describe('probeLocalCatalog', () => {
 
   it('skips the temp catalog', async () => {
     const { db } = dbWith((sql) => {
-      if (sql.includes('current_database')) throw new Error('nope')
+      if (sql.includes('current_database'))
+        throw new Error('nope')
       return [{ name: 'temp' }, { name: 'main_db' }]
     })
     expect(await probeLocalCatalog(db)).toBe('main_db')

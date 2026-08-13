@@ -1,6 +1,8 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef } from 'react'
-import { createLogger, type Logger } from '../logger'
+import type { Logger } from '../logger'
 import type { LoggerConfig } from '../types'
+import * as React from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef } from 'react'
+import { createLogger } from '../logger'
 
 const LoggerContext = createContext<Logger | null>(null)
 
@@ -21,7 +23,6 @@ export function LoggingProvider({ config, children }: LoggingProviderProps) {
     // Try to track screen via expo-router
     let unsubscribe: (() => void) | undefined
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { router } = require('expo-router')
       if (router && typeof router.subscribe === 'function') {
         unsubscribe = router.subscribe((state: { routes?: Array<{ name: string }> }) => {
@@ -31,7 +32,8 @@ export function LoggingProvider({ config, children }: LoggingProviderProps) {
           }
         })
       }
-    } catch {
+    }
+    catch {
       // expo-router not available — screen tracking disabled
     }
 

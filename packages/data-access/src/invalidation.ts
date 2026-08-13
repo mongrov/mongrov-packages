@@ -13,10 +13,11 @@
  * See data-access/spec.md §Invalidation event bus for the matching table.
  */
 
-import mitt, { type Emitter } from 'mitt'
+import type { Emitter } from 'mitt'
 
-import { DataAccessError } from './errors'
 import type { EventBus, Unsubscribe } from './types'
+import mitt from 'mitt'
+import { DataAccessError } from './errors'
 
 type ExactHandler = (payload: unknown) => void
 type PatternHandler = (name: string, payload: unknown) => void
@@ -56,12 +57,12 @@ export function createEventBus(): EventBus {
 
     subscribe<T>(
       name: string,
-      handler: (payload: T) => void
+      handler: (payload: T) => void,
     ): Unsubscribe {
       if (typeof name !== 'string' || name.length === 0) {
         throw new DataAccessError(
           'invalid_pattern',
-          'subscribe: event name must be a non-empty string'
+          'subscribe: event name must be a non-empty string',
         )
       }
       const wrapped: ExactHandler = (payload) => {
@@ -78,7 +79,7 @@ export function createEventBus(): EventBus {
 
     subscribePattern<T>(
       pattern: string,
-      handler: (name: string, payload: T) => void
+      handler: (name: string, payload: T) => void,
     ): Unsubscribe {
       const regex = compileGlob(pattern)
       const entry: PatternEntry = {
@@ -108,7 +109,7 @@ export function compileGlob(pattern: string): RegExp {
   if (typeof pattern !== 'string' || pattern.length === 0) {
     throw new DataAccessError(
       'invalid_pattern',
-      'subscribePattern: pattern must be a non-empty string'
+      'subscribePattern: pattern must be a non-empty string',
     )
   }
   const segments = pattern.split(':')
@@ -116,23 +117,27 @@ export function compileGlob(pattern: string): RegExp {
     if (seg.length === 0) {
       throw new DataAccessError(
         'invalid_pattern',
-        `subscribePattern: empty segment in pattern ${JSON.stringify(pattern)}`
+        `subscribePattern: empty segment in pattern ${JSON.stringify(pattern)}`,
       )
     }
-    if (seg === '**') return '.+'
-    if (seg === '*') return '[^:]+'
+    if (seg === '**')
+      return '.+'
+    if (seg === '*')
+      return '[^:]+'
     return escapeRegex(seg)
   })
   return new RegExp(`^${parts.join(':')}$`)
 }
 
+const REGEX_METACHARS_RE = /[.*+?^${}()|[\]\\]/g
+
 function escapeRegex(literal: string): string {
-  return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return literal.replace(REGEX_METACHARS_RE, '\\$&')
 }
 
 function reportHandlerError(err: unknown, name: string): void {
   // Use console.error so the failure is surfaced but does not propagate.
   // A structured DeviceLogger-style injection is a v0.2.0 concern.
-  // eslint-disable-next-line no-console
+
   console.error(`[@mongrov/data-access] handler for "${name}" threw:`, err)
 }

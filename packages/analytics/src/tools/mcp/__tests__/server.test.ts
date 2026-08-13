@@ -1,11 +1,13 @@
+import type { AnalyticsToolsHandle } from '../../factory'
+import type { ToolContext } from '../../types'
+import type { McpServerHandle } from '../server'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createFakeEngine } from '../../__fakes__/engine'
-import { createAnalyticsTools, type AnalyticsToolsHandle } from '../../factory'
+import { createAnalyticsTools } from '../../factory'
 import { McpDisabledError } from '../guard'
-import type { ToolContext } from '../../types'
-import { createMcpServer, type McpServerHandle } from '../server'
+import { createMcpServer } from '../server'
 
 // `createMcpServer` enforces the principle-41 guard: dev build AND flag.
 // Satisfy both for the suite; restore afterwards.
@@ -24,7 +26,8 @@ afterAll(() => {
   else {
     ;(globalThis as Record<string, unknown>).__DEV__ = originalDev
   }
-  if (originalFlag === undefined) delete process.env.ENABLE_MCP_SERVER
+  if (originalFlag === undefined)
+    delete process.env.ENABLE_MCP_SERVER
   else process.env.ENABLE_MCP_SERVER = originalFlag
 })
 

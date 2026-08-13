@@ -5,8 +5,8 @@
  * omits invalid reads. Values are integer percentages, 0..100.
  */
 
-import { parseTimestamp } from './time'
 import type { FirmwareSpO2Row, MapperContext, Spo2Row } from './types'
+import { parseTimestamp } from './time'
 
 export function mapSpo2(
   rows: readonly FirmwareSpO2Row[],

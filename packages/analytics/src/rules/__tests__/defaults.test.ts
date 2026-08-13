@@ -156,7 +156,7 @@ describe('TOML catalogs ↔ bundled wrappers', () => {
     const { readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
     const { BRANDS, spliceWrapper } = await import(
-      '../../../scripts/sync-toml.mjs'
+      '../../../scripts/sync-toml.mjs',
     )
     const dir = join(__dirname, '..', 'defaults')
 

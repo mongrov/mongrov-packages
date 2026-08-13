@@ -1,41 +1,41 @@
-import * as React from 'react';
-import { View } from 'react-native';
+import type { View } from 'react-native'
+import * as React from 'react'
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
   withTiming,
-} from 'react-native-reanimated';
+} from 'react-native-reanimated'
 
-import { cn } from './utils';
+import { cn } from './utils'
 
-const duration = 1000;
+const duration = 1000
 
-type SkeletonProps = React.ComponentProps<typeof View> & { className?: string };
+type SkeletonProps = React.ComponentProps<typeof View> & { className?: string }
 
 function Skeleton({
   className,
   ...props
 }: SkeletonProps) {
-  const sv = useSharedValue(1);
+  const sv = useSharedValue(1)
 
   React.useEffect(() => {
-    sv.value = withRepeat(withTiming(0.5, { duration }), -1, true);
-  }, []);
+    sv.value = withRepeat(withTiming(0.5, { duration }), -1, true)
+  }, [])
 
   const style = useAnimatedStyle(
     () => ({
       opacity: sv.value,
     }),
-    [sv]
-  );
+    [sv],
+  )
   return (
     <Animated.View
       style={style}
       className={cn('bg-neutral-200 dark:bg-neutral-800 rounded-md', className)}
       {...props}
     />
-  );
+  )
 }
 
-export { Skeleton };
+export { Skeleton }

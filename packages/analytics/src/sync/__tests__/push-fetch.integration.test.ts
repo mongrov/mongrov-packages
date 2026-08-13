@@ -16,14 +16,13 @@
  *   4. Verify engine-B's local table ≡ iceberg — byte-equal round trip proven.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type { Endpoints } from '../../__integration__/setup/endpoints'
 
 import type { HybridDuckDB } from '../../core/engine'
 import type { AnalyticsEngine, AttachContext } from '../../core/types'
-import { createAnalytics } from '../../core/factory'
-import { warehouseSecretName } from '../../core/warehouse'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { endpoints } from '../../__integration__/setup/endpoints'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { endpoints, type Endpoints } from '../../__integration__/setup/endpoints'
 import {
   dropNamespace,
   ensureNamespace,
@@ -31,6 +30,8 @@ import {
   memoryKV,
   staticTokenVendor,
 } from '../../__integration__/setup/seed'
+import { createAnalytics } from '../../core/factory'
+import { warehouseSecretName } from '../../core/warehouse'
 import { R2Fetcher } from '../fetcher'
 import { R2Pusher } from '../pusher'
 import { WatermarkStore } from '../watermark'
@@ -67,7 +68,7 @@ function bootEngine(): AnalyticsEngine {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
+
   var __INTEGRATION_EP__: Endpoints
 }
 
@@ -126,7 +127,9 @@ async function resetRemote(engine: AnalyticsEngine): Promise<void> {
 async function seedLocal(engine: AnalyticsEngine, n: number): Promise<void> {
   for (let i = 0; i < n; i++) {
     const ts = new Date(Date.UTC(2025, 5, 1, 0, i, 0))
-      .toISOString().replace('T', ' ').replace('Z', '')
+      .toISOString()
+      .replace('T', ' ')
+      .replace('Z', '')
     await engine.execute(
       `INSERT INTO ${LOCAL_QUALIFIED}
          (ts, brand, family_id, user_id, device_id, hrv_ms)
@@ -204,9 +207,13 @@ async function resetRemoteSleep(engine: AnalyticsEngine): Promise<void> {
 async function seedLocalSleep(engine: AnalyticsEngine, n: number): Promise<void> {
   for (let i = 0; i < n; i++) {
     const start = new Date(Date.UTC(2025, 5, 1 + i, 22, 0, 0))
-      .toISOString().replace('T', ' ').replace('Z', '')
+      .toISOString()
+      .replace('T', ' ')
+      .replace('Z', '')
     const end = new Date(Date.UTC(2025, 5, 2 + i, 5, 0, 0))
-      .toISOString().replace('T', ' ').replace('Z', '')
+      .toISOString()
+      .replace('T', ' ')
+      .replace('Z', '')
     const nightOf = `2025-06-${String(1 + i).padStart(2, '0')}`
     await engine.execute(
       `INSERT INTO ${SLEEP_LOCAL}
@@ -267,7 +274,9 @@ async function resetRemoteConfig(engine: AnalyticsEngine): Promise<void> {
 async function seedLocalConfig(engine: AnalyticsEngine, n: number): Promise<void> {
   for (let i = 0; i < n; i++) {
     const validFrom = new Date(Date.UTC(2025, 5, 1, i, 0, 0))
-      .toISOString().replace('T', ' ').replace('Z', '')
+      .toISOString()
+      .replace('T', ' ')
+      .replace('Z', '')
     await engine.execute(
       `INSERT INTO ${CONFIG_LOCAL}
          (device_id, brand, family_id, user_id, metric,

@@ -28,13 +28,13 @@
  * MinIO does not, so the divergence is contained to the seed layer.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type { Endpoints } from '../../__integration__/setup/endpoints'
 
 import type { HybridDuckDB } from '../engine'
 import type { AnalyticsEngine, AttachContext } from '../types'
-import { createAnalytics } from '../factory'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { endpoints } from '../../__integration__/setup/endpoints'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { endpoints, type Endpoints } from '../../__integration__/setup/endpoints'
 import {
   dropNamespace,
   ensureNamespace,
@@ -45,6 +45,7 @@ import {
 } from '../../__integration__/setup/seed'
 import { R2Pusher } from '../../sync/pusher'
 import { WatermarkStore } from '../../sync/watermark'
+import { createAnalytics } from '../factory'
 import { warehouseSecretName } from '../warehouse'
 
 const NAMESPACE = 'default'
@@ -164,7 +165,9 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       // Appender coverage lives in the local-table (T-28) suite.
       for (let i = 0; i < 10; i++) {
         const ts = new Date(Date.UTC(2025, 0, 1, 0, i, 0))
-          .toISOString().replace('T', ' ').replace('Z', '')
+          .toISOString()
+          .replace('T', ' ')
+          .replace('Z', '')
         await insertHrv(engine, CATALOG_A, TENANT_A, 'u1', ts, 50 + i)
       }
 

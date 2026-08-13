@@ -28,11 +28,15 @@ export const BRANDS = ['ziva', 'luminx', 'viva', 'yogaring']
  * Catalogs are plain ASCII config, but backslashes, backticks and `${`
  * would otherwise change meaning.
  */
+const BACKSLASH_RE = /\\/g
+const BACKTICK_RE = /`/g
+const TEMPLATE_OPEN_RE = /\$\{/g
+
 export function escapeForTemplate(toml) {
   return toml
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\$\{/g, '\\${')
+    .replace(BACKSLASH_RE, '\\\\')
+    .replace(BACKTICK_RE, '\\`')
+    .replace(TEMPLATE_OPEN_RE, '\\${')
 }
 
 /** Splice a fresh TOML body into an existing wrapper's `const TOML = ...`. */
@@ -47,12 +51,14 @@ export function spliceWrapper(wrapperSource, toml) {
   let end = bodyStart
   for (;;) {
     end = wrapperSource.indexOf('`', end)
-    if (end === -1) throw new Error('unterminated TOML template literal')
-    if (wrapperSource[end - 1] !== '\\') break
+    if (end === -1)
+      throw new Error('unterminated TOML template literal')
+    if (wrapperSource[end - 1] !== '\\')
+      break
     end += 1
   }
   return (
-    wrapperSource.slice(0, bodyStart) + '\n' + body + wrapperSource.slice(end)
+    `${wrapperSource.slice(0, bodyStart)}\n${body}${wrapperSource.slice(end)}`
   )
 }
 

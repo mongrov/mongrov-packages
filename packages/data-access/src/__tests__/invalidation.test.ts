@@ -62,11 +62,11 @@ describe('createEventBus — subscribePattern (glob matching matrix)', () => {
 
   const matrix: MatrixRow[] = [
     // pattern           hrv:insert hrv:sync_complete hrv_baseline:insert sleep:stage:insert insight:insert
-    ['hrv:insert',       true,      false,            false,              false,             false],
-    ['hrv:*',            true,      true,             false,              false,             false],
-    ['*:insert',         true,      false,            true,               false,             true],
-    ['sleep:**',         false,     false,            false,              true,              false],
-    ['**',               true,      true,             true,               true,              true],
+    ['hrv:insert', true, false, false, false, false],
+    ['hrv:*', true, true, false, false, false],
+    ['*:insert', true, false, true, false, true],
+    ['sleep:**', false, false, false, true, false],
+    ['**', true, true, true, true, true],
   ]
 
   for (const [pattern, ...expected] of matrix) {
@@ -111,7 +111,7 @@ describe('createEventBus — subscribePattern (glob matching matrix)', () => {
   it('rejects empty segments (e.g. `hrv::insert`)', () => {
     const bus = createEventBus()
     expect(() => bus.subscribePattern('hrv::insert', () => {})).toThrow(
-      /empty segment/
+      /empty segment/,
     )
   })
 

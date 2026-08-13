@@ -5,14 +5,14 @@
  * App provides storage adapter (e.g., getRxStorageSQLite()).
  */
 
-import { createRxDatabase, addRxPlugin } from 'rxdb'
-import { RxDBMigrationPlugin } from 'rxdb/plugins/migration-schema'
-
 import type {
   DatabaseConfig,
-  RxDatabaseType,
   DBLogger,
+  RxDatabaseType,
 } from './types'
+import { addRxPlugin, createRxDatabase } from 'rxdb'
+
+import { RxDBMigrationPlugin } from 'rxdb/plugins/migration-schema'
 
 // Add migration plugin for schema upgrades
 addRxPlugin(RxDBMigrationPlugin)
@@ -78,7 +78,6 @@ export async function createDatabase(config: DatabaseConfig): Promise<RxDatabase
 
   // Add collections
   if (collections.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const collectionConfigs: Record<string, any> = {}
 
     for (const col of collections) {

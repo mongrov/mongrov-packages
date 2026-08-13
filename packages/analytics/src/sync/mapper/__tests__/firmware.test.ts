@@ -12,37 +12,13 @@
  *      no throws, `device_config_closes` empty.
  */
 
+import type { FirmwareExport, MapperContext } from '../types'
 import { readFileSync } from 'node:fs'
+
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
-
 import { mapFirmwareExport } from '../firmware'
-import type { FirmwareExport, MapperContext } from '../types'
-
-const ALL_DAYS = {
-  sunday: true, monday: true, Tuesday: true, Wednesday: true,
-  Thursday: true, Friday: true, Saturday: true,
-}
-/** Vendor-shaped monitoring window (AutomaticMonitoring_J2301A). */
-const window = (dataType: number, intervalTime: number, sh: number, eh: number) => ({
-  dataType, intervalTime,
-  startTime_Hour: sh, startTime_Minutes: 0,
-  endTime_Hour: eh, endTime_Minutes: 0,
-  weeks: { ...ALL_DAYS }, mode: 1,
-})
-const ENUM_METRIC: Record<number, string> = {
-  1: 'hrv', 2: 'spo2', 3: 'heart_rate', 4: 'temperature',
-}
-const translator: RingConfigTranslator = {
-  metricToDataType: metric => METRIC_ENUM[metric] ?? 99,
-  dataTypeToMetric: dataType => ENUM_METRIC[dataType] ?? 'unknown',
-  windowToSchemaFields: w => ({
-    start_time: `${String(w.start_hour).padStart(2, '0')}:00`,
-    end_time: `${String(w.end_hour).padStart(2, '0')}:00`,
-    weeks: 0x7F,
-  }),
-}
 
 const ctx: MapperContext = {
   brand: 'ziva',
@@ -99,7 +75,7 @@ describe('mapFirmwareExport', () => {
     // Sleep session id shape (principle 25: nanoid(24) + '_' + fnv1a32hex)
     // + night_of correctness.
     expect(batch.sleep_session[0].session_id).toMatch(
-      /^[A-Za-z0-9_-]{24}_[0-9a-f]{8}$/,
+      /^[\w-]{24}_[0-9a-f]{8}$/,
     )
     // 2026-06-18 05:00 UTC = 2026-06-17 22:00 LA → night_of = 2026-06-17.
     expect(batch.sleep_session[0].night_of.toISOString()).toBe(

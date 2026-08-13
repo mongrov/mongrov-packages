@@ -13,15 +13,15 @@ const databases = new Map<string, MockRxDatabase>()
 
 interface MockRxDocument {
   _data: DocumentData
-  get(key: string): unknown
-  toJSON(): DocumentData
-  remove(): Promise<void>
-  update(data: Partial<DocumentData>): Promise<void>
+  get: (key: string) => unknown
+  toJSON: () => DocumentData
+  remove: () => Promise<void>
+  update: (data: Partial<DocumentData>) => Promise<void>
 }
 
 interface MockRxQuery {
   $: BehaviorSubject<MockRxDocument[]>
-  exec(): Promise<MockRxDocument[]>
+  exec: () => Promise<MockRxDocument[]>
 }
 
 interface MockRxCollection {
@@ -29,19 +29,19 @@ interface MockRxCollection {
   schema: Record<string, unknown>
   _documents: Map<string, DocumentData>
   _subject: BehaviorSubject<MockRxDocument[]>
-  insert(doc: DocumentData): Promise<MockRxDocument>
-  bulkInsert(docs: DocumentData[]): Promise<{ success: MockRxDocument[] }>
-  upsert(doc: DocumentData): Promise<MockRxDocument>
-  find(query?: Record<string, unknown>): MockRxQuery
-  findOne(id: string): { $: BehaviorSubject<MockRxDocument | null> }
-  remove(): Promise<void>
+  insert: (doc: DocumentData) => Promise<MockRxDocument>
+  bulkInsert: (docs: DocumentData[]) => Promise<{ success: MockRxDocument[] }>
+  upsert: (doc: DocumentData) => Promise<MockRxDocument>
+  find: (query?: Record<string, unknown>) => MockRxQuery
+  findOne: (id: string) => { $: BehaviorSubject<MockRxDocument | null> }
+  remove: () => Promise<void>
 }
 
 interface MockRxDatabase {
   name: string
   collections: Record<string, MockRxCollection>
-  addCollections(configs: Record<string, { schema: Record<string, unknown> }>): Promise<Record<string, MockRxCollection>>
-  destroy(): Promise<void>
+  addCollections: (configs: Record<string, { schema: Record<string, unknown> }>) => Promise<Record<string, MockRxCollection>>
+  destroy: () => Promise<void>
   [key: string]: unknown
 }
 
@@ -76,7 +76,7 @@ function getPrimaryKey(schema: Record<string, unknown>): string {
 
 function emitCollectionChange(collection: MockRxCollection): void {
   const docs = Array.from(collection._documents.values()).map(data =>
-    createMockDocument(data, collection)
+    createMockDocument(data, collection),
   )
   collection._subject.next(docs)
 }
@@ -129,18 +129,24 @@ function createMockCollection(name: string, schema: Record<string, unknown>): Mo
 
         if (query?.selector) {
           const selector = query.selector as Record<string, unknown>
-          docs = docs.filter(doc => {
+          docs = docs.filter((doc) => {
             return Object.entries(selector).every(([key, value]) => {
               if (typeof value === 'object' && value !== null) {
                 // Handle operators like $gt, $lt, $eq
                 const ops = value as Record<string, unknown>
                 const docValue = doc[key]
-                if ('$eq' in ops) return docValue === ops.$eq
-                if ('$gt' in ops) return (docValue as number) > (ops.$gt as number)
-                if ('$gte' in ops) return (docValue as number) >= (ops.$gte as number)
-                if ('$lt' in ops) return (docValue as number) < (ops.$lt as number)
-                if ('$lte' in ops) return (docValue as number) <= (ops.$lte as number)
-                if ('$ne' in ops) return docValue !== ops.$ne
+                if ('$eq' in ops)
+                  return docValue === ops.$eq
+                if ('$gt' in ops)
+                  return (docValue as number) > (ops.$gt as number)
+                if ('$gte' in ops)
+                  return (docValue as number) >= (ops.$gte as number)
+                if ('$lt' in ops)
+                  return (docValue as number) < (ops.$lt as number)
+                if ('$lte' in ops)
+                  return (docValue as number) <= (ops.$lte as number)
+                if ('$ne' in ops)
+                  return docValue !== ops.$ne
                 return false
               }
               return doc[key] === value

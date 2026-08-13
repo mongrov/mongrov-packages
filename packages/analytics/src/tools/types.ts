@@ -71,11 +71,11 @@ export type ToolImpl<Input> = (
  * Outcome recorded in `tool_call_audit.outcome`. Enum discipline —
  * every wrapper code path resolves to exactly one of these.
  */
-export type ToolOutcome =
-  | 'success'
-  | 'rate_limited'
-  | 'authorized_reject'
-  | 'error'
+export type ToolOutcome
+  = | 'success'
+    | 'rate_limited'
+    | 'authorized_reject'
+    | 'error'
 
 /**
  * A single row destined for `tool_call_audit`. Column mapping (see

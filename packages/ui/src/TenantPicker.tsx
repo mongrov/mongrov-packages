@@ -21,50 +21,50 @@
  * ```
  */
 
-import * as React from 'react';
+import * as React from 'react'
 import {
   FlatList,
   Image,
   Modal,
-  Pressable,
-  View,
-  Text,
-  SafeAreaView,
   Platform,
-} from 'react-native';
+  Pressable,
+  SafeAreaView,
+  Text,
+  View,
+} from 'react-native'
 
-import { cn } from './primitives/utils';
+import { cn } from './primitives/utils'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface TenantPickerItem {
-  id: string;
-  name: string;
+  id: string
+  name: string
   /** Logo image source (require() or { uri: string }) */
-  logo?: unknown;
+  logo?: unknown
   /** Optional description or subtitle */
-  description?: string;
+  description?: string
 }
 
 export interface TenantPickerProps {
   /** Whether the picker is visible */
-  visible: boolean;
+  visible: boolean
   /** List of available tenants */
-  tenants: TenantPickerItem[];
+  tenants: TenantPickerItem[]
   /** Currently selected tenant ID */
-  selectedId?: string | null;
+  selectedId?: string | null
   /** Called when a tenant is selected */
-  onSelect: (tenantId: string) => void;
+  onSelect: (tenantId: string) => void
   /** Called when the picker is dismissed */
-  onClose: () => void;
+  onClose: () => void
   /** Title shown at the top of the picker */
-  title?: string;
+  title?: string
   /** Placeholder when no tenants are available */
-  emptyMessage?: string;
+  emptyMessage?: string
   /** Custom class name for the container */
-  className?: string;
+  className?: string
   /** Test ID for testing */
-  testID?: string;
+  testID?: string
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -82,10 +82,10 @@ export function TenantPicker({
 }: TenantPickerProps) {
   const handleSelect = React.useCallback(
     (tenantId: string) => {
-      onSelect(tenantId);
+      onSelect(tenantId)
     },
-    [onSelect]
-  );
+    [onSelect],
+  )
 
   return (
     <Modal
@@ -107,7 +107,7 @@ export function TenantPicker({
               'rounded-full p-2',
               Platform.select({
                 web: 'hover:bg-neutral-100 dark:hover:bg-neutral-800',
-              })
+              }),
             )}
             accessibilityLabel="Close"
             accessibilityRole="button"
@@ -117,43 +117,45 @@ export function TenantPicker({
         </View>
 
         {/* Tenant List */}
-        {tenants.length === 0 ? (
-          <View className="flex-1 items-center justify-center p-8">
-            <Text className="text-center text-neutral-500 dark:text-neutral-400">
-              {emptyMessage}
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={tenants}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={{ paddingVertical: 8 }}
-            renderItem={({ item }) => (
-              <TenantPickerRow
-                tenant={item}
-                isSelected={item.id === selectedId}
-                onPress={handleSelect}
+        {tenants.length === 0
+          ? (
+              <View className="flex-1 items-center justify-center p-8">
+                <Text className="text-center text-neutral-500 dark:text-neutral-400">
+                  {emptyMessage}
+                </Text>
+              </View>
+            )
+          : (
+              <FlatList
+                data={tenants}
+                keyExtractor={item => item.id}
+                contentContainerStyle={{ paddingVertical: 8 }}
+                renderItem={({ item }) => (
+                  <TenantPickerRow
+                    tenant={item}
+                    isSelected={item.id === selectedId}
+                    onPress={handleSelect}
+                  />
+                )}
               />
             )}
-          />
-        )}
       </SafeAreaView>
     </Modal>
-  );
+  )
 }
 
 // ─── Tenant Row ──────────────────────────────────────────────────────────────
 
 interface TenantPickerRowProps {
-  tenant: TenantPickerItem;
-  isSelected: boolean;
-  onPress: (tenantId: string) => void;
+  tenant: TenantPickerItem
+  isSelected: boolean
+  onPress: (tenantId: string) => void
 }
 
 function TenantPickerRow({ tenant, isSelected, onPress }: TenantPickerRowProps) {
   const handlePress = React.useCallback(() => {
-    onPress(tenant.id);
-  }, [tenant.id, onPress]);
+    onPress(tenant.id)
+  }, [tenant.id, onPress])
 
   return (
     <Pressable
@@ -165,25 +167,27 @@ function TenantPickerRow({ tenant, isSelected, onPress }: TenantPickerRowProps) 
           : 'bg-neutral-50 dark:bg-neutral-800',
         Platform.select({
           web: 'transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700',
-        })
+        }),
       )}
       accessibilityRole="button"
       accessibilityState={{ selected: isSelected }}
     >
       {/* Logo */}
-      {tenant.logo ? (
-        <Image
-          source={tenant.logo as any}
-          className="h-12 w-12 rounded-lg"
-          resizeMode="contain"
-        />
-      ) : (
-        <View className="h-12 w-12 items-center justify-center rounded-lg bg-primary-100 dark:bg-primary-800">
-          <Text className="text-xl font-bold text-primary-600 dark:text-primary-300">
-            {tenant.name.charAt(0).toUpperCase()}
-          </Text>
-        </View>
-      )}
+      {tenant.logo
+        ? (
+            <Image
+              source={tenant.logo as any}
+              className="h-12 w-12 rounded-lg"
+              resizeMode="contain"
+            />
+          )
+        : (
+            <View className="h-12 w-12 items-center justify-center rounded-lg bg-primary-100 dark:bg-primary-800">
+              <Text className="text-xl font-bold text-primary-600 dark:text-primary-300">
+                {tenant.name.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
 
       {/* Content */}
       <View className="ml-4 flex-1">
@@ -192,7 +196,7 @@ function TenantPickerRow({ tenant, isSelected, onPress }: TenantPickerRowProps) 
             'text-base font-semibold',
             isSelected
               ? 'text-primary-700 dark:text-primary-300'
-              : 'text-neutral-900 dark:text-neutral-100'
+              : 'text-neutral-900 dark:text-neutral-100',
           )}
           numberOfLines={1}
         >
@@ -215,22 +219,22 @@ function TenantPickerRow({ tenant, isSelected, onPress }: TenantPickerRowProps) 
         </View>
       )}
     </Pressable>
-  );
+  )
 }
 
 // ─── Inline Tenant Selector ──────────────────────────────────────────────────
 
 export interface TenantSelectorProps {
   /** Currently selected tenant */
-  tenant: TenantPickerItem | null;
+  tenant: TenantPickerItem | null
   /** Called when the selector is pressed */
-  onPress: () => void;
+  onPress: () => void
   /** Placeholder when no tenant is selected */
-  placeholder?: string;
+  placeholder?: string
   /** Custom class name */
-  className?: string;
+  className?: string
   /** Test ID for testing */
-  testID?: string;
+  testID?: string
 }
 
 /**
@@ -253,50 +257,56 @@ export function TenantSelector({
         Platform.select({
           web: 'transition-colors hover:border-primary-500 dark:hover:border-primary-400',
         }),
-        className
+        className,
       )}
       accessibilityRole="button"
       accessibilityLabel={tenant ? `Selected: ${tenant.name}` : placeholder}
     >
-      {tenant?.logo ? (
-        <Image
-          source={tenant.logo as any}
-          className="h-10 w-10 rounded-lg"
-          resizeMode="contain"
-        />
-      ) : tenant ? (
-        <View className="h-10 w-10 items-center justify-center rounded-lg bg-primary-100 dark:bg-primary-800">
-          <Text className="text-lg font-bold text-primary-600 dark:text-primary-300">
-            {tenant.name.charAt(0).toUpperCase()}
-          </Text>
-        </View>
-      ) : (
-        <View className="h-10 w-10 items-center justify-center rounded-lg bg-neutral-200 dark:bg-neutral-700">
-          <Text className="text-lg text-neutral-400">?</Text>
-        </View>
-      )}
+      {tenant?.logo
+        ? (
+            <Image
+              source={tenant.logo as any}
+              className="h-10 w-10 rounded-lg"
+              resizeMode="contain"
+            />
+          )
+        : tenant
+          ? (
+              <View className="h-10 w-10 items-center justify-center rounded-lg bg-primary-100 dark:bg-primary-800">
+                <Text className="text-lg font-bold text-primary-600 dark:text-primary-300">
+                  {tenant.name.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )
+          : (
+              <View className="h-10 w-10 items-center justify-center rounded-lg bg-neutral-200 dark:bg-neutral-700">
+                <Text className="text-lg text-neutral-400">?</Text>
+              </View>
+            )}
 
       <View className="ml-3 flex-1">
-        {tenant ? (
-          <>
-            <Text className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-              {tenant.name}
-            </Text>
-            {tenant.description && (
-              <Text className="text-sm text-neutral-500 dark:text-neutral-400">
-                {tenant.description}
+        {tenant
+          ? (
+              <>
+                <Text className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+                  {tenant.name}
+                </Text>
+                {tenant.description && (
+                  <Text className="text-sm text-neutral-500 dark:text-neutral-400">
+                    {tenant.description}
+                  </Text>
+                )}
+              </>
+            )
+          : (
+              <Text className="text-base text-neutral-400 dark:text-neutral-500">
+                {placeholder}
               </Text>
             )}
-          </>
-        ) : (
-          <Text className="text-base text-neutral-400 dark:text-neutral-500">
-            {placeholder}
-          </Text>
-        )}
       </View>
 
       {/* Chevron */}
       <Text className="ml-2 text-neutral-400">▼</Text>
     </Pressable>
-  );
+  )
 }

@@ -1,9 +1,9 @@
-import React from 'react';
-import { Pressable, Text, View } from 'react-native';
-import type { LogLevel } from '../types';
-import type { LogFilterBarProps } from './types';
+import type { LogLevel } from '../types'
+import type { LogFilterBarProps } from './types'
+import * as React from 'react'
+import { Pressable, Text, View } from 'react-native'
 
-const LEVELS: (LogLevel | 'all')[] = ['all', 'debug', 'info', 'warn', 'error'];
+const LEVELS: (LogLevel | 'all')[] = ['all', 'debug', 'info', 'warn', 'error']
 
 export function LogFilterBar({
   activeLevel,
@@ -13,8 +13,8 @@ export function LogFilterBar({
   return (
     <View className="flex-row gap-2 px-4 py-3 border-b border-neutral-200 dark:border-neutral-800" testID={testID}>
       {LEVELS.map((level) => {
-        const isActive =
-          level === 'all' ? !activeLevel : activeLevel === level;
+        const isActive
+          = level === 'all' ? !activeLevel : activeLevel === level
         return (
           <Pressable
             key={level}
@@ -36,8 +36,8 @@ export function LogFilterBar({
               {level}
             </Text>
           </Pressable>
-        );
+        )
       })}
     </View>
-  );
+  )
 }

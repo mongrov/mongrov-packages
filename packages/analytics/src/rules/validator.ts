@@ -6,16 +6,18 @@
  * cadence + the minimum viable window.
  */
 
+import type { MetricId } from '../core/metric_metadata'
+
+import type { Rule, Window } from './schema'
+import type { RulesLogger } from './types'
 import {
   isRegisteredKvKey,
   isRuleReadableKvKey,
   ruleReadableKvKeys,
 } from '@mongrov/types/kv-keys'
-
-import { METRIC_METADATA, type MetricId } from '../core/metric_metadata'
+import { METRIC_METADATA } from '../core/metric_metadata'
 import { minimumWindowMinutes } from '../core/sampling'
-import type { RulesLogger } from './types'
-import { type Rule, RuleValidationError, type Window, WINDOWS } from './schema'
+import { RuleValidationError, WINDOWS } from './schema'
 
 /** Window durations in minutes. */
 const WINDOW_MINUTES: Record<Window, number> = {
@@ -51,7 +53,8 @@ const EXPLICIT_SAMPLING_MINIMUMS: Partial<Record<MetricId, Window[]>> = {
  */
 export function allowedWindowsFor(metric: MetricId): Window[] {
   const explicit = EXPLICIT_SAMPLING_MINIMUMS[metric]
-  if (explicit) return explicit
+  if (explicit)
+    return explicit
   const cadence = METRIC_METADATA[metric].sampling_minutes
   if (cadence === 'per_session') {
     return ['3d', '7d', '30d']
@@ -125,7 +128,8 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
  */
 function validateConsecutive(rule: Rule): void {
   const n = rule.consecutive
-  if (n === undefined || n <= 1) return
+  if (n === undefined || n <= 1)
+    return
 
   // Baseline targets resolve per-window, not per-sample; the compiler has
   // no correct query shape for the combination.
@@ -163,7 +167,8 @@ function validateConsecutive(rule: Rule): void {
  * would self-join meaninglessly.
  */
 function validateContext(rule: Rule): void {
-  if (rule.context === 'any') return
+  if (rule.context === 'any')
+    return
   const table = METRIC_METADATA[rule.metric].table
   if (table === 'sleep_session') {
     throw new RuleValidationError(
@@ -189,9 +194,11 @@ function validateContext(rule: Rule): void {
  * banner" is a bug rather than a feature.
  */
 function validateUserSettingKey(rule: Rule): void {
-  if (rule.target.type !== 'user_setting') return
+  if (rule.target.type !== 'user_setting')
+    return
   const { key } = rule.target
-  if (isRuleReadableKvKey(key)) return
+  if (isRuleReadableKvKey(key))
+    return
 
   const known = ruleReadableKvKeys()
   const detail = isRegisteredKvKey(key)
@@ -210,7 +217,8 @@ export function referencedCollectedOnlyColumns(sql: string): string[] {
   const hits = new Set<string>()
   for (const col of COLLECTED_ONLY_COLUMNS) {
     const pattern = new RegExp(`\\b${col}\\b`)
-    if (pattern.test(sql)) hits.add(col)
+    if (pattern.test(sql))
+      hits.add(col)
   }
   return Array.from(hits)
 }

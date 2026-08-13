@@ -18,8 +18,8 @@
  *   - `stress === 0` is likewise valid
  */
 
-import { parseTimestamp } from './time'
 import type { FirmwareHRVRow, HrvRow, MapperContext } from './types'
+import { parseTimestamp } from './time'
 
 export function mapHrv(
   rows: readonly FirmwareHRVRow[],
@@ -57,6 +57,7 @@ function nullable(v: number | undefined): number | null {
  * on the HRV row).
  */
 function sentinel(v: number | undefined): number | null {
-  if (v === undefined || v === 0) return null
+  if (v === undefined || v === 0)
+    return null
   return v
 }

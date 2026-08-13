@@ -13,62 +13,62 @@
  * ```
  */
 
-import * as AppleAuthentication from 'expo-apple-authentication';
+import type { AuthErrorCode, SocialProvider } from './types'
 import {
   GoogleSignin,
   isCancelledResponse,
   isSuccessResponse,
-} from '@react-native-google-signin/google-signin';
-import { useCallback, useState } from 'react';
-import { Platform } from 'react-native';
+} from '@react-native-google-signin/google-signin'
+import * as AppleAuthentication from 'expo-apple-authentication'
+import { useCallback, useState } from 'react'
 
-import type { AuthErrorCode, SocialProvider } from './types';
+import { Platform } from 'react-native'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface SocialAuthError {
-  code: AuthErrorCode;
-  message: string;
-  original?: Error;
+  code: AuthErrorCode
+  message: string
+  original?: Error
 }
 
 export interface AppleAuthResult {
-  provider: 'apple';
+  provider: 'apple'
   /** Apple identity token (JWT) */
-  identityToken: string;
+  identityToken: string
   /** Authorization code for server validation */
-  authorizationCode: string;
+  authorizationCode: string
   /** User info (only available on first sign-in) */
   user?: {
-    email?: string | null;
+    email?: string | null
     fullName?: {
-      givenName?: string | null;
-      familyName?: string | null;
-    };
-  };
+      givenName?: string | null
+      familyName?: string | null
+    }
+  }
 }
 
 export interface GoogleAuthResult {
-  provider: 'google';
+  provider: 'google'
   /** Google ID token (JWT) */
-  idToken: string;
+  idToken: string
   /** Access token for Google APIs (may be null) */
-  accessToken: string | null;
+  accessToken: string | null
 }
 
-export type SocialAuthResult = AppleAuthResult | GoogleAuthResult;
+export type SocialAuthResult = AppleAuthResult | GoogleAuthResult
 
 export interface SocialAuthHookResult<T extends SocialAuthResult> {
   /** Trigger the sign-in flow */
-  signIn: () => Promise<T | null>;
+  signIn: () => Promise<T | null>
   /** Whether sign-in is in progress */
-  loading: boolean;
+  loading: boolean
   /** Last error that occurred */
-  error: SocialAuthError | null;
+  error: SocialAuthError | null
   /** Clear the error state */
-  clearError: () => void;
+  clearError: () => void
   /** Whether this provider is available on current platform */
-  isAvailable: boolean;
+  isAvailable: boolean
 }
 
 // ─── Apple Authentication ────────────────────────────────────────────────────
@@ -96,33 +96,33 @@ export interface SocialAuthHookResult<T extends SocialAuthResult> {
  * ```
  */
 export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<SocialAuthError | null>(null);
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<SocialAuthError | null>(null)
 
   // Apple Sign In is only available on iOS
-  const isAvailable = Platform.OS === 'ios';
+  const isAvailable = Platform.OS === 'ios'
 
   const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+    setError(null)
+  }, [])
 
   const signIn = useCallback(async (): Promise<AppleAuthResult | null> => {
     if (!isAvailable) {
       setError({
         code: 'NOT_SUPPORTED',
         message: 'Apple Sign In is only available on iOS',
-      });
-      return null;
+      })
+      return null
     }
 
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
 
     try {
       // Check if available at runtime (iOS 13+)
-      const available = await AppleAuthentication.isAvailableAsync();
+      const available = await AppleAuthentication.isAvailableAsync()
       if (!available) {
-        throw new Error('Apple Sign In is not available on this device');
+        throw new Error('Apple Sign In is not available on this device')
       }
 
       const credential = await AppleAuthentication.signInAsync({
@@ -130,10 +130,10 @@ export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
           AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
           AppleAuthentication.AppleAuthenticationScope.EMAIL,
         ],
-      });
+      })
 
       if (!credential.identityToken || !credential.authorizationCode) {
-        throw new Error('Apple Sign In did not return required tokens');
+        throw new Error('Apple Sign In did not return required tokens')
       }
 
       const result: AppleAuthResult = {
@@ -151,28 +151,30 @@ export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
                 : undefined,
             }
           : undefined,
-      };
+      }
 
-      return result;
-    } catch (err) {
-      const error = err as Error & { code?: string };
+      return result
+    }
+    catch (err) {
+      const error = err as Error & { code?: string }
 
       // Handle user cancellation
       if (error.code === 'ERR_REQUEST_CANCELED') {
         // User cancelled - not an error
-        return null;
+        return null
       }
 
       setError({
         code: 'SOCIAL_AUTH_FAILED',
         message: error.message || 'Apple Sign In failed',
         original: error,
-      });
-      return null;
-    } finally {
-      setLoading(false);
+      })
+      return null
     }
-  }, [isAvailable]);
+    finally {
+      setLoading(false)
+    }
+  }, [isAvailable])
 
   return {
     signIn,
@@ -180,23 +182,23 @@ export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
     error,
     clearError,
     isAvailable,
-  };
+  }
 }
 
 // ─── Google Authentication ───────────────────────────────────────────────────
 
 export interface GoogleAuthConfig {
   /** Google OAuth client ID for iOS */
-  iosClientId?: string;
+  iosClientId?: string
   /**
    * Google OAuth client ID for Android.
    * @deprecated Auto-detected from `google-services.json` on Android. This field has no effect and will be removed in a future major release.
    */
-  androidClientId?: string;
+  androidClientId?: string
   /** Google OAuth client ID for web (used as the server client ID) */
-  webClientId?: string;
+  webClientId?: string
   /** Additional OAuth scopes beyond openid/email/profile */
-  scopes?: string[];
+  scopes?: string[]
 }
 
 /**
@@ -223,19 +225,19 @@ export interface GoogleAuthConfig {
  * ```
  */
 export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<GoogleAuthResult> {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<SocialAuthError | null>(null);
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<SocialAuthError | null>(null)
 
   // Google auth is available on all platforms
-  const isAvailable = true;
+  const isAvailable = true
 
   const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+    setError(null)
+  }, [])
 
   const signIn = useCallback(async (): Promise<GoogleAuthResult | null> => {
-    setLoading(true);
-    setError(null);
+    setLoading(true)
+    setError(null)
 
     try {
       GoogleSignin.configure({
@@ -243,32 +245,33 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
         iosClientId: config.iosClientId,
         scopes: config.scopes,
         offlineAccess: true,
-      });
+      })
 
       if (Platform.OS === 'android') {
-        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true })
       }
 
-      const response = await GoogleSignin.signIn();
+      const response = await GoogleSignin.signIn()
 
       if (isCancelledResponse(response)) {
-        return null;
+        return null
       }
 
       if (!isSuccessResponse(response)) {
-        throw new Error('Google Sign In did not return a success response');
+        throw new Error('Google Sign In did not return a success response')
       }
 
-      const idToken = response.data?.idToken;
+      const idToken = response.data?.idToken
       if (!idToken) {
-        throw new Error('Google Sign In did not return an idToken');
+        throw new Error('Google Sign In did not return an idToken')
       }
 
-      let accessToken: string | null = null;
+      let accessToken: string | null = null
       try {
-        const tokens = await GoogleSignin.getTokens();
-        accessToken = tokens.accessToken ?? null;
-      } catch {
+        const tokens = await GoogleSignin.getTokens()
+        accessToken = tokens.accessToken ?? null
+      }
+      catch {
         // Sign-in succeeded; access token can be fetched later via GoogleSignin.getTokens()
       }
 
@@ -276,19 +279,21 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
         provider: 'google',
         idToken,
         accessToken,
-      };
-    } catch (err) {
-      const error = err as Error;
+      }
+    }
+    catch (err) {
+      const error = err as Error
       setError({
         code: 'SOCIAL_AUTH_FAILED',
         message: error.message || 'Google Sign In failed',
         original: error,
-      });
-      return null;
-    } finally {
-      setLoading(false);
+      })
+      return null
     }
-  }, [config.webClientId, config.iosClientId, config.scopes]);
+    finally {
+      setLoading(false)
+    }
+  }, [config.webClientId, config.iosClientId, config.scopes])
 
   return {
     signIn,
@@ -296,14 +301,14 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
     error,
     clearError,
     isAvailable,
-  };
+  }
 }
 
 // ─── Generic Social Auth Hook ────────────────────────────────────────────────
 
 export interface SocialAuthConfig {
   /** Google OAuth configuration */
-  google?: GoogleAuthConfig;
+  google?: GoogleAuthConfig
 }
 
 /**
@@ -323,30 +328,30 @@ export interface SocialAuthConfig {
  * ```
  */
 export function useSocialAuth(config: SocialAuthConfig = {}) {
-  const apple = useAppleAuth();
-  const google = useGoogleAuth(config.google || {});
+  const apple = useAppleAuth()
+  const google = useGoogleAuth(config.google || {})
 
   const signInWith = useCallback(
     async (provider: SocialProvider): Promise<SocialAuthResult | null> => {
       switch (provider) {
         case 'apple':
-          return apple.signIn();
+          return apple.signIn()
         case 'google':
-          return google.signIn();
+          return google.signIn()
         case 'github':
           // GitHub not implemented yet - would use expo-auth-session
-          throw new Error('GitHub authentication not yet implemented');
+          throw new Error('GitHub authentication not yet implemented')
         default:
-          throw new Error(`Unknown provider: ${provider}`);
+          throw new Error(`Unknown provider: ${provider}`)
       }
     },
-    [apple, google]
-  );
+    [apple, google],
+  )
 
   return {
     apple,
     google,
     signInWith,
     loading: apple.loading || google.loading,
-  };
+  }
 }

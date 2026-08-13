@@ -14,8 +14,8 @@
  * no-op against a column that exists.
  */
 
-import { AnalyticsError } from './errors'
 import type { AnalyticsEngine, EventBus } from './types'
+import { AnalyticsError } from './errors'
 
 export interface DismissInsightArgs {
   insightId: string

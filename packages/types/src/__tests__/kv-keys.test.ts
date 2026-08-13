@@ -66,7 +66,8 @@ describe('kvKeyFor', () => {
 
   it('scopes per user, so family members hold independent settings', () => {
     expect(kvKeyFor('alice', 'user:spo2SafeLevel'))
-      .not.toBe(kvKeyFor('bob', 'user:spo2SafeLevel'))
+      .not
+      .toBe(kvKeyFor('bob', 'user:spo2SafeLevel'))
   })
 
   it('uses the analytics prefix', () => {

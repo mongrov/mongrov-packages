@@ -62,7 +62,8 @@ export class PendingClosesStore {
     ctx: Pick<AttachContext, 'brand' | 'tenantId'>,
     closes: readonly RingConfigClose[],
   ): Promise<void> {
-    if (closes.length === 0) return
+    if (closes.length === 0)
+      return
     const k = key(ctx)
     const existing = (await this.#kv.get<SerializedClose[]>(k)) ?? []
     const next = [...existing, ...closes.map(serialize)]
@@ -74,7 +75,8 @@ export class PendingClosesStore {
   ): Promise<RingConfigClose[]> {
     const k = key(ctx)
     const rows = (await this.#kv.get<SerializedClose[]>(k)) ?? []
-    if (rows.length === 0) return []
+    if (rows.length === 0)
+      return []
     await this.#kv.delete(k)
     return rows.map(deserialize)
   }
@@ -83,7 +85,8 @@ export class PendingClosesStore {
     ctx: Pick<AttachContext, 'brand' | 'tenantId'>,
     closes: readonly RingConfigClose[],
   ): Promise<void> {
-    if (closes.length === 0) return
+    if (closes.length === 0)
+      return
     const k = key(ctx)
     const existing = (await this.#kv.get<SerializedClose[]>(k)) ?? []
     // Prepend the requeued closes so the next drain retries them first.

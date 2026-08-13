@@ -46,5 +46,5 @@ const plugin = {
   configs,
 }
 
-export { rules, configs }
+export { configs, rules }
 export default plugin

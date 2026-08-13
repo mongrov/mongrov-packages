@@ -6,19 +6,19 @@
  * day one; downstream phases add more codes without breaking imports.
  */
 
-export type AnalyticsErrorCode =
-  | 'engine_open_failed'
-  | 'extension_load_failed'
-  | 'attach_failed'
-  | 'detach_failed'
-  | 'token_vendor_failed'
-  | 'migration_failed'
-  | 'retention_failed'
-  | 'family_members_failed'
-  | 'query_failed'
-  | 'not_attached'
-  | 'not_ready'
-  | 'not_implemented'
+export type AnalyticsErrorCode
+  = | 'engine_open_failed'
+    | 'extension_load_failed'
+    | 'attach_failed'
+    | 'detach_failed'
+    | 'token_vendor_failed'
+    | 'migration_failed'
+    | 'retention_failed'
+    | 'family_members_failed'
+    | 'query_failed'
+    | 'not_attached'
+    | 'not_ready'
+    | 'not_implemented'
 
 export class AnalyticsError extends Error {
   public readonly code: AnalyticsErrorCode

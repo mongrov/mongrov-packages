@@ -9,8 +9,8 @@
  * imported when the app pulls the `/rules` subpath.
  */
 
-import { useEffect, useState, useCallback } from 'react'
-import type { RuleViolation, RulesEngine } from '../types'
+import type { RulesEngine, RuleViolation } from '../types'
+import { useCallback, useEffect, useState } from 'react'
 
 const DEFAULT_LIMIT = 50
 
@@ -21,7 +21,7 @@ export interface UseRuleViolationsOptions {
 
 export interface UseRuleViolationsResult {
   violations: RuleViolation[]
-  clear(): void
+  clear: () => void
 }
 
 export function useRuleViolations(
@@ -35,7 +35,8 @@ export function useRuleViolations(
     const unsub = engine.on('violation', (v) => {
       setViolations((prev) => {
         const next = [v, ...prev]
-        if (next.length > limit) next.length = limit
+        if (next.length > limit)
+          next.length = limit
         return next
       })
     })

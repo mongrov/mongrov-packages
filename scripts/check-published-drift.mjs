@@ -32,8 +32,8 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
-import { join, dirname, relative } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -72,16 +72,19 @@ function readJson(path) {
  */
 function highestMatching(name, range) {
   const result = npmView(`${name}@${range}`, 'version')
-  if (result === null) return null
-  return Array.isArray(result) ? result[result.length - 1] : result
+  if (result === null)
+    return null
+  return Array.isArray(result) ? result.at(-1) : result
 }
 
 /** Every file under dir, recursively. */
 function walk(dir, out = []) {
-  if (!existsSync(dir)) return out
+  if (!existsSync(dir))
+    return out
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry)
-    if (statSync(full).isDirectory()) walk(full, out)
+    if (statSync(full).isDirectory())
+      walk(full, out)
     else out.push(full)
   }
   return out
@@ -98,7 +101,8 @@ const violations = []
 // ---------------------------------------------------------------- check 1
 for (const { pkg } of localPackages) {
   const published = npmView(`${pkg.name}@${pkg.version}`, 'version')
-  if (!published) continue // not published at this version — nothing to drift from
+  if (!published)
+    continue // not published at this version — nothing to drift from
 
   const remoteExports = npmView(`${pkg.name}@${pkg.version}`, 'exports')
   const localKeys = Object.keys(pkg.exports ?? {}).sort()
@@ -110,10 +114,10 @@ for (const { pkg } of localPackages) {
   if (added.length || removed.length) {
     violations.push(
       `${red('DRIFT')} ${pkg.name}@${pkg.version} is already published, but its `
-      + `exports differ from the registry.\n`
-      + (added.length ? `        local adds:    ${added.join(', ')}\n` : '')
-      + (removed.length ? `        local removes: ${removed.join(', ')}\n` : '')
-      + `        ${dim('Bump the version and republish. A published version is immutable;')}\n`
+      + `exports differ from the registry.\n${
+        added.length ? `        local adds:    ${added.join(', ')}\n` : ''
+      }${removed.length ? `        local removes: ${removed.join(', ')}\n` : ''
+      }        ${dim('Bump the version and republish. A published version is immutable;')}\n`
       + `        ${dim('editing it in-repo makes the registry and the source diverge silently.')}`,
     )
   }
@@ -133,19 +137,23 @@ const SUBPATH_IMPORT
 
 for (const { dir, pkg } of localPackages) {
   const dist = join(dir, 'dist')
-  if (!existsSync(dist)) continue
+  if (!existsSync(dist))
+    continue
 
   const ranges = { ...pkg.dependencies, ...pkg.peerDependencies }
   const seen = new Set()
 
   for (const file of walk(dist)) {
-    if (!/\.(js|cjs|mjs|d\.ts)$/.test(file)) continue
+    if (!/\.(?:js|cjs|mjs|d\.ts)$/.test(file))
+      continue
     const source = readFileSync(file, 'utf8')
     for (const [, dep, sub] of source.matchAll(SUBPATH_IMPORT)) {
       const target = `@mongrov/${dep}`
-      if (target === pkg.name) continue
+      if (target === pkg.name)
+        continue
       const key = `${target}/${sub}`
-      if (seen.has(key)) continue
+      if (seen.has(key))
+        continue
       seen.add(key)
 
       const range = ranges[target]
@@ -173,7 +181,7 @@ for (const { dir, pkg } of localPackages) {
         violations.push(
           `${yellow('UNPUBLISHED')} ${pkg.name} imports ${key}, but `
           + `${target}@${resolved} is not on the registry yet.\n`
-          + `        ${dim('Publish it before publishing ' + pkg.name + '.')}`,
+          + `        ${dim(`Publish it before publishing ${pkg.name}.`)}`,
         )
         continue
       }
@@ -203,13 +211,15 @@ for (const { dir, pkg } of localPackages) {
 for (const { dir, pkg } of localPackages) {
   const src = join(dir, 'src')
   for (const file of walk(src)) {
-    if (!file.endsWith('.d.ts')) continue
+    if (!file.endsWith('.d.ts'))
+      continue
     const text = readFileSync(file, 'utf8')
     for (const [, spec] of text.matchAll(/declare\s+module\s+['"]([^'"]+)['"]/g)) {
       // Subpath declarations are the legitimate case — skip them.
       const isSubpath = spec.includes('/')
         && !(spec.startsWith('@') && spec.split('/').length === 2)
-      if (isSubpath) continue
+      if (isSubpath)
+        continue
 
       let shipsTypes = false
       try {

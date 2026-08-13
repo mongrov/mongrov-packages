@@ -15,7 +15,8 @@
  * buckets. Audit persistence (T-09) handles the durable trail.
  */
 
-import { DEFAULT_RATE_LIMIT, type RateLimitConfig } from './types'
+import type { RateLimitConfig } from './types'
+import { DEFAULT_RATE_LIMIT } from './types'
 
 interface BucketState {
   tokens: number
@@ -69,7 +70,8 @@ export function createRateLimiter(
 
   function refill(b: BucketState, now: number): void {
     const elapsed = now - b.lastRefillMs
-    if (elapsed <= 0) return
+    if (elapsed <= 0)
+      return
     b.tokens = Math.min(b.capacity, b.tokens + elapsed * b.refillPerMs)
     b.lastRefillMs = now
   }

@@ -2,21 +2,21 @@
 export { createTheme } from './create-theme'
 
 // Context
-export { ThemeProvider, useTheme, useColorScheme } from './theme-provider'
+export { ThemeProvider, useColorScheme, useTheme } from './theme-provider'
 
 // Tokens
-export { defaultLightTokens, defaultDarkTokens } from './tokens'
+export { defaultDarkTokens, defaultLightTokens } from './tokens'
 
 // Types
 export type {
-  ThemeContract,
-  ThemeConfig,
-  ThemeTokens,
-  Theme,
   ColorScheme,
   ColorTokens,
-  SpacingTokens,
-  TypographyTokens,
-  RadiiTokens,
   DeepPartial,
+  RadiiTokens,
+  SpacingTokens,
+  Theme,
+  ThemeConfig,
+  ThemeContract,
+  ThemeTokens,
+  TypographyTokens,
 } from './types'

@@ -16,15 +16,16 @@
  * MCP session behaves identically to setting it before an AI SDK turn.
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import type { AnalyticsToolsHandle } from '../factory'
+import type { ToolsLogger } from '../types'
+import type { McpTool } from './adapter'
+import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
-import type { AnalyticsToolsHandle } from '../factory'
-import type { ToolsLogger } from '../types'
-import { type McpTool, toMcpTools } from './adapter'
+import { toMcpTools } from './adapter'
 import { assertMcpAllowed } from './guard'
 
 export interface CreateMcpServerConfig {

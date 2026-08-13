@@ -1,5 +1,5 @@
-import { createLogger } from '../logger'
 import type { LogEntry, LogTransport } from '../types'
+import { createLogger } from '../logger'
 
 // Mock react-native Platform
 jest.mock('react-native', () => ({
@@ -57,7 +57,7 @@ describe('Logger', () => {
     logger.warn('warning here')
 
     // Ring buffer send is async — wait for it
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     const entries = logger.getLogs()
     expect(entries).toHaveLength(2)
@@ -79,11 +79,11 @@ describe('Logger', () => {
     logger.warn('should appear')
     logger.error('should appear')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     const logs = logger.getLogs()
     expect(logs).toHaveLength(2)
-    expect(logs.every((e) => e.level === 'warn' || e.level === 'error')).toBe(true)
+    expect(logs.every(e => e.level === 'warn' || e.level === 'error')).toBe(true)
 
     await logger.destroy()
   })
@@ -102,7 +102,7 @@ describe('Logger', () => {
 
     logger.info('custom transport test')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     expect(sentEntries).toHaveLength(1)
     expect(sentEntries[0].message).toBe('custom transport test')
@@ -132,7 +132,7 @@ describe('Logger', () => {
     logger.warn('warn - breadcrumb')
     logger.error('error - breadcrumb')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     expect(breadcrumbs).toHaveLength(2)
     expect(breadcrumbs[0].level).toBe('warn')
@@ -173,7 +173,7 @@ describe('Logger', () => {
     const error = new Error('crash')
     logger.captureException(error, { userId: 'u1' })
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     expect(sentEntries).toHaveLength(1)
     expect(sentEntries[0].level).toBe('error')
@@ -199,7 +199,7 @@ describe('Logger', () => {
 
     logger.info('with data', { key: 'value', count: 42 })
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     expect(sentEntries[0].data).toEqual({ key: 'value', count: 42 })
 
@@ -221,7 +221,7 @@ describe('Logger', () => {
     logger.setUser('user-123')
     logger.info('after set user')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     expect(sentEntries[0].context.userId).toBe('user-123')
 
@@ -243,7 +243,7 @@ describe('Logger', () => {
     logger.setScreen('HomeScreen')
     logger.info('on home screen')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     expect(sentEntries[0].context.screenName).toBe('HomeScreen')
 
@@ -265,7 +265,7 @@ describe('Logger', () => {
     logger.setContext('tenant', 'acme-corp')
     logger.info('with tenant')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     const ctx = sentEntries[0].context as Record<string, unknown>
     expect(ctx.tenant).toBe('acme-corp')
@@ -301,7 +301,7 @@ describe('Logger', () => {
 
     logger.info('export test')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     const json = logger.exportLogs()
     const parsed = JSON.parse(json)
@@ -325,7 +325,7 @@ describe('Logger', () => {
 
     logger.info('version check')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     expect(sentEntries[0].context.appVersion).toBe('2.5.0')
     expect(sentEntries[0].context.platform).toBe('ios')

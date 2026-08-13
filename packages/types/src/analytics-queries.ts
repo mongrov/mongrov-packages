@@ -16,21 +16,22 @@
  * (analytics-ai-tools/spec.md §Starter tools).
  */
 
-import { z } from 'zod';
+import { z } from 'zod'
 
 /** Shared: a userId plus a bounded day window. */
-const userDaysInput = (maxDays: number) =>
-  z.object({
+function userDaysInput(maxDays: number) {
+  return z.object({
     userId: z.string(),
     days: z.number().int().min(1).max(maxDays),
-  });
+  })
+}
 
 /** Metrics exposed to cross-metric tools (`exposure: 'full'` only). */
 export const ComparableMetric = z.enum([
   'hrv_ms',
   'sleep_total_minutes',
   'activity_steps',
-]);
+])
 
 // ─────────────────────────────────────────────────────────────────────────
 // Per-metric series
@@ -43,7 +44,7 @@ export const HrvDailySchemas = {
       z.object({
         day: z.string(),
         hrvMs: z.number(),
-      })
+      }),
     ),
     /** Null until the baseline matures (20 days minimum, principle 27). */
     baseline: z
@@ -55,7 +56,7 @@ export const HrvDailySchemas = {
       })
       .nullable(),
   }),
-} as const;
+} as const
 
 export const SpO2NightlySchemas = {
   input: userDaysInput(90),
@@ -71,7 +72,7 @@ export const SpO2NightlySchemas = {
          * vocabulary list (principle 37).
          */
         lowMomentCount: z.number(),
-      })
+      }),
     ),
     baseline: z
       .object({
@@ -82,7 +83,7 @@ export const SpO2NightlySchemas = {
       })
       .nullable(),
   }),
-} as const;
+} as const
 
 export const SleepSummarySchemas = {
   input: userDaysInput(90),
@@ -96,11 +97,11 @@ export const SleepSummarySchemas = {
         lightMinutes: z.number().nullable(),
         awakeMinutes: z.number().nullable(),
         avgConfidence: z.number().nullable(),
-      })
+      }),
     ),
     avgTotalMinutes: z.number().nullable(),
   }),
-} as const;
+} as const
 
 export const ActivityTotalSchemas = {
   input: userDaysInput(90),
@@ -111,12 +112,12 @@ export const ActivityTotalSchemas = {
         steps: z.number(),
         calories: z.number().nullable(),
         distanceKm: z.number().nullable(),
-      })
+      }),
     ),
     totalSteps: z.number(),
     avgStepsPerDay: z.number().nullable(),
   }),
-} as const;
+} as const
 
 // ─────────────────────────────────────────────────────────────────────────
 // Cross-window analysis
@@ -137,7 +138,7 @@ export const CompareTrendSchemas = {
     deltaPercent: z.number().nullable(),
     direction: z.enum(['up', 'down', 'flat', 'unknown']),
   }),
-} as const;
+} as const
 
 export const DetectAnomalySchemas = {
   input: z.object({
@@ -153,12 +154,12 @@ export const DetectAnomalySchemas = {
         day: z.string(),
         value: z.number(),
         stddevsFromMean: z.number(),
-      })
+      }),
     ),
     mean: z.number().nullable(),
     stddev: z.number().nullable(),
   }),
-} as const;
+} as const
 
 // ─────────────────────────────────────────────────────────────────────────
 // Insights
@@ -170,7 +171,7 @@ export const DetectAnomalySchemas = {
  * (`info | warn | critical`) — the rules evaluator maps `critical → urgent`
  * on write.
  */
-export const InsightSeverity = z.enum(['info', 'warn', 'urgent']);
+export const InsightSeverity = z.enum(['info', 'warn', 'urgent'])
 
 export const GetInsightsSchemas = {
   input: z.object({
@@ -188,10 +189,10 @@ export const GetInsightsSchemas = {
         title: z.string(),
         body: z.string().nullable(),
         firedAt: z.string(),
-      })
+      }),
     ),
   }),
-} as const;
+} as const
 
 // ─────────────────────────────────────────────────────────────────────────
 // Family aggregate
@@ -205,11 +206,11 @@ export const FamilyHrvTodaySchemas = {
         userId: z.string(),
         displayName: z.string().nullable(),
         hrvMs: z.number().nullable(),
-      })
+      }),
     ),
     familyAvgHrvMs: z.number().nullable(),
   }),
-} as const;
+} as const
 
 // ─────────────────────────────────────────────────────────────────────────
 // Aggregate export + inferred types
@@ -229,21 +230,21 @@ export const AnalyticsQuerySchemas = {
   DetectAnomalySchemas,
   GetInsightsSchemas,
   FamilyHrvTodaySchemas,
-} as const;
+} as const
 
-export type HrvDailyInput = z.infer<typeof HrvDailySchemas.input>;
-export type HrvDailyOutput = z.infer<typeof HrvDailySchemas.output>;
-export type SpO2NightlyInput = z.infer<typeof SpO2NightlySchemas.input>;
-export type SpO2NightlyOutput = z.infer<typeof SpO2NightlySchemas.output>;
-export type SleepSummaryInput = z.infer<typeof SleepSummarySchemas.input>;
-export type SleepSummaryOutput = z.infer<typeof SleepSummarySchemas.output>;
-export type ActivityTotalInput = z.infer<typeof ActivityTotalSchemas.input>;
-export type ActivityTotalOutput = z.infer<typeof ActivityTotalSchemas.output>;
-export type CompareTrendInput = z.infer<typeof CompareTrendSchemas.input>;
-export type CompareTrendOutput = z.infer<typeof CompareTrendSchemas.output>;
-export type DetectAnomalyInput = z.infer<typeof DetectAnomalySchemas.input>;
-export type DetectAnomalyOutput = z.infer<typeof DetectAnomalySchemas.output>;
-export type GetInsightsInput = z.infer<typeof GetInsightsSchemas.input>;
-export type GetInsightsOutput = z.infer<typeof GetInsightsSchemas.output>;
-export type FamilyHrvTodayInput = z.infer<typeof FamilyHrvTodaySchemas.input>;
-export type FamilyHrvTodayOutput = z.infer<typeof FamilyHrvTodaySchemas.output>;
+export type HrvDailyInput = z.infer<typeof HrvDailySchemas.input>
+export type HrvDailyOutput = z.infer<typeof HrvDailySchemas.output>
+export type SpO2NightlyInput = z.infer<typeof SpO2NightlySchemas.input>
+export type SpO2NightlyOutput = z.infer<typeof SpO2NightlySchemas.output>
+export type SleepSummaryInput = z.infer<typeof SleepSummarySchemas.input>
+export type SleepSummaryOutput = z.infer<typeof SleepSummarySchemas.output>
+export type ActivityTotalInput = z.infer<typeof ActivityTotalSchemas.input>
+export type ActivityTotalOutput = z.infer<typeof ActivityTotalSchemas.output>
+export type CompareTrendInput = z.infer<typeof CompareTrendSchemas.input>
+export type CompareTrendOutput = z.infer<typeof CompareTrendSchemas.output>
+export type DetectAnomalyInput = z.infer<typeof DetectAnomalySchemas.input>
+export type DetectAnomalyOutput = z.infer<typeof DetectAnomalySchemas.output>
+export type GetInsightsInput = z.infer<typeof GetInsightsSchemas.input>
+export type GetInsightsOutput = z.infer<typeof GetInsightsSchemas.output>
+export type FamilyHrvTodayInput = z.infer<typeof FamilyHrvTodaySchemas.input>
+export type FamilyHrvTodayOutput = z.infer<typeof FamilyHrvTodaySchemas.output>

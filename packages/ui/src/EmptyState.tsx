@@ -1,6 +1,6 @@
-import React from 'react';
-import { Pressable, Text, View } from 'react-native';
-import type { EmptyStateProps } from './types';
+import type { EmptyStateProps } from './types'
+import * as React from 'react'
+import { Pressable, Text, View } from 'react-native'
 
 export function EmptyState({ icon, title, subtitle, action, testID }: EmptyStateProps) {
   return (
@@ -20,5 +20,5 @@ export function EmptyState({ icon, title, subtitle, action, testID }: EmptyState
         </Pressable>
       )}
     </View>
-  );
+  )
 }

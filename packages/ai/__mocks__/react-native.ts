@@ -1,5 +1,3 @@
-import React from 'react';
-
 const mockAnimatedValue = {
   setValue: jest.fn(),
   setOffset: jest.fn(),
@@ -8,29 +6,29 @@ const mockAnimatedValue = {
   addListener: jest.fn(() => '1'),
   removeListener: jest.fn(),
   removeAllListeners: jest.fn(),
-  stopAnimation: jest.fn((callback) => callback && callback(0)),
-  resetAnimation: jest.fn((callback) => callback && callback(0)),
+  stopAnimation: jest.fn(callback => callback && callback(0)),
+  resetAnimation: jest.fn(callback => callback && callback(0)),
   interpolate: jest.fn(() => mockAnimatedValue),
   __getValue: jest.fn(() => 0),
-};
+}
 
 const mockAnimatedTiming = {
-  start: jest.fn((callback) => callback && callback({ finished: true })),
+  start: jest.fn(callback => callback && callback({ finished: true })),
   stop: jest.fn(),
   reset: jest.fn(),
-};
+}
 
-export const View = 'View';
-export const Text = 'Text';
-export const TextInput = 'TextInput';
-export const TouchableOpacity = 'TouchableOpacity';
-export const Pressable = 'Pressable';
-export const ScrollView = 'ScrollView';
-export const KeyboardAvoidingView = 'KeyboardAvoidingView';
+export const View = 'View'
+export const Text = 'Text'
+export const TextInput = 'TextInput'
+export const TouchableOpacity = 'TouchableOpacity'
+export const Pressable = 'Pressable'
+export const ScrollView = 'ScrollView'
+export const KeyboardAvoidingView = 'KeyboardAvoidingView'
 export const StyleSheet = {
   create: <T extends Record<string, unknown>>(styles: T): T => styles,
-  flatten: jest.fn((style) => style),
-};
+  flatten: jest.fn(style => style),
+}
 
 export const Animated = {
   View: 'Animated.View',
@@ -52,29 +50,29 @@ export const Animated = {
   stagger: jest.fn(() => mockAnimatedTiming),
   loop: jest.fn(() => mockAnimatedTiming),
   event: jest.fn(() => jest.fn()),
-  createAnimatedComponent: jest.fn((component) => component),
+  createAnimatedComponent: jest.fn(component => component),
   delay: jest.fn(() => mockAnimatedTiming),
-};
+}
 
 export const Platform = {
   OS: 'ios',
   select: jest.fn((obj: Record<string, unknown>) => obj.ios ?? obj.default),
   Version: 14,
-};
+}
 
 export const Dimensions = {
   get: jest.fn(() => ({ width: 375, height: 812, scale: 2, fontScale: 1 })),
   addEventListener: jest.fn(() => ({ remove: jest.fn() })),
   removeEventListener: jest.fn(),
-};
+}
 
-export const useColorScheme = jest.fn(() => 'light');
+export const useColorScheme = jest.fn(() => 'light')
 export const useWindowDimensions = jest.fn(() => ({
   width: 375,
   height: 812,
   scale: 2,
   fontScale: 1,
-}));
+}))
 
 export default {
   View,
@@ -90,4 +88,4 @@ export default {
   Dimensions,
   useColorScheme,
   useWindowDimensions,
-};
+}

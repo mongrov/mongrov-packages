@@ -1,11 +1,15 @@
+export { AuthDivider } from './AuthDivider'
+
+export type { AuthDividerProps } from './AuthDivider'
+
+export { ConnectionIndicator } from './ConnectionIndicator'
+// Compositions (specialized components)
+export { EmptyState } from './EmptyState'
+export { ErrorState } from './ErrorState'
+export { LoadingState } from './LoadingState'
+export { NetworkBanner } from './NetworkBanner'
 // Primitives (RNR-style components)
 export {
-  // Utils
-  cn,
-  // Text
-  Text,
-  TextClassContext,
-  textVariants,
   // Button
   Button,
   buttonTextVariants,
@@ -17,31 +21,63 @@ export {
   CardFooter,
   CardHeader,
   CardTitle,
-  // Skeleton
-  Skeleton,
+  // Utils
+  cn,
   // Separator
   Separator,
-} from './primitives';
+  // Skeleton
+  Skeleton,
+  // Text
+  Text,
+  TextClassContext,
+  textVariants,
+} from './primitives'
+export type { ButtonProps, TextProps, TextVariant } from './primitives'
 
-export type { TextProps, TextVariant, ButtonProps } from './primitives';
-
-// Compositions (specialized components)
-export { EmptyState } from './EmptyState';
-export { ErrorState } from './ErrorState';
-export { LoadingState } from './LoadingState';
-export { NetworkBanner } from './NetworkBanner';
-export { StatusBadge } from './StatusBadge';
-export { SyncIndicator } from './SyncIndicator';
-export { ConnectionIndicator } from './ConnectionIndicator';
-
+// Renderers (headless components)
+export {
+  AttachmentRenderer,
+  EMOJI_CATEGORIES,
+  MessageRenderer,
+  ReactionPicker,
+  useAttachmentRenderer,
+  useMessageRenderer,
+  useReactionPicker,
+} from './renderers'
+export type {
+  AttachmentRendererProps,
+  AttachmentRenderProps,
+  ContentRenderProps,
+  CurrentReactionItem,
+  DeliveryStatusInfo,
+  MessageAttachmentRenderProps,
+  MessageReactionRenderProps,
+  MessageRendererProps,
+  MessageRenderProps,
+  MimeCategory,
+  QuickReactionItem,
+  ReactionPickerProps,
+  ReactionPickerRenderProps,
+  UseReactionPickerOptions,
+} from './renderers'
 // Auth components
-export { SocialLoginButton } from './SocialLoginButton';
-export { SSOButton } from './SSOButton';
-export { AuthDivider } from './AuthDivider';
-export { TenantPicker, TenantSelector } from './TenantPicker';
+export { SocialLoginButton } from './SocialLoginButton'
+// Auth component types
+export type { SocialLoginButtonProps, SocialProvider } from './SocialLoginButton'
+
+export { SSOButton } from './SSOButton'
+
+export type { SSOButtonProps } from './SSOButton'
+export { StatusBadge } from './StatusBadge'
+export { SyncIndicator } from './SyncIndicator'
+export { TenantPicker, TenantSelector } from './TenantPicker'
+
+export type { TenantPickerItem, TenantPickerProps, TenantSelectorProps } from './TenantPicker'
 
 // Types
 export type {
+  ConnectionIndicatorProps,
+  ConnectionStatus,
   EmptyStateProps,
   ErrorStateProps,
   LoadingStateProps,
@@ -50,40 +86,4 @@ export type {
   StatusBadgeVariant,
   SyncIndicatorProps,
   SyncStatus,
-  ConnectionIndicatorProps,
-  ConnectionStatus,
-} from './types';
-
-// Auth component types
-export type { SocialLoginButtonProps, SocialProvider } from './SocialLoginButton';
-export type { SSOButtonProps } from './SSOButton';
-export type { AuthDividerProps } from './AuthDivider';
-export type { TenantPickerProps, TenantPickerItem, TenantSelectorProps } from './TenantPicker';
-
-// Renderers (headless components)
-export {
-  MessageRenderer,
-  useMessageRenderer,
-  AttachmentRenderer,
-  useAttachmentRenderer,
-  ReactionPicker,
-  useReactionPicker,
-  EMOJI_CATEGORIES,
-} from './renderers';
-
-export type {
-  MessageRendererProps,
-  MessageRenderProps,
-  DeliveryStatusInfo,
-  ContentRenderProps,
-  MessageAttachmentRenderProps,
-  MessageReactionRenderProps,
-  AttachmentRendererProps,
-  AttachmentRenderProps,
-  MimeCategory,
-  ReactionPickerProps,
-  ReactionPickerRenderProps,
-  QuickReactionItem,
-  CurrentReactionItem,
-  UseReactionPickerOptions,
-} from './renderers';
+} from './types'

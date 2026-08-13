@@ -8,14 +8,15 @@
  *   4. `manual(table)` schedules exactly one table.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FlushReason } from '../flusher'
 
+import type { SensorBatch } from '../types'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { SensorBuffer } from '../buffer'
+import { BatchFlusher } from '../flusher'
 import { OverflowStore } from '../overflow'
-import { BatchFlusher, type FlushReason } from '../flusher'
 import { FlushTriggers } from '../triggers'
-import type { SensorBatch } from '../types'
 import { createFakeEngine } from './__fakes__/fake-engine'
 
 const COL_ORDER = { hrv: ['ts', 'hrv_ms'], hr: ['ts', 'bpm'] }

@@ -9,9 +9,9 @@
  * test) and the .tsx file boundary carries only JSX.
  */
 
-import * as React from 'react'
-
 import type { AnalyticsEngine } from './types'
+
+import * as React from 'react'
 
 const AnalyticsContext = React.createContext<AnalyticsEngine | null>(null)
 

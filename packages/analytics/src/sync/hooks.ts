@@ -8,10 +8,10 @@
  * transitions (React's snapshot-equality check requires this).
  */
 
-import { useMemo, useSyncExternalStore } from 'react'
-
-import { useSyncManager } from './context'
 import type { SensorSink, SyncManager, SyncManagerState, SyncProgress } from './manager'
+
+import { useMemo, useSyncExternalStore } from 'react'
+import { useSyncManager } from './context'
 
 /** Subscribe to the manager's aggregate scheduler state. */
 export function useSyncState(): SyncManagerState {
@@ -40,7 +40,7 @@ interface Cache<T> {
 function makeStateCache(manager: SyncManager): Cache<SyncManagerState> {
   let snapshot = manager.state()
   return {
-    subscribe: (onStoreChange) => manager.subscribe((next) => {
+    subscribe: onStoreChange => manager.subscribe((next) => {
       snapshot = next
       onStoreChange()
     }),
@@ -51,7 +51,7 @@ function makeStateCache(manager: SyncManager): Cache<SyncManagerState> {
 function makeProgressCache(manager: SyncManager): Cache<SyncProgress> {
   let snapshot = manager.progress()
   return {
-    subscribe: (onStoreChange) => manager.subscribe(() => {
+    subscribe: onStoreChange => manager.subscribe(() => {
       snapshot = manager.progress()
       onStoreChange()
     }),

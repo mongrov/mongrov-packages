@@ -1,6 +1,6 @@
+import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, formatBytes } from '../formatters'
-import type { ToolImpl, ToolResult } from '../types'
 
 export const getActivityTotalInputSchema = z.object({
   userId: z.string(),
@@ -75,16 +75,18 @@ export const getActivityTotal: ToolImpl<GetActivityTotalInput> = async (
     totalCalories += b?.calories ?? 0
     totalDistance += b?.distance_km ?? 0
     const parts: string[] = [`${s} steps`]
-    if (b?.calories != null) parts.push(`${b.calories.toFixed(0)} kcal`)
-    if (b?.distance_km != null) parts.push(`${b.distance_km.toFixed(2)} km`)
+    if (b?.calories != null)
+      parts.push(`${b.calories.toFixed(0)} kcal`)
+    if (b?.distance_km != null)
+      parts.push(`${b.distance_km.toFixed(2)} km`)
     perDay.push(`  ${day}: ${parts.join(', ')}`)
   }
 
   const text
     = `Activity, last ${input.days} days:\n${perDay.join('\n')}\n`
-    + `  Totals: ${totalSteps} steps, `
-    + `${totalCalories.toFixed(0)} kcal, `
-    + `${totalDistance.toFixed(2)} km`
+      + `  Totals: ${totalSteps} steps, `
+      + `${totalCalories.toFixed(0)} kcal, `
+      + `${totalDistance.toFixed(2)} km`
 
   return finalize(text, orderedDays.length)
 }

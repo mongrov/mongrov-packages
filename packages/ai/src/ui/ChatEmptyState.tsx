@@ -1,10 +1,10 @@
-import React from 'react';
-import { Text, View } from 'react-native';
+import * as React from 'react'
+import { Text, View } from 'react-native'
 
 export interface ChatEmptyStateProps {
-  title?: string;
-  subtitle?: string;
-  testID?: string;
+  title?: string
+  subtitle?: string
+  testID?: string
 }
 
 export function ChatEmptyState({
@@ -26,5 +26,5 @@ export function ChatEmptyState({
         {subtitle}
       </Text>
     </View>
-  );
+  )
 }

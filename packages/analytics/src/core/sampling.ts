@@ -29,13 +29,13 @@
  * config row.
  */
 
+import type { MetricId, MetricSamplingMinutes } from './metric_metadata'
+import type { AnalyticsEngine, AnalyticsLogger } from './types'
+import { describeError } from './errors'
 import {
   METRIC_METADATA,
-  type MetricId,
-  type MetricSamplingMinutes,
+
 } from './metric_metadata'
-import { describeError } from './errors'
-import type { AnalyticsEngine, AnalyticsLogger } from './types'
 
 /** Default memo lifetime. Ring schedules change on the order of never. */
 export const SAMPLING_CACHE_TTL_MS = 10 * 60 * 1000
@@ -62,9 +62,9 @@ export interface SamplingResolver {
    * touching the database — the right behaviour for register-time
    * validation, which runs before any device context exists.
    */
-  resolve(metric: MetricId, deviceId?: string): Promise<EffectiveSampling>
+  resolve: (metric: MetricId, deviceId?: string) => Promise<EffectiveSampling>
   /** Drop memoized entries for a device (all metrics), or everything. */
-  invalidate(deviceId?: string): void
+  invalidate: (deviceId?: string) => void
 }
 
 interface CacheEntry {
@@ -99,11 +99,13 @@ export function createSamplingResolver(
       // is deliberately permissive: a denser real device only ever makes a
       // rule MORE satisfiable, never less, so validating against the
       // nominal cadence cannot produce a false pass.
-      if (!deviceId) return fallbackSampling(metric)
+      if (!deviceId)
+        return fallbackSampling(metric)
 
       const key = keyOf(deviceId, metric)
       const hit = cache.get(key)
-      if (hit && hit.expiresAt > now()) return hit.value
+      if (hit && hit.expiresAt > now())
+        return hit.value
 
       let value = fallbackSampling(metric)
       try {
@@ -141,7 +143,8 @@ export function createSamplingResolver(
       }
       const prefix = `${deviceId} `
       for (const key of cache.keys()) {
-        if (key.startsWith(prefix)) cache.delete(key)
+        if (key.startsWith(prefix))
+          cache.delete(key)
       }
     },
   }
@@ -158,6 +161,7 @@ export function minimumWindowMinutes(
   sampling: MetricSamplingMinutes,
   consecutive: number,
 ): number | null {
-  if (sampling === 'per_session') return null
+  if (sampling === 'per_session')
+    return null
   return sampling * Math.max(1, consecutive)
 }

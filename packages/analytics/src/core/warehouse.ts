@@ -33,9 +33,7 @@
  * <phase>, cause)`.
  */
 
-import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
-import { dropViewDdl, generateViewDdl, VIEWED_TABLES } from './schemas'
 import type {
   AttachContext,
   FamilyMembersProvider,
@@ -43,6 +41,8 @@ import type {
   TokenResponse,
   TokenVendor,
 } from './types'
+import { AnalyticsError } from './errors'
+import { dropViewDdl, generateViewDdl, VIEWED_TABLES } from './schemas'
 
 /**
  * Peel one layer of `AnalyticsError('query_failed')` off engine-wrapped
@@ -85,8 +85,10 @@ export interface AttachResult {
  *
  * Sanitised to `[A-Za-z0-9_]` so it's always a valid DuckDB identifier.
  */
+const NON_WORD_RE = /\W/g
+
 export function warehouseSecretName(tenantId: string): string {
-  return `zone_${tenantId.replace(/[^A-Za-z0-9_]/g, '_')}`
+  return `zone_${tenantId.replace(NON_WORD_RE, '_')}`
 }
 
 /**
@@ -309,13 +311,15 @@ async function probeCatalogName(db: HybridDuckDB): Promise<string> {
   for (const attempt of attempts) {
     try {
       const name = await attempt()
-      if (name) return name
+      if (name)
+        return name
     }
     catch (cause) {
       lastCause = cause
     }
   }
-  if (lastCause !== undefined) throw lastCause
+  if (lastCause !== undefined)
+    throw lastCause
   return 'memory'
 }
 

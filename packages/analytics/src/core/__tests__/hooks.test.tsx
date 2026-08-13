@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
+import type { AnalyticsEngine, Insight } from '../types'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import * as React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AnalyticsProvider } from '../context'
 import { useAnalytics, useInsight, useTimeseries } from '../hooks'
-import type { AnalyticsEngine, Insight } from '../types'
 
 import { createFakeEngine } from './__fakes__/fake-engine'
 

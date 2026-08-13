@@ -1,12 +1,12 @@
-import { generateText, streamText } from 'ai';
-import type { AIClient, AIConfig, AILogger, Message } from './types';
+import type { AIClient, AIConfig, AILogger, Message } from './types'
+import { generateText, streamText } from 'ai'
 
 const noopLogger: AILogger = {
   debug: () => {},
   info: () => {},
   warn: () => {},
   error: () => {},
-};
+}
 
 /**
  * Tool-call rounds allowed per request.
@@ -20,27 +20,27 @@ const noopLogger: AILogger = {
  * another step to produce the answer. 5 covers a tool call, its result, and
  * a follow-up call or two, while still bounding a model that loops.
  */
-const MAX_TOOL_STEPS = 5;
+const MAX_TOOL_STEPS = 5
 
 export function createAIClient(config: AIConfig): AIClient {
-  const { model, logger = noopLogger, systemPrompt, tools } = config;
-  let currentAbortController: AbortController | null = null;
+  const { model, logger = noopLogger, systemPrompt, tools } = config
+  let currentAbortController: AbortController | null = null
 
   async function* chat(
-    messages: Message[]
+    messages: Message[],
   ): AsyncGenerator<string, void, unknown> {
-    currentAbortController = new AbortController();
+    currentAbortController = new AbortController()
 
-    const aiMessages = messages.map((msg) => ({
+    const aiMessages = messages.map(msg => ({
       role: msg.role,
       content: msg.content,
-    }));
+    }))
 
     if (systemPrompt) {
-      aiMessages.unshift({ role: 'system' as const, content: systemPrompt });
+      aiMessages.unshift({ role: 'system' as const, content: systemPrompt })
     }
 
-    logger.debug('Starting chat stream', { messageCount: messages.length });
+    logger.debug('Starting chat stream', { messageCount: messages.length })
 
     try {
       const result = streamText({
@@ -49,13 +49,13 @@ export function createAIClient(config: AIConfig): AIClient {
         abortSignal: currentAbortController.signal,
         experimental_telemetry: { isEnabled: false },
         ...(tools ? { tools, maxSteps: MAX_TOOL_STEPS } : {}),
-      });
-      const { textStream } = result;
+      })
+      const { textStream } = result
 
-      let emitted = 0;
+      let emitted = 0
       for await (const chunk of textStream) {
-        emitted += chunk.length;
-        yield chunk;
+        emitted += chunk.length
+        yield chunk
       }
 
       if (emitted === 0) {
@@ -75,17 +75,17 @@ export function createAIClient(config: AIConfig): AIClient {
         // turn "no reply" into a crash.
         const settle = async <T>(v: Promise<T> | undefined, fallback: T): Promise<T> => {
           try {
-            return v === undefined ? fallback : await v;
+            return v === undefined ? fallback : await v
           }
           catch {
-            return fallback;
+            return fallback
           }
-        };
+        }
         const [finishReason, warnings, toolCalls] = await Promise.all([
           settle(result.finishReason, 'unavailable' as string),
           settle(result.warnings, undefined),
           settle(result.toolCalls, [] as unknown[]),
-        ]);
+        ])
         logger.warn('Chat stream produced no text', {
           messageCount: messages.length,
           hasTools: Boolean(tools),
@@ -94,7 +94,7 @@ export function createAIClient(config: AIConfig): AIClient {
           finishReason,
           warnings,
           toolCallCount: Array.isArray(toolCalls) ? toolCalls.length : 0,
-        });
+        })
 
         // A provider rejection — quota exhausted, bad key, rate limit — can
         // end the stream without `textStream` ever throwing. That surfaced as
@@ -109,34 +109,36 @@ export function createAIClient(config: AIConfig): AIClient {
             'The AI provider rejected the request. This is usually a quota, '
             + 'billing or rate-limit problem rather than a bug — check the '
             + 'provider dashboard.',
-          );
+          )
         }
       }
 
-      logger.debug('Chat stream complete', { textLength: emitted });
-    } catch (error) {
+      logger.debug('Chat stream complete', { textLength: emitted })
+    }
+    catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        logger.debug('Chat stream cancelled');
-        return;
+        logger.debug('Chat stream cancelled')
+        return
       }
-      logger.error('Chat stream error', { error });
-      throw error;
-    } finally {
-      currentAbortController = null;
+      logger.error('Chat stream error', { error })
+      throw error
+    }
+    finally {
+      currentAbortController = null
     }
   }
 
   async function complete(prompt: string): Promise<string> {
-    currentAbortController = new AbortController();
+    currentAbortController = new AbortController()
 
     const messages = systemPrompt
       ? [
           { role: 'system' as const, content: systemPrompt },
           { role: 'user' as const, content: prompt },
         ]
-      : [{ role: 'user' as const, content: prompt }];
+      : [{ role: 'user' as const, content: prompt }]
 
-    logger.debug('Starting completion', { promptLength: prompt.length });
+    logger.debug('Starting completion', { promptLength: prompt.length })
 
     try {
       const { text } = await generateText({
@@ -145,27 +147,29 @@ export function createAIClient(config: AIConfig): AIClient {
         abortSignal: currentAbortController.signal,
         experimental_telemetry: { isEnabled: false },
         ...(tools ? { tools, maxSteps: MAX_TOOL_STEPS } : {}),
-      });
+      })
 
-      logger.debug('Completion finished', { resultLength: text.length });
-      return text;
-    } catch (error) {
+      logger.debug('Completion finished', { resultLength: text.length })
+      return text
+    }
+    catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        logger.debug('Completion cancelled');
-        return '';
+        logger.debug('Completion cancelled')
+        return ''
       }
-      logger.error('Completion error', { error });
-      throw error;
-    } finally {
-      currentAbortController = null;
+      logger.error('Completion error', { error })
+      throw error
+    }
+    finally {
+      currentAbortController = null
     }
   }
 
   function cancel(): void {
     if (currentAbortController) {
-      currentAbortController.abort();
-      currentAbortController = null;
-      logger.debug('Request cancelled');
+      currentAbortController.abort()
+      currentAbortController = null
+      logger.debug('Request cancelled')
     }
   }
 
@@ -173,5 +177,5 @@ export function createAIClient(config: AIConfig): AIClient {
     chat,
     complete,
     cancel,
-  };
+  }
 }

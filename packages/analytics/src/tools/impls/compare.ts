@@ -1,6 +1,6 @@
+import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, deltaPct, formatBytes } from '../formatters'
-import type { ToolImpl, ToolResult } from '../types'
 
 export const compareTrendInputSchema = z.object({
   userId: z.string(),
@@ -90,11 +90,11 @@ export const compareTrend: ToolImpl<CompareTrendInput> = async (
 
   const text
     = `${spec.label} trend (${input.metric}):\n`
-    + `  current ${input.currentWindowDays}d: ${fmt(current)}${spec.unit}\n`
-    + `  prior ${input.priorWindowDays}d:   ${fmt(prior)}${spec.unit}\n`
-    + `  delta: ${
-      current != null && prior != null ? deltaPct(current, prior) : 'n/a'
-    }`
+      + `  current ${input.currentWindowDays}d: ${fmt(current)}${spec.unit}\n`
+      + `  prior ${input.priorWindowDays}d:   ${fmt(prior)}${spec.unit}\n`
+      + `  delta: ${
+        current != null && prior != null ? deltaPct(current, prior) : 'n/a'
+      }`
 
   return finalize(text, (current == null ? 0 : 1) + (prior == null ? 0 : 1))
 }

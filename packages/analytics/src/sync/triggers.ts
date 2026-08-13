@@ -15,8 +15,8 @@
  * `setInterval` (or the sync scheduler) to `evaluate()`.
  */
 
-import type { BatchFlusher, FlushReason } from './flusher'
 import type { SensorBuffer } from './buffer'
+import type { BatchFlusher, FlushReason } from './flusher'
 
 export interface FlushTriggersConfig {
   buffer: SensorBuffer

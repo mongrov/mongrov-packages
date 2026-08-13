@@ -15,14 +15,14 @@
  *      authored for (empty / DST fall-back / midnight crossing).
  */
 
+import type { FirmwareExport, MapperContext } from '../types'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
+
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
-
 import { mapFirmwareExport } from '../firmware'
 import { FIRMWARE_EXPORT_KEY_PATHS, firmwareExportSchema } from '../schema'
-import type { FirmwareExport, MapperContext } from '../types'
 
 const FIXTURES_DIR = join(__dirname, 'fixtures')
 // mapper/__tests__ → 7 levels up → rn-apps workspace root.

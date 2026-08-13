@@ -1,1 +1,1 @@
-export { defaultLightTokens, defaultDarkTokens } from './defaults'
+export { defaultDarkTokens, defaultLightTokens } from './defaults'

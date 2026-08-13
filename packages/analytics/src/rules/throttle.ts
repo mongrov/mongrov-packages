@@ -13,8 +13,8 @@
  */
 
 import type { KVStore } from '../core/types'
-import type { Clock, RulesLogger } from './types'
 import type { Throttle } from './schema'
+import type { Clock, RulesLogger } from './types'
 
 const KEY_PREFIX = 'analytics:rules:throttle:'
 
@@ -35,8 +35,8 @@ function ymdOf(d: Date): string {
 }
 
 export interface ThrottleStore {
-  isThrottled(ruleId: string, userId: string, throttle: Throttle): Promise<boolean>
-  recordFire(ruleId: string, userId: string): Promise<void>
+  isThrottled: (ruleId: string, userId: string, throttle: Throttle) => Promise<boolean>
+  recordFire: (ruleId: string, userId: string) => Promise<void>
 }
 
 export interface CreateThrottleConfig {

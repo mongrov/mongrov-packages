@@ -18,10 +18,8 @@
  * with a mutable container updated per request).
  */
 
-import { jsonSchema, tool } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import type { AnalyticsEngine } from '../core/types'
-import { applyOutputBudget } from './budget'
 import type { RateLimiter } from './rate-limit'
 import type {
   AuditWriter,
@@ -31,6 +29,8 @@ import type {
   ToolImpl,
   ToolsLogger,
 } from './types'
+import { jsonSchema, tool } from 'ai'
+import { applyOutputBudget } from './budget'
 
 const RATE_LIMIT_MESSAGE = 'Rate limit exceeded. Try again shortly.'
 const AUTHZ_MESSAGE = 'Not authorized to access that user\'s data.'
@@ -86,11 +86,10 @@ function toJsonSchema(schema: ZodTypeAny): ReturnType<typeof jsonSchema> {
   // zod 4 ships its own converter; zod 3 needs the companion package.
   const z4 = (schema as unknown as { _zod?: unknown })._zod
   if (z4 !== undefined) {
-    // eslint-disable-next-line ts/no-require-imports
     const zod = require('zod') as { toJSONSchema: (s: unknown) => object }
     return jsonSchema(zod.toJSONSchema(schema) as never)
   }
-  // eslint-disable-next-line ts/no-require-imports
+
   const { zodToJsonSchema } = require('zod-to-json-schema') as {
     zodToJsonSchema: (s: unknown) => object
   }

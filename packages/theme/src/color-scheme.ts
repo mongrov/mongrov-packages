@@ -1,8 +1,8 @@
+import type { StoreApi } from 'zustand/vanilla'
+import type { ColorScheme } from './types'
 import { useEffect, useState } from 'react'
 import { Appearance } from 'react-native'
 import { useStore } from 'zustand'
-import type { StoreApi } from 'zustand/vanilla'
-import type { ColorScheme } from './types'
 
 interface ColorSchemeState {
   colorScheme: ColorScheme
@@ -18,14 +18,15 @@ function resolveScheme(preference: ColorScheme): 'light' | 'dark' {
 
 export function createUseColorScheme(store: StoreApi<ColorSchemeState>) {
   return function useColorScheme() {
-    const colorScheme = useStore(store, (s) => s.colorScheme)
-    const setColorScheme = useStore(store, (s) => s.setColorScheme)
+    const colorScheme = useStore(store, s => s.colorScheme)
+    const setColorScheme = useStore(store, s => s.setColorScheme)
     const [systemScheme, setSystemScheme] = useState<'light' | 'dark'>(
       () => Appearance.getColorScheme() ?? 'light',
     )
 
     useEffect(() => {
-      if (colorScheme !== 'system') return
+      if (colorScheme !== 'system')
+        return
 
       const subscription = Appearance.addChangeListener(({ colorScheme: newScheme }) => {
         setSystemScheme(newScheme ?? 'light')
@@ -33,8 +34,8 @@ export function createUseColorScheme(store: StoreApi<ColorSchemeState>) {
       return () => subscription.remove()
     }, [colorScheme])
 
-    const resolvedScheme: 'light' | 'dark' =
-      colorScheme === 'system' ? systemScheme : colorScheme
+    const resolvedScheme: 'light' | 'dark'
+      = colorScheme === 'system' ? systemScheme : colorScheme
 
     return {
       colorScheme,

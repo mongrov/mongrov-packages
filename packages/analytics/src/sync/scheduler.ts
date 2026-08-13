@@ -12,8 +12,8 @@
  * Design.md §sync/scheduler.ts is the source of truth for the surface.
  */
 
-import { SyncError } from './errors'
 import type { AttachContext } from '../core/types'
+import { SyncError } from './errors'
 
 /**
  * Injected wrapper around `expo-background-task`. Kept minimal — start/stop
@@ -211,11 +211,13 @@ export class SyncScheduler {
     const { requireWifi, requireCharging } = this.#config.constraintPolicy
     if (requireWifi) {
       const wifi = await this.#config.constraints.isOnWifi()
-      if (!wifi) return false
+      if (!wifi)
+        return false
     }
     if (requireCharging) {
       const charging = await this.#config.constraints.isCharging()
-      if (!charging) return false
+      if (!charging)
+        return false
     }
     return true
   }

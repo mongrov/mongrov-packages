@@ -5,60 +5,60 @@
  * Supports RocketChat and custom backends via adapter pattern.
  */
 
-// Provider and hooks
-export {
-  CollabProvider,
-  useCollab,
-  usePresence,
-  useTyping,
-  useMessages,
-} from './provider'
-export type { CollabProviderProps } from './provider'
-
+// Base adapter
+export { BaseAdapter } from './adapters/base'
 // State machine
 export {
   collabMachine,
-  getConnectionStatus,
   createMachineInput,
+  getConnectionStatus,
 } from './machine'
+
 export type {
   CollabMachineContext,
   CollabMachineEvent,
   CollabMachineInput,
 } from './machine'
+// Provider and hooks
+export {
+  CollabProvider,
+  useCollab,
+  useMessages,
+  usePresence,
+  useTyping,
+} from './provider'
 
-// Base adapter
-export { BaseAdapter } from './adapters/base'
+export type { CollabProviderProps } from './provider'
 
 // Types
 export type {
-  // Connection
-  CollabConnectionStatus,
-  CollabConfig,
-  CollabLogger,
   AdapterCredentials,
-
   // Adapter interface
   CollabAdapter,
+  CollabConfig,
+  // Connection
+  CollabConnectionStatus,
 
-  // Events
-  CollabEvents,
-  CollabEventName,
   CollabEventHandler,
 
+  CollabEventName,
+  // Events
+  CollabEvents,
+  CollabLogger,
+
+  FetchConversationsOptions,
+  FetchConversationsResult,
+  // Fetch options
+  FetchMessagesOptions,
+
+  FetchMessagesResult,
   // Presence & Typing
   PresenceState,
-  UserPresence,
-  TypingUser,
 
+  SearchOptions,
   // Messages
   SendMessageParams,
   SendMessageResult,
-
-  // Fetch options
-  FetchMessagesOptions,
-  FetchMessagesResult,
-  FetchConversationsOptions,
-  FetchConversationsResult,
-  SearchOptions,
+  TypingUser,
+  UserPresence,
 } from './types'

@@ -1,8 +1,8 @@
-import React from 'react';
-import { Text, View } from 'react-native';
-import type { StatusBadgeProps, StatusBadgeVariant } from './types';
+import type { StatusBadgeProps, StatusBadgeVariant } from './types'
+import * as React from 'react'
+import { Text, View } from 'react-native'
 
-const variantStyles: Record<StatusBadgeVariant, { container: string; text: string }> = {
+const variantStyles: Record<StatusBadgeVariant, { container: string, text: string }> = {
   default: {
     container: 'bg-muted',
     text: 'text-muted-foreground',
@@ -19,14 +19,14 @@ const variantStyles: Record<StatusBadgeVariant, { container: string; text: strin
     container: 'bg-warning',
     text: 'text-warning-foreground',
   },
-};
+}
 
 export function StatusBadge({ label, variant = 'default', testID }: StatusBadgeProps) {
-  const styles = variantStyles[variant];
+  const styles = variantStyles[variant]
 
   return (
     <View className={`rounded-full px-3 py-1 ${styles.container}`} testID={testID}>
       <Text className={`text-xs font-medium ${styles.text}`}>{label}</Text>
     </View>
-  );
+  )
 }

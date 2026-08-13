@@ -1,6 +1,6 @@
+import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, formatBytes } from '../formatters'
-import type { ToolImpl, ToolResult } from '../types'
 
 export const getSleepSummaryInputSchema = z.object({
   userId: z.string(),
@@ -48,15 +48,17 @@ export const getSleepSummary: ToolImpl<GetSleepSummaryInput> = async (
   const perNight = rows
     .map((r) => {
       const parts: string[] = [`${r.total_minutes}m total`]
-      if (r.deep_minutes != null) parts.push(`${r.deep_minutes}m deep`)
-      if (r.rem_minutes != null) parts.push(`${r.rem_minutes}m REM`)
+      if (r.deep_minutes != null)
+        parts.push(`${r.deep_minutes}m deep`)
+      if (r.rem_minutes != null)
+        parts.push(`${r.rem_minutes}m REM`)
       return `  ${r.night_of}: ${parts.join(', ')}`
     })
     .join('\n')
 
   const text
     = `Sleep, last ${input.days} days:\n${perNight}\n`
-    + `  ${rows.length}-night avg total: ${totalMean.toFixed(0)}m`
+      + `  ${rows.length}-night avg total: ${totalMean.toFixed(0)}m`
 
   return finalize(text, rows.length)
 }

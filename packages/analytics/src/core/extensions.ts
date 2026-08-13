@@ -17,9 +17,9 @@
  * calls, and DuckDB itself no-ops re-loads, so calling twice is safe.
  */
 
-import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
 import type { AnalyticsMode } from './types'
+import { AnalyticsError } from './errors'
 
 /**
  * Extensions required for R2 Iceberg attach, in load order.

@@ -43,7 +43,8 @@ describe('createRateLimiter', () => {
     // first 60 succeeds because the per-user bucket refills at 1/s.
     // Additional calls should be rejected by per-user.
     for (let i = 0; i < 60; i++) {
-      if (rl.check(tools[i % 3], 'alice')) allowed++
+      if (rl.check(tools[i % 3], 'alice'))
+        allowed++
     }
     expect(allowed).toBe(60)
     // 61st across any tool should fail on per-user cap.
@@ -61,7 +62,8 @@ describe('createRateLimiter', () => {
     // per-tool-per-hour is the binding ceiling at 200.
     for (let batch = 0; batch < 12; batch++) {
       for (let i = 0; i < 20; i++) {
-        if (rl.check('getHRV', 'alice')) allowed++
+        if (rl.check('getHRV', 'alice'))
+          allowed++
       }
       clock.advance(6 * 60_000)
     }
@@ -80,7 +82,8 @@ describe('createRateLimiter', () => {
     // refills at 1 token every 3s, and per-user at 1/s; per-tool-per-
     // hour refills at 200 tokens / 3.6 million ms.
     for (let i = 0; i < 250; i++) {
-      if (rl.check('getHRV', 'alice')) allowed++
+      if (rl.check('getHRV', 'alice'))
+        allowed++
       clock.advance(10_000)
     }
     // 250 calls over 2500s (~42min) plus initial 200 tokens: refill

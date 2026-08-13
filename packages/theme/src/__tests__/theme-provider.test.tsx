@@ -1,12 +1,13 @@
 /**
  * @jest-environment jsdom
  */
-import React from 'react'
+
 import { renderHook } from '@testing-library/react'
-import { createTheme } from '../create-theme'
-import { ThemeProvider, useTheme, useColorScheme } from '../theme-provider'
-import { defaultLightTokens } from '../tokens'
+import * as React from 'react'
 import { Appearance } from 'react-native'
+import { createTheme } from '../create-theme'
+import { ThemeProvider, useColorScheme, useTheme } from '../theme-provider'
+import { defaultLightTokens } from '../tokens'
 
 const mockGetColorScheme = Appearance.getColorScheme as jest.Mock
 

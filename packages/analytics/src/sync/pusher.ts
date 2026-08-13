@@ -17,12 +17,12 @@
  */
 
 import type { HybridDuckDB } from '../core/engine'
-import { timeColumnFor } from '../core/table_metadata'
 import type { AttachContext } from '../core/types'
-import { SyncError } from './errors'
 import type { PushEmitter } from './events'
 import type { RingConfigClose } from './mapper/ring-config'
 import type { WatermarkStore } from './watermark'
+import { timeColumnFor } from '../core/table_metadata'
+import { SyncError } from './errors'
 
 export interface PushResult {
   table: string
@@ -63,15 +63,17 @@ export interface R2PusherConfig {
   emit?: PushEmitter
 }
 
-const DEFAULT_IS_401 = (err: unknown): boolean => {
-  if (!err || typeof err !== 'object') return false
+function DEFAULT_IS_401(err: unknown): boolean {
+  if (!err || typeof err !== 'object')
+    return false
   const msg = String((err as { message?: unknown }).message ?? '').toLowerCase()
   return msg.includes('401') || msg.includes('unauthorized')
 }
 
 const DEFAULT_LOCAL = (_c: AttachContext, table: string) => `main.${table}`
-const DEFAULT_REMOTE = (c: AttachContext, table: string) =>
-  `zone_${c.tenantId}.default.${table}`
+function DEFAULT_REMOTE(c: AttachContext, table: string) {
+  return `zone_${c.tenantId}.default.${table}`
+}
 
 export class R2Pusher {
   readonly #engine: HybridDuckDB
@@ -195,7 +197,8 @@ export class R2Pusher {
       tables.map(t => this.push(t, ctx)),
     )
     return settled.map((r, i) => {
-      if (r.status === 'fulfilled') return r.value
+      if (r.status === 'fulfilled')
+        return r.value
       const err = r.reason instanceof SyncError
         ? r.reason
         : new SyncError('push_failed', 'push rejected', r.reason)

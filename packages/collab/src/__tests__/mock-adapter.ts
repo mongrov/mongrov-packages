@@ -2,19 +2,19 @@
  * Mock Adapter for Testing
  */
 
-import { BaseAdapter } from '../adapters/base'
+import type { Message, Participant, Unsubscribe } from '@mongrov/types'
 import type {
   AdapterCredentials,
-  SendMessageParams,
-  SendMessageResult,
-  PresenceState,
-  FetchMessagesOptions,
-  FetchMessagesResult,
   FetchConversationsOptions,
   FetchConversationsResult,
+  FetchMessagesOptions,
+  FetchMessagesResult,
+  PresenceState,
   SearchOptions,
+  SendMessageParams,
+  SendMessageResult,
 } from '../types'
-import type { Message, Participant, Unsubscribe } from '@mongrov/types'
+import { BaseAdapter } from '../adapters/base'
 
 export class MockAdapter extends BaseAdapter {
   readonly id = 'mock'
@@ -23,7 +23,7 @@ export class MockAdapter extends BaseAdapter {
   connectCalls: AdapterCredentials[] = []
   disconnectCalls: number = 0
   sendMessageCalls: SendMessageParams[] = []
-  sendTypingCalls: { conversationId: string; isTyping: boolean }[] = []
+  sendTypingCalls: { conversationId: string, isTyping: boolean }[] = []
   presenceCalls: PresenceState[] = []
 
   // Control behavior
@@ -35,7 +35,7 @@ export class MockAdapter extends BaseAdapter {
     this.connectCalls.push(credentials)
 
     if (this.connectDelay > 0) {
-      await new Promise((resolve) => setTimeout(resolve, this.connectDelay))
+      await new Promise(resolve => setTimeout(resolve, this.connectDelay))
     }
 
     if (this.shouldFailConnect) {
@@ -112,7 +112,7 @@ export class MockAdapter extends BaseAdapter {
 
   async fetchMessages(
     _conversationId: string,
-    options?: FetchMessagesOptions
+    options?: FetchMessagesOptions,
   ): Promise<FetchMessagesResult> {
     const limit = options?.limit ?? 50
     return {
@@ -122,7 +122,7 @@ export class MockAdapter extends BaseAdapter {
   }
 
   async fetchConversations(
-    _options?: FetchConversationsOptions
+    _options?: FetchConversationsOptions,
   ): Promise<FetchConversationsResult> {
     return {
       conversations: [],

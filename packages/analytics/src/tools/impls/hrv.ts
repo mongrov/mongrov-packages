@@ -1,6 +1,6 @@
+import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, deltaPct, formatBytes } from '../formatters'
-import type { ToolImpl, ToolResult } from '../types'
 
 export const getHRVInputSchema = z.object({
   userId: z.string(),
@@ -43,8 +43,8 @@ export const getHRV: ToolImpl<GetHRVInput> = async (input, ctx) => {
 
   const text
     = `HRV, last ${input.days} days:\n${daily}\n`
-    + `  ${input.days}-day avg: ${baseline.toFixed(1)}ms `
-    + `(latest ${latest.toFixed(1)}ms, ${deltaPct(latest, baseline)} vs avg)`
+      + `  ${input.days}-day avg: ${baseline.toFixed(1)}ms `
+      + `(latest ${latest.toFixed(1)}ms, ${deltaPct(latest, baseline)} vs avg)`
 
   return finalize(text, rows.length)
 }

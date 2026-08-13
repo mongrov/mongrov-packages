@@ -17,11 +17,11 @@ let pollingInterval: ReturnType<typeof setInterval> | null = null
 
 function getExpoNetwork() {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     return require('expo-network')
-  } catch {
+  }
+  catch {
     throw new Error(
-      '@mongrov/core network-state requires expo-network as a peer dependency'
+      '@mongrov/core network-state requires expo-network as a peer dependency',
     )
   }
 }
@@ -39,23 +39,25 @@ async function fetchNetworkState(): Promise<NetworkState> {
 async function pollAndNotify(): Promise<void> {
   try {
     const newState = await fetchNetworkState()
-    const changed =
-      newState.isConnected !== cachedState.isConnected ||
-      newState.type !== cachedState.type ||
-      newState.isInternetReachable !== cachedState.isInternetReachable
+    const changed
+      = newState.isConnected !== cachedState.isConnected
+        || newState.type !== cachedState.type
+        || newState.isInternetReachable !== cachedState.isInternetReachable
 
     cachedState = newState
 
     if (changed) {
-      listeners.forEach((cb) => cb(newState))
+      listeners.forEach(cb => cb(newState))
     }
-  } catch {
+  }
+  catch {
     // Silently ignore polling errors
   }
 }
 
 function startPolling(): void {
-  if (pollingInterval) return
+  if (pollingInterval)
+    return
   pollAndNotify()
   pollingInterval = setInterval(pollAndNotify, 15000)
 }
@@ -73,7 +75,7 @@ export async function getNetworkState(): Promise<NetworkState> {
 }
 
 export function addNetworkStateListener(
-  callback: NetworkStateListener
+  callback: NetworkStateListener,
 ): { remove: () => void } {
   listeners.add(callback)
   if (listeners.size === 1) {
@@ -93,7 +95,7 @@ export function addNetworkStateListener(
 // React hook — only usable in components
 export function useNetworkState(): NetworkState {
   // Lazy import React to avoid issues in non-React contexts
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+
   const React = require('react') as typeof import('react')
   const { useState, useEffect } = React
 

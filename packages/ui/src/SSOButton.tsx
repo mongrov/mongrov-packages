@@ -1,19 +1,19 @@
-import * as React from 'react';
-import { ActivityIndicator, Platform, Pressable, View, Text } from 'react-native';
+import * as React from 'react'
+import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native'
 
-import { cn } from './primitives/utils';
+import { cn } from './primitives/utils'
 
 export interface SSOButtonProps {
-  onPress: () => void;
-  loading?: boolean;
-  disabled?: boolean;
+  onPress: () => void
+  loading?: boolean
+  disabled?: boolean
   /** Button label. Default: "Enterprise Sign-In" */
-  label?: string;
+  label?: string
   /** Provider name to display (e.g., "Okta", "Azure AD"). Overrides label. */
-  providerName?: string;
-  className?: string;
+  providerName?: string
+  className?: string
   /** Test ID for testing */
-  testID?: string;
+  testID?: string
 }
 
 /**
@@ -29,8 +29,8 @@ export function SSOButton({
   className,
   testID,
 }: SSOButtonProps) {
-  const displayLabel = providerName ? `Sign in with ${providerName}` : label;
-  const isDisabled = disabled || loading;
+  const displayLabel = providerName ? `Sign in with ${providerName}` : label
+  const isDisabled = disabled || loading
 
   return (
     <Pressable
@@ -43,7 +43,7 @@ export function SSOButton({
         Platform.select({
           web: 'transition-all hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:hover:bg-neutral-800',
         }),
-        className
+        className,
       )}
       role="button"
       accessibilityLabel={displayLabel}
@@ -63,5 +63,5 @@ export function SSOButton({
         </View>
       )}
     </Pressable>
-  );
+  )
 }

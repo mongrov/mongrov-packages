@@ -6,14 +6,14 @@
  * its cached compilation on the next `getCompiled(rule, rev)` call.
  */
 
-import { compileRule } from './compiler'
 import type { Rule } from './schema'
 import type { CompiledRule } from './types'
+import { compileRule } from './compiler'
 
 export interface CompilerCache {
-  getCompiled(rule: Rule, rev: number): CompiledRule
-  invalidate(ruleId: string): void
-  size(): number
+  getCompiled: (rule: Rule, rev: number) => CompiledRule
+  invalidate: (ruleId: string) => void
+  size: () => number
 }
 
 export function createCompilerCache(): CompilerCache {

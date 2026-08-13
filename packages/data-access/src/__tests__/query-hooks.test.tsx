@@ -1,21 +1,5 @@
 // @vitest-environment jsdom
 
-import { QueryClient } from '@tanstack/react-query'
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import * as React from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { z } from 'zod'
-
-import {
-  AuthorizationError,
-  DataAccessError,
-  DataAccessProvider,
-  createEventBus,
-  defineMutation,
-  defineQuery,
-  useAppMutation,
-  useAppQuery,
-} from '../index'
 import type { EngineAdapters } from '../dispatcher'
 import type {
   EventBus,
@@ -24,6 +8,22 @@ import type {
   Registry,
   RequestContext,
 } from '../types'
+import { QueryClient } from '@tanstack/react-query'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import * as React from 'react'
+
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
+import {
+  AuthorizationError,
+  createEventBus,
+  DataAccessError,
+  DataAccessProvider,
+  defineMutation,
+  defineQuery,
+  useAppMutation,
+  useAppQuery,
+} from '../index'
 
 // --- fixtures ---------------------------------------------------------
 
@@ -98,9 +98,10 @@ describe('T-11 · useAppQuery (duckdb)', () => {
             registry: makeRegistry({}),
             engines: {},
           }),
-        })
+        }),
       ).toThrow(DataAccessError)
-    } finally {
+    }
+    finally {
       spy.mockRestore()
     }
   })
@@ -121,7 +122,7 @@ describe('T-11 · useAppQuery (duckdb)', () => {
           registry: makeRegistry({ queries: { 'hrv.last': q } }),
           engines: { duckdb: { execute } },
         }),
-      }
+      },
     )
 
     await waitFor(() => expect(result.current.loading).toBe(false))
@@ -189,7 +190,7 @@ describe('T-11 · useAppQuery (duckdb)', () => {
       bus.emit('sleep:insert', null)
     })
     // Give it a chance to (not) refetch.
-    await new Promise((r) => setTimeout(r, 20))
+    await new Promise(r => setTimeout(r, 20))
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
@@ -225,7 +226,7 @@ describe('T-13 · useAppQuery (kv)', () => {
       engine: 'kv',
       input: z.object({ userId: z.string() }),
       output: z.string(),
-      keyBuilder: (input) => `user:${input.userId}`,
+      keyBuilder: input => `user:${input.userId}`,
     }) as unknown as QueryDefinition<unknown, unknown>
 
     const get = vi.fn((key: string) => Promise.resolve(`v-${key}`))
@@ -236,7 +237,7 @@ describe('T-13 · useAppQuery (kv)', () => {
           registry: makeRegistry({ queries: { profile: q } }),
           engines: { kv: { get } },
         }),
-      }
+      },
     )
 
     await waitFor(() => expect(result.current.data).toBe('v-user:u9'))
@@ -257,7 +258,7 @@ function makeSubject<T>() {
   }>()
   return {
     observable: {
-      subscribe(observer: { next: (v: T) => void; error?: (e: unknown) => void }) {
+      subscribe(observer: { next: (v: T) => void, error?: (e: unknown) => void }) {
         listeners.add(observer)
         return {
           unsubscribe() {
@@ -344,7 +345,7 @@ describe('T-12 · useAppQuery (rxdb)', () => {
           registry: makeRegistry({ queries: { live: q } }),
           engines: { rxdb: { db: {}, execute: async () => 0 } },
         }),
-      }
+      },
     )
 
     await act(async () => {
@@ -459,7 +460,7 @@ describe('T-19 · Zod parse errors surface', () => {
           registry: makeRegistry({ queries: { q } }),
           engines: { duckdb: { execute } },
         }),
-      }
+      },
     )
 
     await waitFor(() => expect(result.current.error).not.toBeNull())
@@ -480,9 +481,10 @@ describe('T-14 · useAppMutation', () => {
             registry: makeRegistry({}),
             engines: {},
           }),
-        })
+        }),
       ).toThrow(DataAccessError)
-    } finally {
+    }
+    finally {
       spy.mockRestore()
     }
   })
@@ -497,16 +499,16 @@ describe('T-14 · useAppMutation', () => {
 
     const { result } = renderHook(
       () =>
-        useAppMutation<{ id: string }, { ok: boolean; id: string }>('device.pair'),
+        useAppMutation<{ id: string }, { ok: boolean, id: string }>('device.pair'),
       {
         wrapper: wrapperWith({
           registry: makeRegistry({ mutations: { 'device.pair': m } }),
           engines: {},
         }),
-      }
+      },
     )
 
-    let output: { ok: boolean; id: string } | undefined
+    let output: { ok: boolean, id: string } | undefined
     await act(async () => {
       output = await result.current.mutateAsync({ id: 'd1' })
     })
@@ -559,7 +561,7 @@ describe('T-14 · useAppMutation', () => {
     await expect(
       act(async () => {
         await result.current.mutateAsync({ id: 'x' })
-      })
+      }),
     ).rejects.toBeInstanceOf(AuthorizationError)
   })
 
@@ -581,7 +583,7 @@ describe('T-14 · useAppMutation', () => {
       act(async () => {
         // Deliberately wrong shape.
         await result.current.mutateAsync({ notId: 42 })
-      })
+      }),
     ).rejects.toBeInstanceOf(DataAccessError)
     expect(exec).not.toHaveBeenCalled()
   })
@@ -592,12 +594,12 @@ describe('T-14 · useAppMutation', () => {
       () =>
         new Promise<{ count: number }>((resolve) => {
           resolveExec = resolve
-        })
+        }),
     )
     const m = defineMutation({
       input: z.object({ delta: z.number() }),
       exec,
-      optimistic: (input) => ({ count: input.delta * 10 }),
+      optimistic: input => ({ count: input.delta * 10 }),
     }) as unknown as MutationDefinition<unknown, unknown>
 
     const { result } = renderHook(
@@ -608,7 +610,7 @@ describe('T-14 · useAppMutation', () => {
           registry: makeRegistry({ mutations: { inc: m } }),
           engines: {},
         }),
-      }
+      },
     )
 
     act(() => {
@@ -633,12 +635,12 @@ describe('T-14 · useAppMutation', () => {
       () =>
         new Promise<unknown>((_r, reject) => {
           rejectExec = reject
-        })
+        }),
     )
     const m = defineMutation({
       input: z.object({ delta: z.number() }),
       exec,
-      optimistic: (input) => ({ count: input.delta }),
+      optimistic: input => ({ count: input.delta }),
     }) as unknown as MutationDefinition<unknown, unknown>
 
     const { result } = renderHook(
@@ -648,7 +650,7 @@ describe('T-14 · useAppMutation', () => {
           registry: makeRegistry({ mutations: { inc: m } }),
           engines: {},
         }),
-      }
+      },
     )
 
     act(() => {

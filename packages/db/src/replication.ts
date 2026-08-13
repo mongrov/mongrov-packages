@@ -5,13 +5,13 @@
  * App provides push/pull handlers that connect to their backend (e.g., collab adapter).
  */
 
-import { replicateRxCollection } from 'rxdb/plugins/replication'
-
 import type {
+  DBLogger,
   ReplicationConfig,
   RxReplicationStateType,
-  DBLogger,
 } from './types'
+
+import { replicateRxCollection } from 'rxdb/plugins/replication'
 
 /**
  * Default no-op logger for when none is provided.
@@ -72,7 +72,7 @@ const noopLogger: DBLogger = {
  * ```
  */
 export function createReplicationState<T>(
-  config: ReplicationConfig<T>
+  config: ReplicationConfig<T>,
 ): RxReplicationStateType {
   const {
     replicationIdentifier,
@@ -93,7 +93,7 @@ export function createReplicationState<T>(
   })
 
   // Build RxDB replication options
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   const replicationOptions: any = {
     replicationIdentifier,
     collection,
@@ -111,7 +111,8 @@ export function createReplicationState<T>(
         try {
           await push.handler(docs)
           logger.debug('Push complete', { count: (docs as unknown[]).length })
-        } catch (error) {
+        }
+        catch (error) {
           logger.error('Push failed', { error })
           throw error
         }
@@ -125,14 +126,15 @@ export function createReplicationState<T>(
       batchSize: pull.batchSize ?? 100,
       handler: async (
         lastCheckpoint: Record<string, unknown> | null,
-        batchSize: number
+        batchSize: number,
       ) => {
         logger.debug('Pulling documents', { checkpoint: lastCheckpoint, batchSize })
         try {
           const result = await pull.handler(lastCheckpoint, batchSize)
           logger.debug('Pull complete', { count: result.documents.length })
           return result
-        } catch (error) {
+        }
+        catch (error) {
           logger.error('Pull failed', { error })
           throw error
         }
@@ -160,7 +162,7 @@ export function createReplicationState<T>(
  * @param replicationState - The replication state to cancel
  */
 export async function cancelReplication(
-  replicationState: RxReplicationStateType
+  replicationState: RxReplicationStateType,
 ): Promise<void> {
   if (replicationState && typeof replicationState.cancel === 'function') {
     await replicationState.cancel()
@@ -173,7 +175,7 @@ export async function cancelReplication(
  * @param replicationState - The replication state to sync
  */
 export async function resyncReplication(
-  replicationState: RxReplicationStateType
+  replicationState: RxReplicationStateType,
 ): Promise<void> {
   if (replicationState && typeof replicationState.reSync === 'function') {
     await replicationState.reSync()

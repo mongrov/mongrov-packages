@@ -2,16 +2,16 @@
  * Tests for replication helpers
  */
 
-import {
-  createReplicationState,
-  cancelReplication,
-  resyncReplication,
-} from '../replication'
 import type { ReplicationConfig } from '../types'
 import {
-  __getReplicationState,
   __clearAllReplications,
+  __getReplicationState,
 } from '../../__mocks__/rxdb/plugins/replication'
+import {
+  cancelReplication,
+  createReplicationState,
+  resyncReplication,
+} from '../replication'
 
 // Mock collection
 const mockCollection = {
@@ -50,7 +50,7 @@ describe('createReplicationState', () => {
       },
     }
 
-    const state = createReplicationState(config)
+    createReplicationState(config)
 
     // Get the mock state to test push
     const mockState = __getReplicationState('push-test')
@@ -154,7 +154,7 @@ describe('createReplicationState', () => {
         hasPush: true,
         hasPull: true,
         live: true,
-      })
+      }),
     )
   })
 
@@ -180,7 +180,7 @@ describe('createReplicationState', () => {
 
     expect(logger.error).toHaveBeenCalledWith(
       'Replication error',
-      expect.objectContaining({ error: 'Test sync error' })
+      expect.objectContaining({ error: 'Test sync error' }),
     )
   })
 })

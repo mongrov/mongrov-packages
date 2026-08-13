@@ -2,13 +2,13 @@
  * Tests for UI primitives
  */
 
-import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { Button, buttonVariants, buttonTextVariants } from '../primitives/button'
-import { Text, TextClassContext, textVariants } from '../primitives/text'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '../primitives/card'
+import { fireEvent, render, screen } from '@testing-library/react'
+import * as React from 'react'
+import { Button, buttonTextVariants, buttonVariants } from '../primitives/button'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../primitives/card'
 import { Separator } from '../primitives/separator'
 import { Skeleton } from '../primitives/skeleton'
+import { Text, TextClassContext, textVariants } from '../primitives/text'
 import { cn } from '../primitives/utils'
 
 // ─── Button Tests ────────────────────────────────────────────────────────────
@@ -23,7 +23,7 @@ describe('Button', () => {
     render(
       <Button testID="button">
         <span>Child content</span>
-      </Button>
+      </Button>,
     )
     expect(screen.getByTestId('button')).toBeInTheDocument()
     expect(screen.getByText('Child content')).toBeInTheDocument()
@@ -135,7 +135,7 @@ describe.skip('Text', () => {
     render(
       <TextClassContext.Provider value="context-class">
         <Text testID="text">Text</Text>
-      </TextClassContext.Provider>
+      </TextClassContext.Provider>,
     )
     const text = screen.getByTestId('text')
     expect(text).toHaveClass('context-class')
@@ -172,7 +172,7 @@ describe('Card', () => {
     render(
       <Card testID="card">
         <span>Card content</span>
-      </Card>
+      </Card>,
     )
     expect(screen.getByTestId('card')).toBeInTheDocument()
     expect(screen.getByText('Card content')).toBeInTheDocument()
@@ -190,7 +190,7 @@ describe('Card', () => {
     render(
       <Card testID="card">
         <Text testID="text">Inner text</Text>
-      </Card>
+      </Card>,
     )
     expect(screen.getByTestId('card')).toBeInTheDocument()
   })

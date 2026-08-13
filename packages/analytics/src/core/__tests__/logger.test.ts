@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
-
-import { noopLogger, resolveLogger } from '../logger'
 import type { AnalyticsLogger } from '../types'
+
+import { describe, expect, it, vi } from 'vitest'
+import { noopLogger, resolveLogger } from '../logger'
 
 describe('noopLogger', () => {
   it('returns an AnalyticsLogger whose methods do not throw', () => {

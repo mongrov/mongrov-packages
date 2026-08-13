@@ -10,15 +10,15 @@
  *      `${table}:sync_complete`; empty push does not; failed push does not.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import type { AttachContext } from '../../core/types'
 
+import type { EventBus } from '../events'
+import { describe, expect, it, vi } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { bindFlushEvents, bindPushEvents } from '../events'
-import type { EventBus } from '../events'
 import { R2Pusher } from '../pusher'
 import { WatermarkStore } from '../watermark'
 import { createFakeSqlEngine } from './__fakes__/fake-sql-engine'
-import type { AttachContext } from '../../core/types'
 
 const ctx: AttachContext = {
   brand: 'ziva',

@@ -61,7 +61,8 @@ export function createAuditWriter(cfg: CreateAuditWriterConfig): AuditWriter {
   let closed = false
 
   function ensureTimer(): void {
-    if (timer || closed) return
+    if (timer || closed)
+      return
     timer = setInterval(() => {
       void doFlush()
     }, flushIntervalMs)
@@ -73,14 +74,17 @@ export function createAuditWriter(cfg: CreateAuditWriterConfig): AuditWriter {
   }
 
   function clearFlushTimer(): void {
-    if (!timer) return
+    if (!timer)
+      return
     clearInterval(timer)
     timer = null
   }
 
   async function doFlush(): Promise<void> {
-    if (inFlight) return inFlight
-    if (pending.length === 0) return
+    if (inFlight)
+      return inFlight
+    if (pending.length === 0)
+      return
     const batch = pending.splice(0, pending.length)
     inFlight = (async () => {
       try {
@@ -115,7 +119,8 @@ export function createAuditWriter(cfg: CreateAuditWriterConfig): AuditWriter {
 
   return {
     record(entry) {
-      if (!enabled || closed) return
+      if (!enabled || closed)
+        return
       pending.push(entry)
       ensureTimer()
       if (pending.length >= batchSize) {
@@ -123,7 +128,8 @@ export function createAuditWriter(cfg: CreateAuditWriterConfig): AuditWriter {
       }
     },
     async flush() {
-      if (!enabled) return
+      if (!enabled)
+        return
       await doFlush()
       // If the flush swallowed a failure and re-queued, drain once
       // more so callers get a best-effort guarantee.
@@ -134,7 +140,8 @@ export function createAuditWriter(cfg: CreateAuditWriterConfig): AuditWriter {
     async close() {
       closed = true
       clearFlushTimer()
-      if (!enabled) return
+      if (!enabled)
+        return
       await doFlush()
       if (pending.length > 0) {
         await doFlush()
@@ -147,7 +154,8 @@ async function writeBatch(
   analytics: AnalyticsEngine,
   batch: AuditEntry[],
 ): Promise<void> {
-  if (batch.length === 0) return
+  if (batch.length === 0)
+    return
 
   const tuples: string[] = []
   const params: Record<string, unknown> = {}

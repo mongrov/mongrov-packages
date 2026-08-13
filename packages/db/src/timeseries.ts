@@ -12,9 +12,9 @@
 
 // Port + engine contracts — implementation pending D3.
 export type {
-  TimeseriesHWM,
+  DBLogger,
   ReadingSink,
   RemoteTarget,
   TimeseriesEngine,
-  DBLogger,
+  TimeseriesHWM,
 } from './types'

@@ -23,13 +23,13 @@
  * batch.
  */
 
-import { nanoid } from 'nanoid'
-import PQueue from 'p-queue'
-
 import type { HybridDuckDB } from '../core/engine'
 import type { SensorBuffer } from './buffer'
-import { SyncError } from './errors'
+
 import type { BufferEntry, FlushResult } from './types'
+import { nanoid } from 'nanoid'
+import PQueue from 'p-queue'
+import { SyncError } from './errors'
 
 export type FlushReason
   = | 'row-count'
@@ -42,12 +42,12 @@ export type FlushReason
 // p-queue: HIGHER priority values run first. Foreground / manual sit at the
 // top; background sits at the floor.
 const PRIORITY_BY_REASON: Record<FlushReason, number> = {
-  foreground: 100,
-  manual: 90,
+  'foreground': 100,
+  'manual': 90,
   'row-count': 50,
-  age: 40,
-  scheduled: 10,
-  background: 0,
+  'age': 40,
+  'scheduled': 10,
+  'background': 0,
 }
 
 /** Exponential backoff in ms, per attempt index (0-based). Capped at 60s. */
@@ -107,7 +107,7 @@ export interface BatchCompleteEvent {
 export type SyncEmitter = (event:
   | { type: 'flushed', payload: FlushedEvent }
   | { type: 'flush-failed', payload: { table: string, error: SyncError } }
-  | { type: 'batch-complete', payload: BatchCompleteEvent }
+  | { type: 'batch-complete', payload: BatchCompleteEvent },
 ) => void
 
 /** Accumulator for one in-flight batch. */
@@ -200,7 +200,8 @@ export class BatchFlusher {
   endBatch(batchId: string): BatchCompleteEvent | null {
     const record = this.#batches.get(batchId)
     this.#batches.delete(batchId)
-    if (!record || record.tables.size === 0) return null
+    if (!record || record.tables.size === 0)
+      return null
 
     const payload: BatchCompleteEvent = {
       batchId,
@@ -228,11 +229,13 @@ export class BatchFlusher {
     brand: string | undefined,
     familyId: string | undefined,
   ): void {
-    if (batchId === undefined) return
+    if (batchId === undefined)
+      return
     const record = this.#batches.get(batchId)
     // A flush can outlive its batch if endBatch already ran (timeout, retry
     // landing late). Dropping it is correct: the batch was already reported.
-    if (!record) return
+    if (!record)
+      return
     record.tables.add(table)
     record.rowCounts[table] = (record.rowCounts[table] ?? 0) + rowsFlushed
     for (const id of userIds) record.userIds.add(id)
@@ -336,7 +339,8 @@ export class BatchFlusher {
     for (let attempt = 0; attempt < BACKOFF_SEQUENCE_MS.length; attempt++) {
       const result = await this.#flushWithTimeout(table, reason, batchId)
       lastResult = result
-      if (result.ok) return result
+      if (result.ok)
+        return result
 
       const failures = this.failureCountOf(table)
       if (failures >= MAX_CONSECUTIVE_FAILURES) {
@@ -374,7 +378,8 @@ export class BatchFlusher {
       return await Promise.race([attempt, timeout])
     }
     finally {
-      if (timeoutId !== undefined) clearTimeout(timeoutId)
+      if (timeoutId !== undefined)
+        clearTimeout(timeoutId)
     }
   }
 
@@ -440,7 +445,8 @@ function defaultSleep(ms: number): Promise<void> {
 function distinctUserIds(entries: BufferEntry[]): string[] {
   const seen = new Set<string>()
   for (const entry of entries) {
-    if (entry.userId) seen.add(entry.userId)
+    if (entry.userId)
+      seen.add(entry.userId)
   }
   return Array.from(seen)
 }

@@ -30,12 +30,12 @@
  * are skipped.
  */
 
-import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
 import type { TableName } from './schemas'
+import type { AnalyticsMode } from './types'
+import { AnalyticsError } from './errors'
 import { quoteQualifier } from './schemas'
 import { isSyncable } from './table_metadata'
-import type { AnalyticsMode } from './types'
 
 // -------------------- precedence resolution --------------------
 
@@ -182,7 +182,8 @@ export async function runRetentionSweep(
   const tableNames = Object.keys(TABLE_RETENTION) as TableName[]
   for (const table of tableNames) {
     const cfg = TABLE_RETENTION[table]
-    if (!cfg) continue
+    if (!cfg)
+      continue
 
     const days = daysForKind(cfg.kind, input.effectiveDays)
     const guarded = mode !== 'local' && isSyncable(table)

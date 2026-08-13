@@ -1,6 +1,6 @@
-import React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import type { QuickReplyBarProps } from '../types';
+import type { QuickReplyBarProps } from '../types'
+import * as React from 'react'
+import { Pressable, ScrollView, Text, View } from 'react-native'
 
 export function QuickReplyBar({
   replies,
@@ -8,7 +8,7 @@ export function QuickReplyBar({
   testID,
 }: QuickReplyBarProps) {
   if (!replies || replies.length === 0) {
-    return null;
+    return null
   }
 
   return (
@@ -30,5 +30,5 @@ export function QuickReplyBar({
         ))}
       </ScrollView>
     </View>
-  );
+  )
 }

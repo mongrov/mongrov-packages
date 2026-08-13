@@ -18,48 +18,56 @@
  * whole tool map per turn.
  */
 
-import { createAuditWriter } from './audit'
-import { familyScopeAuthorize } from './authorize'
-import { createRateLimiter, type RateLimiter } from './rate-limit'
-import {
-  DEFAULT_OUTPUT_BUDGET,
-  DEFAULT_RATE_LIMIT,
-} from './types'
+import type { GetActivityTotalInput } from './impls/activity'
+import type { DetectAnomalyInput } from './impls/anomaly'
+import type { CompareTrendInput } from './impls/compare'
+import type { GetHRVInput } from './impls/hrv'
+import type { GetInsightsInput } from './impls/insights'
+import type { GetSleepSummaryInput } from './impls/sleep'
+import type { GetSpO2Input } from './impls/spo2'
+import type { RateLimiter } from './rate-limit'
+
 import type {
   AnalyticsToolsConfig,
   AuditWriter,
   OutputBudget,
   ToolContext,
 } from './types'
-import { makeTool } from './wrap'
-
+import { createAuditWriter } from './audit'
+import { familyScopeAuthorize } from './authorize'
 import {
   getActivityTotal,
+
   getActivityTotalInputSchema,
-  type GetActivityTotalInput,
 } from './impls/activity'
 import {
   detectAnomaly,
+
   detectAnomalyInputSchema,
-  type DetectAnomalyInput,
 } from './impls/anomaly'
 import {
   compareTrend,
+
   compareTrendInputSchema,
-  type CompareTrendInput,
 } from './impls/compare'
-import { getHRV, getHRVInputSchema, type GetHRVInput } from './impls/hrv'
-import { getSpO2, getSpO2InputSchema, type GetSpO2Input } from './impls/spo2'
+import { getHRV, getHRVInputSchema } from './impls/hrv'
 import {
   getInsights,
+
   getInsightsInputSchema,
-  type GetInsightsInput,
 } from './impls/insights'
 import {
   getSleepSummary,
+
   getSleepSummaryInputSchema,
-  type GetSleepSummaryInput,
 } from './impls/sleep'
+import { getSpO2, getSpO2InputSchema } from './impls/spo2'
+import { createRateLimiter } from './rate-limit'
+import {
+  DEFAULT_OUTPUT_BUDGET,
+  DEFAULT_RATE_LIMIT,
+} from './types'
+import { makeTool } from './wrap'
 
 const DESCRIPTIONS = {
   getHRV: 'Return the requester\'s or a family member\'s average HRV per day '
@@ -117,9 +125,9 @@ export function createAnalyticsTools(
 
   const authorize
     = config.authorize
-    ?? familyScopeAuthorize(config.analytics, {
-      familyMembersProvider: config.familyMembersProvider,
-    })
+      ?? familyScopeAuthorize(config.analytics, {
+        familyMembersProvider: config.familyMembersProvider,
+      })
 
   const audit = createAuditWriter({
     analytics: config.analytics,

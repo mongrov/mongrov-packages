@@ -2,11 +2,11 @@
  * Tests for Auth UI components
  */
 
-import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import * as React from 'react'
 import { AuthDivider } from '../AuthDivider'
-import { SSOButton } from '../SSOButton'
 import { SocialLoginButton } from '../SocialLoginButton'
+import { SSOButton } from '../SSOButton'
 
 // ─── AuthDivider Tests ────────────────────────────────────────────────────────
 

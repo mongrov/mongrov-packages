@@ -1,22 +1,22 @@
-import * as React from 'react';
-import { ActivityIndicator, Platform, Pressable, View, Text } from 'react-native';
+import * as React from 'react'
+import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native'
 
-import { cn } from './primitives/utils';
+import { cn } from './primitives/utils'
 
-export type SocialProvider = 'apple' | 'google' | 'github';
+export type SocialProvider = 'apple' | 'google' | 'github'
 
 export interface SocialLoginButtonProps {
-  provider: SocialProvider;
-  onPress: () => void;
-  loading?: boolean;
-  disabled?: boolean;
-  label?: string;
-  className?: string;
+  provider: SocialProvider
+  onPress: () => void
+  loading?: boolean
+  disabled?: boolean
+  label?: string
+  className?: string
   /** Test ID for testing */
-  testID?: string;
+  testID?: string
 }
 
-const providerConfig: Record<SocialProvider, { label: string; icon: string; bgClass: string; textClass: string }> = {
+const providerConfig: Record<SocialProvider, { label: string, icon: string, bgClass: string, textClass: string }> = {
   apple: {
     label: 'Continue with Apple',
     icon: '',
@@ -35,7 +35,7 @@ const providerConfig: Record<SocialProvider, { label: string; icon: string; bgCl
     bgClass: 'bg-neutral-900 dark:bg-white',
     textClass: 'text-white dark:text-black',
   },
-};
+}
 
 /**
  * Branded social login button for Apple, Google, or GitHub.
@@ -50,9 +50,9 @@ export function SocialLoginButton({
   className,
   testID,
 }: SocialLoginButtonProps) {
-  const config = providerConfig[provider];
-  const displayLabel = label ?? config.label;
-  const isDisabled = disabled || loading;
+  const config = providerConfig[provider]
+  const displayLabel = label ?? config.label
+  const isDisabled = disabled || loading
 
   return (
     <Pressable
@@ -66,7 +66,7 @@ export function SocialLoginButton({
         Platform.select({
           web: 'transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
         }),
-        className
+        className,
       )}
       role="button"
       accessibilityLabel={displayLabel}
@@ -96,5 +96,5 @@ export function SocialLoginButton({
         </View>
       )}
     </Pressable>
-  );
+  )
 }

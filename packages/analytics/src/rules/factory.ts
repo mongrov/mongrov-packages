@@ -9,12 +9,12 @@
  * execution.
  */
 
+import type { RulesEngine, RulesEngineConfig } from './types'
 import { createCompilerCache } from './compiler-cache'
 import { createEmitter } from './emitter'
 import { createEvaluator } from './evaluator'
 import { createRulesRegistry } from './registry'
 import { createThrottleStore } from './throttle'
-import type { RulesEngine, RulesEngineConfig } from './types'
 
 export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
   const {
@@ -56,8 +56,8 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
   let closed = false
 
   return {
-    register: (rules) => registry.register(rules),
-    replace: (rules) => registry.replace(rules),
+    register: rules => registry.register(rules),
+    replace: rules => registry.replace(rules),
     enable: (ruleId) => {
       cache.invalidate(ruleId)
       return registry.enable(ruleId)
@@ -69,23 +69,28 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
     list: () => registry.list(),
     getActive: () => registry.getActive(),
     evaluateOnBatch: async (batch) => {
-      if (closed) return []
+      if (closed)
+        return []
       return evaluator.evaluateOnBatch(batch)
     },
     evaluateScheduled: async () => {
-      if (closed) return []
+      if (closed)
+        return []
       return evaluator.evaluateScheduled()
     },
     on: (event, handler) => {
-      if (closed) return () => {}
+      if (closed)
+        return () => {}
       return emitter.on(event, handler)
     },
     subscribeRegistry: (listener) => {
-      if (closed) return () => {}
+      if (closed)
+        return () => {}
       return registry.subscribe(listener)
     },
     async close() {
-      if (closed) return
+      if (closed)
+        return
       closed = true
       emitter.close()
       registry.close()

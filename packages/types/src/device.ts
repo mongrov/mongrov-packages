@@ -13,13 +13,13 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 /** Any JSON-serializable value. The package never inspects a reading's payload shape. */
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue }
+export type JsonValue
+  = | string
+    | number
+    | boolean
+    | null
+    | JsonValue[]
+    | { [key: string]: JsonValue }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Discovery
@@ -50,28 +50,28 @@ export interface ScanCandidate {
  * vendor RECONNECTING, …) are mapped DOWN to these by the adapter. NOTE: an empty scan is NOT
  * 'failed' — it resolves to 'idle' with zero results; ux renders "none found" from context.
  */
-export type ConnectionState =
-  | 'idle'
-  | 'scanning'
-  | 'connecting'
-  | 'discovering'
-  | 'ready'
-  | 'reconnecting'
-  | 'disconnecting'
-  | 'suspended' // global interrupt active (bluetooth-off / permission / background)
-  | 'failed'
+export type ConnectionState
+  = | 'idle'
+    | 'scanning'
+    | 'connecting'
+    | 'discovering'
+    | 'ready'
+    | 'reconnecting'
+    | 'disconnecting'
+    | 'suspended' // global interrupt active (bluetooth-off / permission / background)
+    | 'failed'
 
 /** Error category — drives ux screen selection + retry routing. */
-export type DeviceErrorCategory =
-  | 'timeout'
-  | 'out-of-range'
-  | 'rejected'
-  | 'slot-full'
-  | 'bluetooth-off'
-  | 'permission-denied'
-  | 'backgrounded'
-  | 'unexpected-disconnect'
-  | 'unknown'
+export type DeviceErrorCategory
+  = | 'timeout'
+    | 'out-of-range'
+    | 'rejected'
+    | 'slot-full'
+    | 'bluetooth-off'
+    | 'permission-denied'
+    | 'backgrounded'
+    | 'unexpected-disconnect'
+    | 'unknown'
 
 /**
  * Native-detail carrier. Adapters MUST map native error detail here (GATT 147, write-queue timeout,

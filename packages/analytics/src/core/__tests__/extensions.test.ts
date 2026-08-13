@@ -54,8 +54,8 @@ describe('bootstrapExtensions', () => {
     // What matters is that INSTALL follows the failure and the retry LOAD
     // then succeeds.
     expect(fake.calls.map(c => c.sql)).toEqual([
-      'INSTALL icu;',    // fallback, after LOAD threw
-      'LOAD icu;',       // retry succeeds
+      'INSTALL icu;', // fallback, after LOAD threw
+      'LOAD icu;', // retry succeeds
       'LOAD parquet;',
     ])
     expect(failedOnce).toBe(true)

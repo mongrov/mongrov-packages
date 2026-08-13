@@ -16,21 +16,20 @@
  */
 
 import type { ActorRefFrom } from 'xstate'
-import { assign, setup, sendTo, stopChild } from 'xstate'
-
 import type {
   DeviceAdapter,
   ErrorDetail,
   ScanCandidate,
 } from '../types'
 
-import {
-  DEFAULT_DELAYS,
-  createConnectionMachine,
-  type ConnectionDelays,
-} from './connection-machine'
+import type { ConnectionDelays } from './connection-machine'
 
-type ConnectionMachineLogic = ReturnType<typeof createConnectionMachine>
+import { assign, sendTo, setup, stopChild } from 'xstate'
+import {
+
+  createConnectionMachine,
+  DEFAULT_DELAYS,
+} from './connection-machine'
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -64,21 +63,21 @@ export interface RegistryInput {
   connectionDelays?: ConnectionDelays
 }
 
-export type RegistryEvent =
-  | { type: 'SCAN_START' }
-  | { type: 'SCAN_STOP' }
-  | { type: 'SCAN_HIT'; candidate: ScanCandidate }
-  | { type: 'CONNECT_REQUEST'; deviceId: string; candidate?: ScanCandidate }
-  | { type: 'DISCONNECT_REQUEST'; deviceId: string }
-  | {
+export type RegistryEvent
+  = | { type: 'SCAN_START' }
+    | { type: 'SCAN_STOP' }
+    | { type: 'SCAN_HIT', candidate: ScanCandidate }
+    | { type: 'CONNECT_REQUEST', deviceId: string, candidate?: ScanCandidate }
+    | { type: 'DISCONNECT_REQUEST', deviceId: string }
+    | {
       type: 'CONNECTION_STATE_CHANGED'
       deviceId: string
       state: 'idle' | 'connected'
     }
-  | { type: 'BT_OFF' }
-  | { type: 'PERMISSION_REVOKED' }
-  | { type: 'BACKGROUNDED' }
-  | { type: 'RESUMED' }
+    | { type: 'BT_OFF' }
+    | { type: 'PERMISSION_REVOKED' }
+    | { type: 'BACKGROUNDED' }
+    | { type: 'RESUMED' }
 
 // ─── Machine ─────────────────────────────────────────────────────────────
 
@@ -102,11 +101,13 @@ export function createRegistryMachine(
       hasSlotAvailable: ({ context }) =>
         context.activeConnections < context.maxConnections,
       actorExistsForRequest: ({ context, event }) => {
-        if (event.type !== 'CONNECT_REQUEST') return false
+        if (event.type !== 'CONNECT_REQUEST')
+          return false
         return context.connectionActors.has(event.deviceId)
       },
       actorMissingForRequest: ({ context, event }) => {
-        if (event.type !== 'CONNECT_REQUEST') return true
+        if (event.type !== 'CONNECT_REQUEST')
+          return true
         return !context.connectionActors.has(event.deviceId)
       },
     },
@@ -114,9 +115,11 @@ export function createRegistryMachine(
       // Route a scan candidate to the first adapter that claims it.
       // `canHandle` is iterated in registration order; first match wins.
       routeScanHit: assign(({ context, event }) => {
-        if (event.type !== 'SCAN_HIT') return {}
-        const owning = context.adapters.find((a) => a.canHandle(event.candidate))
-        if (!owning) return {}
+        if (event.type !== 'SCAN_HIT')
+          return {}
+        const owning = context.adapters.find(a => a.canHandle(event.candidate))
+        if (!owning)
+          return {}
         const next = new Map(context.scanCandidates)
         next.set(event.candidate.id, event.candidate)
         return { scanCandidates: next }
@@ -162,15 +165,18 @@ export function createRegistryMachine(
 
       // Spawn a per-device connection actor.
       spawnConnectionActor: assign(({ context, event, spawn }) => {
-        if (event.type !== 'CONNECT_REQUEST') return {}
-        if (context.connectionActors.has(event.deviceId)) return {}
+        if (event.type !== 'CONNECT_REQUEST')
+          return {}
+        if (context.connectionActors.has(event.deviceId))
+          return {}
 
-        const adapter =
-          context.adapters.find((a) =>
+        const adapter
+          = context.adapters.find(a =>
             event.candidate ? a.canHandle(event.candidate) : true,
           ) ?? context.adapters[0]
 
-        if (!adapter) return {}
+        if (!adapter)
+          return {}
 
         const actor = spawn('connectionMachine', {
           id: `connection:${event.deviceId}`,
@@ -197,7 +203,8 @@ export function createRegistryMachine(
             throw new Error('forwardConnect requires CONNECT_REQUEST event')
           }
           const ref = context.connectionActors.get(event.deviceId)
-          if (!ref) throw new Error('actor not spawned')
+          if (!ref)
+            throw new Error('actor not spawned')
           return ref
         },
         ({ event }) => {
@@ -214,7 +221,8 @@ export function createRegistryMachine(
             throw new Error('forwardDisconnect requires DISCONNECT_REQUEST')
           }
           const ref = context.connectionActors.get(event.deviceId)
-          if (!ref) throw new Error('actor missing')
+          if (!ref)
+            throw new Error('actor missing')
           return ref
         },
         { type: 'DISCONNECT' as const },
@@ -223,9 +231,12 @@ export function createRegistryMachine(
       // Reap children whose state has returned to idle (post-disconnect or
       // terminal failure that the app has acknowledged).
       reapIdleActor: assign(({ context, event }) => {
-        if (event.type !== 'CONNECTION_STATE_CHANGED') return {}
-        if (event.state !== 'idle') return {}
-        if (!context.connectionActors.has(event.deviceId)) return {}
+        if (event.type !== 'CONNECTION_STATE_CHANGED')
+          return {}
+        if (event.state !== 'idle')
+          return {}
+        if (!context.connectionActors.has(event.deviceId))
+          return {}
         const next = new Map(context.connectionActors)
         next.delete(event.deviceId)
         return {

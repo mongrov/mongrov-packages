@@ -5,8 +5,9 @@
  * App provides the actual UI components.
  */
 
-import { useState, useMemo, useCallback, type ReactNode } from 'react'
 import type { Reaction } from '@mongrov/types'
+import type { ReactNode } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -93,7 +94,7 @@ export interface UseReactionPickerOptions {
  * Use this when you need the render props outside of ReactionPicker.
  */
 export function useReactionPicker(
-  options: UseReactionPickerOptions
+  options: UseReactionPickerOptions,
 ): ReactionPickerRenderProps {
   const {
     reactions = [],
@@ -129,7 +130,7 @@ export function useReactionPicker(
 
   // Current reactions with user state
   const currentReactionItems = useMemo<CurrentReactionItem[]>(() => {
-    return reactions.map((reaction) => ({
+    return reactions.map(reaction => ({
       emoji: reaction.emoji,
       count: reaction.count,
       userIds: reaction.userIds,
@@ -141,7 +142,7 @@ export function useReactionPicker(
     (emoji: string) => {
       onReactionToggle(emoji)
     },
-    [onReactionToggle]
+    [onReactionToggle],
   )
 
   const openFullPicker = useCallback(() => {
@@ -237,20 +238,64 @@ export function ReactionPicker({
  */
 export const EMOJI_CATEGORIES = {
   smileys: [
-    '\u{1F600}', '\u{1F603}', '\u{1F604}', '\u{1F601}', '\u{1F606}', '\u{1F605}',
-    '\u{1F602}', '\u{1F923}', '\u{1F642}', '\u{1F643}', '\u{1F609}', '\u{1F60A}',
-    '\u{1F60B}', '\u{1F60D}', '\u{1F970}', '\u{1F618}', '\u{1F617}', '\u{1F619}',
+    '\u{1F600}',
+    '\u{1F603}',
+    '\u{1F604}',
+    '\u{1F601}',
+    '\u{1F606}',
+    '\u{1F605}',
+    '\u{1F602}',
+    '\u{1F923}',
+    '\u{1F642}',
+    '\u{1F643}',
+    '\u{1F609}',
+    '\u{1F60A}',
+    '\u{1F60B}',
+    '\u{1F60D}',
+    '\u{1F970}',
+    '\u{1F618}',
+    '\u{1F617}',
+    '\u{1F619}',
   ],
   gestures: [
-    '\u{1F44D}', '\u{1F44E}', '\u{1F44C}', '\u{1F44A}', '\u{270A}', '\u{1F91B}',
-    '\u{1F91C}', '\u{1F44F}', '\u{1F64C}', '\u{1F450}', '\u{1F64F}', '\u{1F91D}',
+    '\u{1F44D}',
+    '\u{1F44E}',
+    '\u{1F44C}',
+    '\u{1F44A}',
+    '\u{270A}',
+    '\u{1F91B}',
+    '\u{1F91C}',
+    '\u{1F44F}',
+    '\u{1F64C}',
+    '\u{1F450}',
+    '\u{1F64F}',
+    '\u{1F91D}',
   ],
   hearts: [
-    '\u{2764}\u{FE0F}', '\u{1F9E1}', '\u{1F49B}', '\u{1F49A}', '\u{1F499}',
-    '\u{1F49C}', '\u{1F5A4}', '\u{1F90D}', '\u{1F90E}', '\u{1F495}', '\u{1F496}',
+    '\u{2764}\u{FE0F}',
+    '\u{1F9E1}',
+    '\u{1F49B}',
+    '\u{1F49A}',
+    '\u{1F499}',
+    '\u{1F49C}',
+    '\u{1F5A4}',
+    '\u{1F90D}',
+    '\u{1F90E}',
+    '\u{1F495}',
+    '\u{1F496}',
   ],
   objects: [
-    '\u{1F389}', '\u{1F38A}', '\u{1F381}', '\u{1F3C6}', '\u{1F4A1}', '\u{1F4DD}',
-    '\u{1F4DA}', '\u{1F4E7}', '\u{1F4F1}', '\u{1F4BB}', '\u{1F5C3}', '\u{1F4C1}',
+    '\u{1F389}',
+    '\u{1F38A}',
+    '\u{1F381}',
+    '\u{1F3C6}',
+    '\u{1F4A1}',
+    '\u{1F4DD}',
+    '\u{1F4DA}',
+    '\u{1F4E7}',
+    '\u{1F4F1}',
+    '\u{1F4BB}',
+    '\u{1F5C3}',
+    '\u{1F4C1}',
   ],
 } as const

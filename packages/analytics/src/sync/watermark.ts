@@ -59,7 +59,8 @@ export class WatermarkStore {
     const iso = await this.#kv.get<string>(key(brand, familyId, table, kind))
     if (iso && typeof iso === 'string') {
       const parsed = new Date(iso)
-      if (!Number.isNaN(parsed.getTime())) return parsed
+      if (!Number.isNaN(parsed.getTime()))
+        return parsed
     }
     return new Date(this.#now().getTime() - this.#defaultRetentionMs)
   }
@@ -73,7 +74,8 @@ export class WatermarkStore {
   ): Promise<void> {
     // Never regress — only accept advances forward.
     const current = await this.get(brand, familyId, table, kind)
-    if (ts <= current) return
+    if (ts <= current)
+      return
     await this.#kv.set(key(brand, familyId, table, kind), ts.toISOString())
   }
 }

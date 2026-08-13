@@ -81,7 +81,8 @@ export function bindGlobalInterrupts(
   return () => {
     while (unsubs.length > 0) {
       const u = unsubs.pop()
-      if (u) u()
+      if (u)
+        u()
     }
   }
 }

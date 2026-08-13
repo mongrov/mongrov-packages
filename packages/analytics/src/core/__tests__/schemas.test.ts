@@ -119,7 +119,8 @@ describe('ensureSchemas', () => {
     const original = fake.instance.execute
     fake.instance.execute = async (sql, params) => {
       count += 1
-      if (count === 3) throw new Error('bad ddl')
+      if (count === 3)
+        throw new Error('bad ddl')
       return original.call(fake.instance, sql, params)
     }
 

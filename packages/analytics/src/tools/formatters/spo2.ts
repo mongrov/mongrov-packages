@@ -27,10 +27,14 @@ const FORMATTER_NAME = 'getSpO2'
  * count of dips is not a number the user should be doing arithmetic on.
  */
 function describeLowMoments(count: number): string {
-  if (count === 0) return 'No brief low moments'
-  if (count === 1) return 'One brief low moment'
-  if (count === 2) return 'A couple of brief low moments'
-  if (count <= 5) return 'A few brief low moments'
+  if (count === 0)
+    return 'No brief low moments'
+  if (count === 1)
+    return 'One brief low moment'
+  if (count === 2)
+    return 'A couple of brief low moments'
+  if (count <= 5)
+    return 'A few brief low moments'
   return 'Several brief low moments'
 }
 

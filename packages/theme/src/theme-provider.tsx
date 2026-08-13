@@ -1,11 +1,10 @@
-import { createContext, useContext, useMemo } from 'react'
 import type { Theme, ThemeConfig, ThemeContract } from './types'
+import { createContext, useContext, useMemo } from 'react'
+import { createUseColorScheme } from './color-scheme'
 import { createColorSchemeStore } from './color-scheme-store'
-import { createUseColorScheme, resolveScheme } from './color-scheme'
 
 const ThemeContext = createContext<Theme | null>(null)
 
-let sharedStore: ReturnType<typeof createColorSchemeStore> | null = null
 let sharedUseColorScheme: ReturnType<typeof createUseColorScheme> | null = null
 
 export function ThemeProvider(props: {
@@ -15,15 +14,16 @@ export function ThemeProvider(props: {
 }) {
   const { theme, config, children } = props
 
-  // Create store once per provider mount
-  const store = useMemo(() => {
+  // Create store once per provider mount. The memo's value is intentionally
+  // unused — what this needs is the assignment to `sharedUseColorScheme`
+  // below, which the render path reads. `sharedStore` was assigned here too
+  // and never read by anything, so it is gone.
+  useMemo(() => {
     const s = createColorSchemeStore({
       defaultColorScheme: config?.defaultColorScheme,
       storageKey: config?.storageKey,
     })
-    sharedStore = s
     sharedUseColorScheme = createUseColorScheme(s)
-    return s
   }, [config?.defaultColorScheme, config?.storageKey])
 
   // Resolve the current scheme reactively

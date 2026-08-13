@@ -2,11 +2,10 @@
  * Tests for @mongrov/collab
  */
 
-import { createActor, waitFor } from 'xstate'
-import { collabMachine, getConnectionStatus, createMachineInput } from '../machine'
-import { BaseAdapter } from '../adapters/base'
-import { MockAdapter } from './mock-adapter'
 import type { CollabConfig } from '../types'
+import { createActor, waitFor } from 'xstate'
+import { collabMachine, createMachineInput, getConnectionStatus } from '../machine'
+import { MockAdapter } from './mock-adapter'
 
 // ─── Machine Tests ──────────────────────────────────────────────────────────
 
@@ -59,7 +58,7 @@ describe('collabMachine', () => {
       credentials: { serverUrl: 'wss://test.com' },
     })
 
-    await waitFor(actor, (state) => state.value === 'connected')
+    await waitFor(actor, state => state.value === 'connected')
 
     expect(actor.getSnapshot().value).toBe('connected')
     expect(adapter.connectCalls).toHaveLength(1)
@@ -80,7 +79,7 @@ describe('collabMachine', () => {
       credentials: { serverUrl: 'wss://test.com' },
     })
 
-    await waitFor(actor, (state) => state.value === 'error')
+    await waitFor(actor, state => state.value === 'error')
 
     expect(actor.getSnapshot().value).toBe('error')
     expect(actor.getSnapshot().context.error).toBeTruthy()
@@ -99,11 +98,11 @@ describe('collabMachine', () => {
       type: 'CONNECT',
       credentials: { serverUrl: 'wss://test.com' },
     })
-    await waitFor(actor, (state) => state.value === 'connected')
+    await waitFor(actor, state => state.value === 'connected')
 
     // Then disconnect
     actor.send({ type: 'DISCONNECT' })
-    await waitFor(actor, (state) => state.value === 'disconnected')
+    await waitFor(actor, state => state.value === 'disconnected')
 
     expect(actor.getSnapshot().value).toBe('disconnected')
     expect(adapter.disconnectCalls).toBe(1)
@@ -120,7 +119,7 @@ describe('collabMachine', () => {
     const credentials = { serverUrl: 'wss://test.com', token: 'abc123' }
     actor.send({ type: 'CONNECT', credentials })
 
-    await waitFor(actor, (state) => state.value === 'connected')
+    await waitFor(actor, state => state.value === 'connected')
 
     expect(actor.getSnapshot().context.credentials).toEqual(credentials)
 
@@ -140,7 +139,7 @@ describe('collabMachine', () => {
       type: 'CONNECT',
       credentials: { serverUrl: 'wss://test.com' },
     })
-    await waitFor(actor, (state) => state.value === 'error')
+    await waitFor(actor, state => state.value === 'error')
 
     expect(actor.getSnapshot().context.error).toBeTruthy()
 
@@ -150,7 +149,7 @@ describe('collabMachine', () => {
       type: 'CONNECT',
       credentials: { serverUrl: 'wss://test.com' },
     })
-    await waitFor(actor, (state) => state.value === 'connected')
+    await waitFor(actor, state => state.value === 'connected')
 
     expect(actor.getSnapshot().context.error).toBeNull()
 
@@ -335,7 +334,7 @@ describe('MockAdapter', () => {
     adapter.shouldFailConnect = true
 
     await expect(adapter.connect({ serverUrl: 'test' })).rejects.toThrow(
-      'Mock connection failed'
+      'Mock connection failed',
     )
     expect(adapter.status).toBe('error')
   })

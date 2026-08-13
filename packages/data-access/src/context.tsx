@@ -9,18 +9,18 @@
  * See data-access/spec.md §Registry pattern.
  */
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import * as React from 'react'
-
-import { DataAccessError } from './errors'
 import type { EngineAdapters } from './dispatcher'
-import { createEventBus } from './invalidation'
 import type {
   EventBus,
   Registry,
   RequestContext,
 } from './types'
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import * as React from 'react'
+import { DataAccessError } from './errors'
+import { createEventBus } from './invalidation'
 
 /**
  * Concrete provider props. Diverges from DataAccessProviderProps in
@@ -71,7 +71,7 @@ const DataAccessContext = React.createContext<DataAccessRuntime | null>(null)
 DataAccessContext.displayName = 'DataAccessContext'
 
 export function DataAccessProvider(
-  props: DataAccessProviderConfig
+  props: DataAccessProviderConfig,
 ): React.ReactElement {
   const {
     registry,
@@ -105,7 +105,7 @@ export function DataAccessProvider(
       getContext: () => withUserAliases(context()),
       brandRetentionDays,
     }),
-    [registry, engines, context, brandRetentionDays]
+    [registry, engines, context, brandRetentionDays],
   )
 
   return (
@@ -140,7 +140,7 @@ export function useDataAccessRuntime(): DataAccessRuntime {
   if (runtime === null) {
     throw new DataAccessError(
       'engine_missing',
-      'data-access hook called outside <DataAccessProvider>'
+      'data-access hook called outside <DataAccessProvider>',
     )
   }
   return runtime

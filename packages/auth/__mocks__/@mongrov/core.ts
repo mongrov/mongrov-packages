@@ -1,4 +1,4 @@
-import React from 'react';
+import type * as React from 'react'
 
 const mockLogger = {
   debug: jest.fn(),
@@ -13,14 +13,14 @@ const mockLogger = {
   exportLogs: jest.fn(() => '[]'),
   flush: jest.fn(async () => {}),
   destroy: jest.fn(async () => {}),
-};
+}
 
 export function useLogger() {
-  return mockLogger;
+  return mockLogger
 }
 
 export function LoggingProvider({ children }: { children: React.ReactNode }) {
-  return children;
+  return children
 }
 
-export { mockLogger as __mockLogger };
+export { mockLogger as __mockLogger }

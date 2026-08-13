@@ -21,8 +21,8 @@
  * before D5 lands.
  */
 
-import type { DeviceEventSink } from './ports'
 import type { SyncTriggerValue } from '@mongrov/types/device-events'
+import type { DeviceEventSink } from './ports'
 
 /** Injectable clock so latency is testable without timers. */
 export type Clock = () => number
@@ -41,22 +41,24 @@ export interface SyncRun {
    * `rowsWritten: 0` is legitimate — a cycle that found nothing new still
    * completed, and the freshness label should still advance.
    */
-  complete(rowsWritten: number): void
+  complete: (rowsWritten: number) => void
   /** Emit `sync_failed`. `retryCount` is this run's attempt index. */
-  fail(error: unknown, retryCount?: number): void
+  fail: (error: unknown, retryCount?: number) => void
   /** True once `complete` or `fail` has been called. */
   readonly settled: boolean
 }
 
 export interface SyncEventEmitter {
   /** Emit `sync_started` and return a handle for the terminal event. */
-  beginSync(deviceId: string, trigger: SyncTriggerValue): SyncRun
+  beginSync: (deviceId: string, trigger: SyncTriggerValue) => SyncRun
 }
 
 /** Normalize an unknown throwable to a short, loggable string. */
 function describeError(error: unknown): string {
-  if (error instanceof Error) return error.message
-  if (typeof error === 'string') return error
+  if (error instanceof Error)
+    return error.message
+  if (typeof error === 'string')
+    return error
   try {
     return JSON.stringify(error) ?? 'unknown error'
   }
@@ -84,7 +86,8 @@ export function createSyncEventEmitter(
         complete(rowsWritten) {
           // Guard against a double-settle emitting two terminal events for
           // one run, which would double-count in any downstream tally.
-          if (settled) return
+          if (settled)
+            return
           settled = true
           config.sink.emit('sync_completed', deviceId, {
             trigger,
@@ -93,7 +96,8 @@ export function createSyncEventEmitter(
           })
         },
         fail(error, retryCount = 0) {
-          if (settled) return
+          if (settled)
+            return
           settled = true
           config.sink.emit('sync_failed', deviceId, {
             trigger,

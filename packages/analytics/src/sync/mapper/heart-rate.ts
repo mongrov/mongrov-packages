@@ -6,8 +6,8 @@
  * makes it here is a valid measurement.
  */
 
-import { parseTimestamp } from './time'
 import type { FirmwareHRRow, HeartRateRow, MapperContext } from './types'
+import { parseTimestamp } from './time'
 
 export function mapHeartRate(
   rows: readonly FirmwareHRRow[],

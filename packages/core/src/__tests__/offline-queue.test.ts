@@ -1,5 +1,5 @@
+import type { LogContext, LogEntry } from '../types'
 import { OfflineQueue } from '../offline-queue'
-import type { LogEntry, LogContext } from '../types'
 
 // Mock network-state module
 jest.mock('../network-state', () => {
@@ -18,7 +18,7 @@ jest.mock('../network-state', () => {
     // Test helpers
     __setConnected: (val: boolean) => { connected = val },
     __notifyListeners: () => {
-      listeners.forEach((cb) => cb({ isConnected: connected }))
+      listeners.forEach(cb => cb({ isConnected: connected }))
     },
     __listeners: listeners,
   }
@@ -82,8 +82,7 @@ describe('OfflineQueue', () => {
     const queue = new OfflineQueue(sendFn, { maxSize: 3, storage })
 
     const entries = Array.from({ length: 5 }, (_, i) =>
-      makeEntry({ id: `e${i}`, message: `msg-${i}` })
-    )
+      makeEntry({ id: `e${i}`, message: `msg-${i}` }))
     queue.enqueue(entries)
 
     expect(queue.getQueueSize()).toBe(3)
@@ -131,7 +130,8 @@ describe('OfflineQueue', () => {
     let callCount = 0
     const sendFn = jest.fn(async () => {
       callCount++
-      if (callCount < 3) throw new Error('network error')
+      if (callCount < 3)
+        throw new Error('network error')
     })
 
     const queue = new OfflineQueue(sendFn, { maxSize: 500, storage })
@@ -234,7 +234,7 @@ describe('OfflineQueue', () => {
     networkMock.__notifyListeners()
 
     // Give the async flush a tick to run
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     expect(sendFn).toHaveBeenCalled()
 

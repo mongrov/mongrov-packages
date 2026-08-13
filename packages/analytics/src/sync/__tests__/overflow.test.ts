@@ -7,11 +7,11 @@
  *   3. clear() removes both chunk keys and manifest key
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import type { BufferEntry } from '../types'
 
+import { beforeEach, describe, expect, it } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { OverflowStore } from '../overflow'
-import type { BufferEntry } from '../types'
 
 function makeEntry(rows: number, seed = 0): BufferEntry {
   const rowArr = Array.from({ length: rows }, (_, i) => ({ i: seed + i }))

@@ -79,7 +79,7 @@ export interface DeviceAdapter {
   id: string
 
   /** Predicate: does this adapter handle the given scan hit? First match wins. */
-  canHandle(candidate: ScanCandidate): boolean
+  canHandle: (candidate: ScanCandidate) => boolean
 
   /** Which lifecycle concerns this adapter owns vs the machines drive. */
   ownership: AdapterOwnership
@@ -88,21 +88,21 @@ export interface DeviceAdapter {
   capabilities: Set<DeviceCapability>
 
   /** Idempotent connect. */
-  connect(deviceId: string): Promise<void>
+  connect: (deviceId: string) => Promise<void>
 
   /** Explicit user disconnect. */
-  disconnect(deviceId: string): Promise<void>
+  disconnect: (deviceId: string) => Promise<void>
 
   /**
    * Subscribe to normalized connection-state updates. Adapters MUST map vendor
    * sub-states DOWN to `ConnectionState` and pass native error detail through
    * `ErrorDetail`.
    */
-  onConnectionChange(listener: ConnectionChangeListener): Unsubscribe
+  onConnectionChange: (listener: ConnectionChangeListener) => Unsubscribe
 
   /** Optional scanner — required when `ownership.scan === true`. */
-  startScan?(onFound: (candidate: ScanCandidate) => void): Promise<void>
-  stopScan?(): Promise<void>
+  startScan?: (onFound: (candidate: ScanCandidate) => void) => Promise<void>
+  stopScan?: () => Promise<void>
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -111,10 +111,10 @@ export interface DeviceAdapter {
 
 /** Continuous stream while connected. */
 export interface LiveStreamCapability {
-  subscribe(
+  subscribe: (
     deviceId: string,
     onReading: (reading: DeviceReading) => void,
-  ): Unsubscribe
+  ) => Unsubscribe
 }
 
 /**
@@ -124,12 +124,12 @@ export interface LiveStreamCapability {
  * `(deviceId, metric, ts)`.
  */
 export interface BatchSyncCapability {
-  pull(
+  pull: (
     deviceId: string,
     metric: string,
     sinceCursor: number | undefined,
     onReading: (reading: DeviceReading) => void,
-  ): Promise<{ newCursor: number }>
+  ) => Promise<{ newCursor: number }>
 }
 
 /**
@@ -138,20 +138,20 @@ export interface BatchSyncCapability {
  * BatchSync cursor.
  */
 export interface MeasureCapability {
-  startMeasurement(
+  startMeasurement: (
     deviceId: string,
     type: string,
     onProgress?: (pct: number) => void,
-  ): Promise<DeviceReading[]>
+  ) => Promise<DeviceReading[]>
 }
 
 /** DFU. App orchestration decides WHEN; adapter owns HOW. */
 export interface FirmwareCapability {
-  getFirmwareInfo(
+  getFirmwareInfo: (
     deviceId: string,
-  ): Promise<{ version: string; updateAvailable: boolean }>
-  applyUpdate(
+  ) => Promise<{ version: string, updateAvailable: boolean }>
+  applyUpdate: (
     deviceId: string,
     onProgress: (pct: number) => void,
-  ): Promise<void>
+  ) => Promise<void>
 }

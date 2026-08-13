@@ -20,10 +20,10 @@
  * `ensureMigrations` is idempotent and safe to call on every attach.
  */
 
-import { AnalyticsError } from './errors'
 import type { HybridDuckDB } from './engine'
-import { ensureSchemas, insightIndexDdl, LOCAL_SCHEMAS, qualifyDdl, quoteQualifier, SCHEMAS } from './schemas'
 import type { KVStore } from './types'
+import { AnalyticsError } from './errors'
+import { ensureSchemas, insightIndexDdl, LOCAL_SCHEMAS, qualifyDdl, quoteQualifier, SCHEMAS } from './schemas'
 
 export interface MigrationContext {
   brand: string
@@ -50,7 +50,7 @@ export interface Migration {
   /** Human name shown in errors + logs. */
   name: string
   /** Idempotent DDL — called with the current attach's catalog set. */
-  up(db: HybridDuckDB, catalogs: MigrationCatalogs): Promise<void>
+  up: (db: HybridDuckDB, catalogs: MigrationCatalogs) => Promise<void>
 }
 
 /**
@@ -225,8 +225,10 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
     // remote schema evolution is a server-side operation.
     async up(db, catalogs) {
       const cols = await listColumns(db, catalogs.local, 'device_config')
-      if (cols.length === 0) return // table absent; baseline will create it
-      if (cols.includes('metric')) return
+      if (cols.length === 0)
+        return // table absent; baseline will create it
+      if (cols.includes('metric'))
+        return
 
       await db.execute(`DROP TABLE IF EXISTS ${quoteQualifier(catalogs.local)}.device_config_v2;`)
       const tmpDdl = LOCAL_SCHEMAS.device_config.replace(

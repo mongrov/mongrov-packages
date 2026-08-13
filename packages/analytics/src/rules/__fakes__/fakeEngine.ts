@@ -3,12 +3,12 @@ import type { AnalyticsEngine, AnalyticsState } from '../../core/types'
 /** Minimal AnalyticsEngine stub for evaluator tests. */
 export interface FakeEngine extends AnalyticsEngine {
   __calls: { sql: string, params: Record<string, unknown> }[]
-  __setResult(rows: unknown[]): void
-  __setError(err: Error | null): void
+  __setResult: (rows: unknown[]) => void
+  __setError: (err: Error | null) => void
   /** Mutate the reported `state` for tests that exercise the attached-state guard. */
-  __setState(state: AnalyticsState): void
+  __setState: (state: AnalyticsState) => void
   /** Seed the roster returned by `getFamilyMembers()`. */
-  __setFamilyMembers(ids: string[]): void
+  __setFamilyMembers: (ids: string[]) => void
 }
 
 export function createFakeEngine(): FakeEngine {
@@ -25,7 +25,8 @@ export function createFakeEngine(): FakeEngine {
     async dismissInsight() {},
     async execute<T>(sql: string, params?: Record<string, unknown>): Promise<T[]> {
       calls.push({ sql, params: params ?? {} })
-      if (queuedErr) throw queuedErr
+      if (queuedErr)
+        throw queuedErr
       return queued as T[]
     },
     stream<T>(): AsyncIterable<T[]> {

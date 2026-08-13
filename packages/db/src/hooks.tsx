@@ -4,22 +4,23 @@
  * Provides context-based database injection and reactive query hooks.
  */
 
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  type ReactNode,
-} from 'react'
+import type { ReactNode } from 'react'
 
 import type {
-  RxDatabaseType,
-  RxCollectionType,
-  RxDocumentType,
   MangoQueryType,
+  RxCollectionType,
+  RxDatabaseType,
+  RxDocumentType,
 } from './types'
+import {
+  createContext,
+
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,7 @@ export function DatabaseProvider({ database, children }: DatabaseProviderProps):
       db: database,
       isReady: database !== null,
     }),
-    [database]
+    [database],
   )
 
   return <DatabaseContext.Provider value={value}>{children}</DatabaseContext.Provider>
@@ -83,18 +84,18 @@ export function useDatabase(): DatabaseContextValue {
   const context = useContext(DatabaseContext)
   if (context === null) {
     throw new Error(
-      '[useDatabase] Hook called outside of DatabaseProvider.\n\n' +
-      'To fix this, wrap your component tree with DatabaseProvider:\n\n' +
-      '  import { DatabaseProvider, createDatabase } from "@mongrov/db"\n\n' +
-      '  function App() {\n' +
-      '    const [db, setDb] = useState(null)\n' +
-      '    useEffect(() => { createDatabase(config).then(setDb) }, [])\n\n' +
-      '    return (\n' +
-      '      <DatabaseProvider database={db}>\n' +
-      '        <YourComponent />\n' +
-      '      </DatabaseProvider>\n' +
-      '    )\n' +
-      '  }'
+      '[useDatabase] Hook called outside of DatabaseProvider.\n\n'
+      + 'To fix this, wrap your component tree with DatabaseProvider:\n\n'
+      + '  import { DatabaseProvider, createDatabase } from "@mongrov/db"\n\n'
+      + '  function App() {\n'
+      + '    const [db, setDb] = useState(null)\n'
+      + '    useEffect(() => { createDatabase(config).then(setDb) }, [])\n\n'
+      + '    return (\n'
+      + '      <DatabaseProvider database={db}>\n'
+      + '        <YourComponent />\n'
+      + '      </DatabaseProvider>\n'
+      + '    )\n'
+      + '  }',
     )
   }
   return context
@@ -166,7 +167,7 @@ export interface QueryResult<T> {
  */
 export function useQuery<T = RxDocumentType>(
   collectionName: string,
-  query: MangoQueryType = {}
+  query: MangoQueryType = {},
 ): QueryResult<T> {
   const collection = useCollection(collectionName)
   const [data, setData] = useState<T[]>([])
@@ -201,7 +202,7 @@ export function useQuery<T = RxDocumentType>(
         next: (results: RxDocumentType[]) => {
           // Convert RxDocuments to plain objects
           const plainData = results.map((doc: RxDocumentType) =>
-            typeof doc.toJSON === 'function' ? doc.toJSON() : doc
+            typeof doc.toJSON === 'function' ? doc.toJSON() : doc,
           ) as T[]
           setData(plainData)
           setIsLoading(false)
@@ -211,7 +212,8 @@ export function useQuery<T = RxDocumentType>(
           setIsLoading(false)
         },
       })
-    } catch (err) {
+    }
+    catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)))
       setIsLoading(false)
     }
@@ -260,7 +262,7 @@ export interface DocumentResult<T> {
  */
 export function useDocument<T = RxDocumentType>(
   collectionName: string,
-  id: string | null | undefined
+  id: string | null | undefined,
 ): DocumentResult<T> {
   const collection = useCollection(collectionName)
   const [data, setData] = useState<T | null>(null)
@@ -292,7 +294,8 @@ export function useDocument<T = RxDocumentType>(
           if (doc) {
             const plainData = typeof doc.toJSON === 'function' ? doc.toJSON() : doc
             setData(plainData as T)
-          } else {
+          }
+          else {
             setData(null)
           }
           setIsLoading(false)
@@ -302,7 +305,8 @@ export function useDocument<T = RxDocumentType>(
           setIsLoading(false)
         },
       })
-    } catch (err) {
+    }
+    catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)))
       setIsLoading(false)
     }

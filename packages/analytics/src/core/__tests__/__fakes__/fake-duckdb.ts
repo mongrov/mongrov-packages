@@ -93,7 +93,7 @@ export function createFakeDuckDB(options: CreateFakeDuckDBOptions = {}): FakeDuc
       nextExecuteRows = undefined
       return rows
     },
-    async *stream(sql, params) {
+    async* stream(sql, params) {
       calls.push({ sql, params })
       const pages = nextStreamPages ?? []
       nextStreamPages = undefined

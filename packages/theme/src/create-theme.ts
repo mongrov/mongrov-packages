@@ -15,7 +15,8 @@ function deepMerge(
     const overrideVal = overrides[key]
     if (isPlainObject(baseVal) && isPlainObject(overrideVal)) {
       result[key] = deepMerge(baseVal, overrideVal)
-    } else if (overrideVal !== undefined) {
+    }
+    else if (overrideVal !== undefined) {
       result[key] = overrideVal
     }
   }

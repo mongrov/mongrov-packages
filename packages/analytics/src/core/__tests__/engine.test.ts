@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { AnalyticsError } from '../errors'
 import { HybridDuckDB } from '../engine'
+import { AnalyticsError } from '../errors'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
 

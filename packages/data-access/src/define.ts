@@ -8,7 +8,6 @@
  * See data-access/spec.md §Define API.
  */
 
-import { DataAccessError } from './errors'
 import type {
   DuckdbQueryConfig,
   EventDefinition,
@@ -17,6 +16,7 @@ import type {
   QueryConfig,
   QueryDefinition,
 } from './types'
+import { DataAccessError } from './errors'
 
 /**
  * Register a typed query. Runtime enforces the engine-specific required
@@ -26,7 +26,7 @@ import type {
  * principle 48) — a console.warn advisory, never a throw.
  */
 export function defineQuery<TInput, TOutput>(
-  config: QueryConfig<TInput, TOutput>
+  config: QueryConfig<TInput, TOutput>,
 ): QueryDefinition<TInput, TOutput> {
   assertQueryEngineField(config)
   if (config.engine === 'duckdb') {
@@ -40,12 +40,12 @@ export function defineQuery<TInput, TOutput>(
  * fire through the invalidation bus on success.
  */
 export function defineMutation<TInput, TOutput>(
-  config: MutationConfig<TInput, TOutput>
+  config: MutationConfig<TInput, TOutput>,
 ): MutationDefinition<TInput, TOutput> {
   if (typeof config.exec !== 'function') {
     throw new DataAccessError(
       'define_config_invalid',
-      'defineMutation requires an `exec` function'
+      'defineMutation requires an `exec` function',
     )
   }
   return { __kind: 'mutation', config }
@@ -70,10 +70,12 @@ export function defineEvent<TPayload>(): EventDefinition<TPayload> {
 export function resolveAsyncFetch(
   config: { asyncFetch?: boolean },
   input: unknown,
-  brandRetentionDays: number | undefined
+  brandRetentionDays: number | undefined,
 ): boolean {
-  if (typeof config.asyncFetch === 'boolean') return config.asyncFetch
-  if (typeof brandRetentionDays !== 'number') return false
+  if (typeof config.asyncFetch === 'boolean')
+    return config.asyncFetch
+  if (typeof brandRetentionDays !== 'number')
+    return false
   const days = extractInputDays(input)
   return typeof days === 'number' && days > brandRetentionDays
 }
@@ -83,7 +85,8 @@ export function resolveAsyncFetch(
  * Shared by resolveAsyncFetch and the hook's fetchOnDemand request.
  */
 export function extractInputDays(input: unknown): number | undefined {
-  if (typeof input !== 'object' || input === null) return undefined
+  if (typeof input !== 'object' || input === null)
+    return undefined
   const days = (input as Record<string, unknown>).days
   return typeof days === 'number' && Number.isFinite(days) ? days : undefined
 }
@@ -112,34 +115,51 @@ const INTERNAL_SCHEMAS = new Set([
  *   - the union-view `v_` prefix is stripped (v_spo2 → spo2) so names
  *     line up with invalidation event segments
  */
+// Hoisted to module scope so they compile once rather than on every call.
+//
+// CTE_RE and REF_RE carry `g` and are driven with `.exec`, which makes them
+// stateful. Both loops below run to exhaustion, and a failed `exec` resets
+// `lastIndex` to 0, so successive calls start clean. The `continue` inside
+// the REF_RE loop still runs the loop's update expression, so it does not
+// leave the regex mid-string. Do not add a bare `return` inside either loop
+// without resetting `lastIndex` first.
+const LINE_COMMENT_RE = /--[^\n]*/g
+const BLOCK_COMMENT_RE = /\/\*[\s\S]*?\*\//g
+const CTE_RE = /\b([a-z_]\w*)(?:\s+(?:\([^()]*\)\s+)?|\([^()]*\)\s+)AS\s*\(/gi
+const REF_RE = /\b(?:FROM|JOIN)\s+([a-z_][\w.]*)/gi
+const OPEN_PAREN_RE = /^\s*\(/
+const VIEW_PREFIX_RE = /^v_/
+const WHITESPACE_RE = /\s+/g
+
 export function extractReferencedTables(sql: string): string[] {
   const stripped = sql
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(LINE_COMMENT_RE, ' ')
+    .replace(BLOCK_COMMENT_RE, ' ')
 
   const cteNames = new Set<string>()
-  const cteRe = /\b([a-zA-Z_]\w*)\s*(?:\([^()]*\))?\s+AS\s*\(/gi
-  for (let m = cteRe.exec(stripped); m !== null; m = cteRe.exec(stripped)) {
+  for (let m = CTE_RE.exec(stripped); m !== null; m = CTE_RE.exec(stripped)) {
     cteNames.add(m[1].toLowerCase())
   }
 
   const tables = new Set<string>()
-  const refRe = /\b(?:FROM|JOIN)\s+([a-zA-Z_][\w.]*)/gi
-  for (let m = refRe.exec(stripped); m !== null; m = refRe.exec(stripped)) {
+  for (let m = REF_RE.exec(stripped); m !== null; m = REF_RE.exec(stripped)) {
     // `FROM fn(...)` is a function call, not a table. (`FROM (subquery)`
     // and `extract('minute' FROM (expr))` never match — "(" fails the
     // identifier pattern.)
     const rest = stripped.slice(m.index + m[0].length)
-    if (/^\s*\(/.test(rest)) continue
+    if (OPEN_PAREN_RE.test(rest))
+      continue
 
     let name = m[1].toLowerCase()
     if (name.includes('.')) {
       const segments = name.split('.')
-      if (INTERNAL_SCHEMAS.has(segments[0])) continue
+      if (INTERNAL_SCHEMAS.has(segments[0]))
+        continue
       name = segments[segments.length - 1]
     }
-    if (cteNames.has(name)) continue
-    tables.add(name.replace(/^v_/, ''))
+    if (cteNames.has(name))
+      continue
+    tables.add(name.replace(VIEW_PREFIX_RE, ''))
   }
   return [...tables]
 }
@@ -154,37 +174,40 @@ export function extractReferencedTables(sql: string): string[] {
  * (or table-free) SQL is always silent.
  */
 function validateJoinInvalidation<TInput, TOutput>(
-  config: DuckdbQueryConfig<TInput, TOutput>
+  config: DuckdbQueryConfig<TInput, TOutput>,
 ): void {
   const tables = extractReferencedTables(config.sql)
-  if (tables.length < 2) return
+  if (tables.length < 2)
+    return
 
   const covered = new Set(
-    (config.invalidatedBy ?? []).map((entry) => entry.split(':')[0])
+    (config.invalidatedBy ?? []).map(entry => entry.split(':')[0]),
   )
-  if (covered.has('batch')) return
+  if (covered.has('batch'))
+    return
 
-  const missing = tables.filter((table) => !covered.has(table))
-  if (missing.length === 0) return
+  const missing = tables.filter(table => !covered.has(table))
+  if (missing.length === 0)
+    return
 
-  const snippet = config.sql.replace(/\s+/g, ' ').trim().slice(0, 80)
+  const snippet = config.sql.replace(WHITESPACE_RE, ' ').trim().slice(0, 80)
   console.warn(
-    `[@mongrov/data-access] defineQuery: SQL references tables ` +
-      `[${tables.join(', ')}] but invalidatedBy does not cover ` +
-      `[${missing.join(', ')}]. JOIN-dependent queries must invalidate ` +
-      `on all joined tables (principle 48). sql: "${snippet}"`
+    `[@mongrov/data-access] defineQuery: SQL references tables `
+    + `[${tables.join(', ')}] but invalidatedBy does not cover `
+    + `[${missing.join(', ')}]. JOIN-dependent queries must invalidate `
+    + `on all joined tables (principle 48). sql: "${snippet}"`,
   )
 }
 
 function assertQueryEngineField<TInput, TOutput>(
-  config: QueryConfig<TInput, TOutput>
+  config: QueryConfig<TInput, TOutput>,
 ): void {
   switch (config.engine) {
     case 'duckdb':
       if (typeof config.sql !== 'string' || config.sql.length === 0) {
         throw new DataAccessError(
           'define_config_invalid',
-          "defineQuery: engine 'duckdb' requires a non-empty `sql` string"
+          'defineQuery: engine \'duckdb\' requires a non-empty `sql` string',
         )
       }
       return
@@ -192,7 +215,7 @@ function assertQueryEngineField<TInput, TOutput>(
       if (typeof config.query !== 'function') {
         throw new DataAccessError(
           'define_config_invalid',
-          "defineQuery: engine 'rxdb' requires a `query` function"
+          'defineQuery: engine \'rxdb\' requires a `query` function',
         )
       }
       return
@@ -200,7 +223,7 @@ function assertQueryEngineField<TInput, TOutput>(
       if (typeof config.keyBuilder !== 'function') {
         throw new DataAccessError(
           'define_config_invalid',
-          "defineQuery: engine 'kv' requires a `keyBuilder` function"
+          'defineQuery: engine \'kv\' requires a `keyBuilder` function',
         )
       }
       return
@@ -209,7 +232,7 @@ function assertQueryEngineField<TInput, TOutput>(
       const exhaustive: never = config
       throw new DataAccessError(
         'define_config_invalid',
-        `defineQuery: unknown engine ${JSON.stringify(exhaustive)}`
+        `defineQuery: unknown engine ${JSON.stringify(exhaustive)}`,
       )
     }
   }

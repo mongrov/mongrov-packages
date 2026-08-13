@@ -1,10 +1,10 @@
-import { useEffect } from 'react';
-import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
-import type { AuthClient } from './types';
-import { useAuthClient } from './auth-provider';
+import type { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios'
+import type { AuthClient } from './types'
+import { useEffect } from 'react'
+import { useAuthClient } from './auth-provider'
 
 interface RetryableConfig extends InternalAxiosRequestConfig {
-  _retry?: boolean;
+  _retry?: boolean
 }
 
 /**
@@ -21,39 +21,40 @@ export function createAuthInterceptor(
   authClient: AuthClient,
 ): () => void {
   const requestId = axiosInstance.interceptors.request.use((config) => {
-    const token = authClient.getAccessToken();
+    const token = authClient.getAccessToken()
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers.Authorization = `Bearer ${token}`
     }
-    return config;
-  });
+    return config
+  })
 
   const responseId = axiosInstance.interceptors.response.use(
-    (response) => response,
+    response => response,
     async (error: AxiosError) => {
-      const originalRequest = error.config as RetryableConfig | undefined;
+      const originalRequest = error.config as RetryableConfig | undefined
 
       if (!originalRequest || error.response?.status !== 401 || originalRequest._retry) {
-        return Promise.reject(error);
+        return Promise.reject(error)
       }
 
-      originalRequest._retry = true;
+      originalRequest._retry = true
 
       try {
-        const tokens = await authClient.refreshToken();
-        originalRequest.headers.Authorization = `Bearer ${tokens.accessToken}`;
-        return axiosInstance(originalRequest);
-      } catch {
-        await authClient.signOut();
-        return Promise.reject(error);
+        const tokens = await authClient.refreshToken()
+        originalRequest.headers.Authorization = `Bearer ${tokens.accessToken}`
+        return axiosInstance(originalRequest)
+      }
+      catch {
+        await authClient.signOut()
+        return Promise.reject(error)
       }
     },
-  );
+  )
 
   return () => {
-    axiosInstance.interceptors.request.eject(requestId);
-    axiosInstance.interceptors.response.eject(responseId);
-  };
+    axiosInstance.interceptors.request.eject(requestId)
+    axiosInstance.interceptors.response.eject(responseId)
+  }
 }
 
 /**
@@ -68,8 +69,8 @@ export function createAuthInterceptor(
  * ```
  */
 export function useAuthInterceptor(axiosInstance: AxiosInstance): void {
-  const authClient = useAuthClient();
+  const authClient = useAuthClient()
   useEffect(() => {
-    return createAuthInterceptor(axiosInstance, authClient);
-  }, [axiosInstance, authClient]);
+    return createAuthInterceptor(axiosInstance, authClient)
+  }, [axiosInstance, authClient])
 }

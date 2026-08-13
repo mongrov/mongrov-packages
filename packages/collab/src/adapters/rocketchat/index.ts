@@ -5,19 +5,19 @@
  * App provides the actual DDP connection using existing code.
  */
 
-import { BaseAdapter } from '../base'
+import type { Message, Participant, Unsubscribe } from '@mongrov/types'
 import type {
   AdapterCredentials,
-  SendMessageParams,
-  SendMessageResult,
-  PresenceState,
-  FetchMessagesOptions,
-  FetchMessagesResult,
   FetchConversationsOptions,
   FetchConversationsResult,
+  FetchMessagesOptions,
+  FetchMessagesResult,
+  PresenceState,
   SearchOptions,
+  SendMessageParams,
+  SendMessageResult,
 } from '../../types'
-import type { Message, Conversation, Participant, Unsubscribe } from '@mongrov/types'
+import { BaseAdapter } from '../base'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ export interface RocketChatAdapterConfig {
    * Existing RocketChat client/connection.
    * App provides their existing DDP client instance.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   client?: any
 }
 
@@ -91,7 +91,7 @@ export class RocketChatAdapter extends BaseAdapter {
 
   async fetchMessages(
     _conversationId: string,
-    _options?: FetchMessagesOptions
+    _options?: FetchMessagesOptions,
   ): Promise<FetchMessagesResult> {
     throw new Error('RocketChatAdapter.fetchMessages() must be implemented by subclass')
   }
@@ -137,7 +137,7 @@ export class RocketChatAdapter extends BaseAdapter {
   // ─── Conversations ──────────────────────────────────────────────────────
 
   async fetchConversations(
-    _options?: FetchConversationsOptions
+    _options?: FetchConversationsOptions,
   ): Promise<FetchConversationsResult> {
     throw new Error('RocketChatAdapter.fetchConversations() must be implemented by subclass')
   }

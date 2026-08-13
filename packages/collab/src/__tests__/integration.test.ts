@@ -5,13 +5,13 @@
  * database replication patterns used by the @mongrov/db package.
  */
 
-import { MockAdapter } from './mock-adapter'
 import type { Message, Participant } from '@mongrov/types'
+import { MockAdapter } from './mock-adapter'
 
 // Simulated replication state that mirrors @mongrov/db replication patterns
 interface MockReplicationState {
   messages: Message[]
-  pullHandler: (checkpoint: unknown, batchSize: number) => Promise<{ documents: Message[]; checkpoint: unknown }>
+  pullHandler: (checkpoint: unknown, batchSize: number) => Promise<{ documents: Message[], checkpoint: unknown }>
   pushHandler: (docs: Message[]) => Promise<void>
 }
 
@@ -32,10 +32,11 @@ function createMockReplicationState(): MockReplicationState {
     pushHandler: async (docs: Message[]) => {
       // Simulate pushing to remote - add to messages array
       docs.forEach((doc) => {
-        const existingIndex = messages.findIndex((m) => m.id === doc.id)
+        const existingIndex = messages.findIndex(m => m.id === doc.id)
         if (existingIndex >= 0) {
           messages[existingIndex] = doc
-        } else {
+        }
+        else {
           messages.push(doc)
         }
       })
@@ -199,7 +200,7 @@ describe('Collab + DB Integration', () => {
       replicationState.messages.push(
         createTestMessage({ id: 'msg-1', content: 'First' }),
         createTestMessage({ id: 'msg-2', content: 'Second' }),
-        createTestMessage({ id: 'msg-3', content: 'Third' })
+        createTestMessage({ id: 'msg-3', content: 'Third' }),
       )
 
       // Pull from replication state
@@ -219,7 +220,7 @@ describe('Collab + DB Integration', () => {
 
   describe('Typing Indicators Sync', () => {
     it('should emit typing events', async () => {
-      const typingEvents: { conversationId: string; userId: string }[] = []
+      const typingEvents: { conversationId: string, userId: string }[] = []
 
       adapter.on('typing:start', (event) => {
         typingEvents.push(event)
@@ -250,7 +251,7 @@ describe('Collab + DB Integration', () => {
     })
 
     it('should handle typing stop events', async () => {
-      const typingStopEvents: { conversationId: string; userId: string }[] = []
+      const typingStopEvents: { conversationId: string, userId: string }[] = []
 
       adapter.on('typing:stop', (event) => {
         typingStopEvents.push(event)
@@ -296,7 +297,7 @@ describe('Collab + DB Integration', () => {
       })
 
       await expect(
-        adapter.connect({ userId: 'user-1', token: 'test-token' })
+        adapter.connect({ userId: 'user-1', token: 'test-token' }),
       ).rejects.toThrow('Mock connection failed')
 
       expect(errors).toHaveLength(1)
@@ -342,7 +343,7 @@ describe('Collab + DB Integration', () => {
       await replicationState.pushHandler(localChanges)
 
       expect(replicationState.messages).toHaveLength(2)
-      expect(replicationState.messages.map((m) => m.id)).toEqual(['local-1', 'local-2'])
+      expect(replicationState.messages.map(m => m.id)).toEqual(['local-1', 'local-2'])
     })
   })
 
@@ -362,7 +363,7 @@ describe('Collab + DB Integration', () => {
     it('should fetch all messages when under limit', async () => {
       adapter.messages.push(
         createTestMessage({ id: 'msg-1' }),
-        createTestMessage({ id: 'msg-2' })
+        createTestMessage({ id: 'msg-2' }),
       )
 
       const result = await adapter.fetchMessages('conv-1', { limit: 10 })

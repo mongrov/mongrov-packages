@@ -134,7 +134,10 @@ describe('ZivaOne registry SQL against the real schema', () => {
       expect(rows).toHaveLength(1)
       // The declared output shape, satisfied by SQL alone.
       expect(rows[0]).toMatchObject({
-        usual_lo: 94, usual_hi: 98, typical_mid: 96, sample_count_days: 28,
+        usual_lo: 94,
+        usual_hi: 98,
+        typical_mid: 96,
+        sample_count_days: 28,
       })
     }
     finally { await db.close() }

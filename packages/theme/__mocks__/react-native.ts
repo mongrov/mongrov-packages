@@ -3,4 +3,4 @@ export const Appearance = {
   addChangeListener: jest.fn(() => ({
     remove: jest.fn(),
   })),
-};
+}

@@ -20,11 +20,6 @@ import type { z } from 'zod'
 
 import type { QueryInstrumentation } from './instrumentation'
 
-import {
-  AuthorizationError,
-  DataAccessError,
-} from './errors'
-import { mergeTenantParams } from './tenant'
 import type {
   DuckdbQueryConfig,
   KvQueryConfig,
@@ -33,6 +28,11 @@ import type {
   RequestContext,
   RxdbQueryConfig,
 } from './types'
+import {
+  AuthorizationError,
+  DataAccessError,
+} from './errors'
+import { mergeTenantParams } from './tenant'
 
 /**
  * T-35 — request handed to DuckdbEngine.fetchOnDemand when a query
@@ -65,12 +65,12 @@ export interface FetchOnDemandRequest {
  * the hook's `fetching` state stays false.
  */
 export interface DuckdbEngine {
-  execute(sql: string, params: Record<string, unknown>): Promise<unknown>
-  dismissInsight?(args: {
+  execute: (sql: string, params: Record<string, unknown>) => Promise<unknown>
+  dismissInsight?: (args: {
     insightId: string
     userId: string
-  }): Promise<void>
-  fetchOnDemand?(request: FetchOnDemandRequest): Promise<void>
+  }) => Promise<void>
+  fetchOnDemand?: (request: FetchOnDemandRequest) => Promise<void>
 }
 
 /**
@@ -83,10 +83,10 @@ export interface DuckdbEngine {
  */
 export interface RxdbEngine {
   db: unknown
-  execute<TInput>(
+  execute: <TInput>(
     config: RxdbQueryConfig<TInput, unknown>,
-    input: TInput
-  ): Promise<unknown>
+    input: TInput,
+  ) => Promise<unknown>
 }
 
 /**
@@ -96,9 +96,9 @@ export interface RxdbEngine {
  * writes throw `engine_missing` at call time.
  */
 export interface KvEngine {
-  get(key: string): Promise<unknown> | unknown
-  set?(key: string, value: unknown): Promise<void> | void
-  delete?(key: string): Promise<void> | void
+  get: (key: string) => Promise<unknown> | unknown
+  set?: (key: string, value: unknown) => Promise<void> | void
+  delete?: (key: string) => Promise<void> | void
 }
 
 /**
@@ -129,7 +129,7 @@ export async function executeQuery<TInput, TOutput>(
   input: TInput,
   ctx: RequestContext,
   engines: EngineAdapters,
-  options: ExecuteQueryOptions = {}
+  options: ExecuteQueryOptions = {},
 ): Promise<TOutput> {
   const parsedInput = parseInput(def.config.input, input)
 
@@ -165,10 +165,11 @@ function applyTransform<TInput, TOutput>(
   config: QueryConfig<TInput, TOutput>,
   input: TInput,
   ctx: RequestContext,
-  raw: unknown
+  raw: unknown,
 ): unknown {
   const transform = 'transform' in config ? config.transform : undefined
-  if (typeof transform !== 'function') return raw
+  if (typeof transform !== 'function')
+    return raw
   try {
     return transform(raw, { ...ctx, input })
   }
@@ -176,22 +177,23 @@ function applyTransform<TInput, TOutput>(
     throw new DataAccessError(
       'transform_failed',
       `transform threw: ${(cause as Error).message}`,
-      cause
+      cause,
     )
   }
 }
 
 function parseInput<TInput>(
   schema: z.ZodType<TInput> | undefined,
-  input: TInput
+  input: TInput,
 ): TInput {
-  if (!schema) return input
+  if (!schema)
+    return input
   const result = schema.safeParse(input)
   if (!result.success) {
     throw new DataAccessError(
       'zod_parse_failed',
       `input failed schema validation: ${result.error.message}`,
-      result.error
+      result.error,
     )
   }
   return result.data
@@ -199,14 +201,14 @@ function parseInput<TInput>(
 
 function parseOutput<TOutput>(
   schema: z.ZodType<TOutput>,
-  raw: unknown
+  raw: unknown,
 ): TOutput {
   const result = schema.safeParse(raw)
   if (!result.success) {
     throw new DataAccessError(
       'zod_parse_failed',
       `output failed schema validation: ${result.error.message}`,
-      result.error
+      result.error,
     )
   }
   return result.data
@@ -221,9 +223,10 @@ export async function runAuthorize<TInput>(
     | ((input: TInput, ctx: RequestContext) => boolean | Promise<boolean>)
     | undefined,
   input: TInput,
-  ctx: RequestContext
+  ctx: RequestContext,
 ): Promise<void> {
-  if (!authorize) return
+  if (!authorize)
+    return
   const allowed = await Promise.resolve(authorize(input, ctx))
   if (!allowed) {
     throw new AuthorizationError('authorization denied by query authorize hook')
@@ -234,7 +237,7 @@ async function dispatchByEngine<TInput, TOutput>(
   config: QueryDefinition<TInput, TOutput>['config'],
   input: TInput,
   ctx: RequestContext,
-  engines: EngineAdapters
+  engines: EngineAdapters,
 ): Promise<unknown> {
   switch (config.engine) {
     case 'duckdb':
@@ -247,7 +250,7 @@ async function dispatchByEngine<TInput, TOutput>(
       const exhaustive: never = config
       throw new DataAccessError(
         'engine_missing',
-        `unknown engine: ${JSON.stringify(exhaustive)}`
+        `unknown engine: ${JSON.stringify(exhaustive)}`,
       )
     }
   }
@@ -257,12 +260,12 @@ function dispatchDuckdb<TInput, TOutput>(
   config: DuckdbQueryConfig<TInput, TOutput>,
   input: TInput,
   ctx: RequestContext,
-  engine: DuckdbEngine | undefined
+  engine: DuckdbEngine | undefined,
 ): Promise<unknown> {
   if (!engine) {
     throw new DataAccessError(
       'engine_missing',
-      "engine 'duckdb' is not wired in this dispatcher"
+      'engine \'duckdb\' is not wired in this dispatcher',
     )
   }
   const params = mergeTenantParams(input, ctx, config.sql)
@@ -272,12 +275,12 @@ function dispatchDuckdb<TInput, TOutput>(
 function dispatchRxdb<TInput, TOutput>(
   config: RxdbQueryConfig<TInput, TOutput>,
   input: TInput,
-  engine: RxdbEngine | undefined
+  engine: RxdbEngine | undefined,
 ): Promise<unknown> {
   if (!engine) {
     throw new DataAccessError(
       'engine_missing',
-      "engine 'rxdb' is not wired in this dispatcher"
+      'engine \'rxdb\' is not wired in this dispatcher',
     )
   }
   return engine.execute(config, input)
@@ -286,12 +289,12 @@ function dispatchRxdb<TInput, TOutput>(
 async function dispatchKv<TInput, TOutput>(
   config: KvQueryConfig<TInput, TOutput>,
   input: TInput,
-  engine: KvEngine | undefined
+  engine: KvEngine | undefined,
 ): Promise<unknown> {
   if (!engine) {
     throw new DataAccessError(
       'engine_missing',
-      "engine 'kv' is not wired in this dispatcher"
+      'engine \'kv\' is not wired in this dispatcher',
     )
   }
   const key = config.keyBuilder(input)

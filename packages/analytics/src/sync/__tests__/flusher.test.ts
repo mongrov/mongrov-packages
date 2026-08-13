@@ -15,18 +15,19 @@
  *      `background` (10).
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FlushedEvent } from '../flusher'
 
+import type { SensorBatch } from '../types'
+import { describe, expect, it } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { SensorBuffer } from '../buffer'
+import { BACKOFF_SEQUENCE_MS, BatchFlusher, MAX_CONSECUTIVE_FAILURES } from '../flusher'
 import { OverflowStore } from '../overflow'
-import { BatchFlusher, BACKOFF_SEQUENCE_MS, MAX_CONSECUTIVE_FAILURES, type FlushedEvent } from '../flusher'
-import type { SensorBatch } from '../types'
 import { createFakeEngine } from './__fakes__/fake-engine'
 
 const COL_ORDER: Record<string, readonly string[]> = {
   hrv: ['ts', 'hrv_ms', 'stress'],
-  hr:  ['ts', 'bpm'],
+  hr: ['ts', 'bpm'],
 }
 
 function makeBatch(table: string, rows: Record<string, unknown>[]): SensorBatch {
@@ -168,12 +169,12 @@ describe('BatchFlusher.scheduleFlush (priority)', () => {
     })
 
     await buffer.push(makeBatch('hrv', [{ ts: 't0', hrv_ms: 50, stress: 20 }]))
-    await buffer.push(makeBatch('hr',  [{ ts: 't0', bpm: 60 }]))
+    await buffer.push(makeBatch('hr', [{ ts: 't0', bpm: 60 }]))
 
     // Pause so both tasks queue up before any dequeue happens; priority then
     // determines their run order when we resume.
     flusher.pauseQueue()
-    const bg = flusher.scheduleFlush('hr',  'background')
+    const bg = flusher.scheduleFlush('hr', 'background')
     const fg = flusher.scheduleFlush('hrv', 'foreground')
     flusher.resumeQueue()
     await Promise.all([fg, bg])

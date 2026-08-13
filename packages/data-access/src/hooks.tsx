@@ -12,16 +12,8 @@
  * See data-access/spec.md §Hooks.
  */
 
-import { useMutation, useQuery } from '@tanstack/react-query'
-import * as React from 'react'
 import type { z } from 'zod'
-
-import { useDataAccessRuntime } from './context'
-import { extractInputDays, resolveAsyncFetch } from './define'
-import { executeQuery, runAuthorize } from './dispatcher'
 import type { EngineAdapters } from './dispatcher'
-import { DataAccessError } from './errors'
-import { compileGlob } from './invalidation'
 import type {
   EventBus,
   MutationContext,
@@ -30,6 +22,14 @@ import type {
   RequestContext,
   RxdbQueryConfig,
 } from './types'
+
+import { useMutation, useQuery } from '@tanstack/react-query'
+import * as React from 'react'
+import { useDataAccessRuntime } from './context'
+import { extractInputDays, resolveAsyncFetch } from './define'
+import { executeQuery, runAuthorize } from './dispatcher'
+import { DataAccessError } from './errors'
+import { compileGlob } from './invalidation'
 
 /** T-18 — cache defaults per spec §Cache. Per-query overrides win. */
 export const DEFAULT_STALE_TIME = 30_000
@@ -65,11 +65,11 @@ export interface UseAppMutationResult<TInput, TOutput> {
  * does not require rxjs as a peer.
  */
 interface MinimalObservable<T> {
-  subscribe(observer: {
+  subscribe: (observer: {
     next: (value: T) => void
     error?: (err: unknown) => void
     complete?: () => void
-  }): { unsubscribe: () => void }
+  }) => { unsubscribe: () => void }
 }
 
 /**
@@ -82,13 +82,13 @@ interface MinimalObservable<T> {
  */
 export function useAppQuery<TInput, TOutput>(
   name: string,
-  input?: TInput
+  input?: TInput,
 ): UseAppQueryResult<TOutput> {
   const runtime = useDataAccessRuntime()
   const def = lookupDefinition<QueryDefinition<TInput, TOutput>>(
     runtime.registry.queries,
     'query',
-    name
+    name,
   )
   const engine = def.config.engine
   const isRxdb = engine === 'rxdb'
@@ -113,7 +113,8 @@ export function useAppQuery<TInput, TOutput>(
   }>({ data: undefined, loading: true, error: null })
 
   React.useEffect(() => {
-    if (!isRxdb) return
+    if (!isRxdb)
+      return
 
     const rxEngine = runtime.engines.rxdb
     if (!rxEngine) {
@@ -122,7 +123,7 @@ export function useAppQuery<TInput, TOutput>(
         loading: false,
         error: new DataAccessError(
           'engine_missing',
-          "engine 'rxdb' is not wired in this dispatcher"
+          'engine \'rxdb\' is not wired in this dispatcher',
         ),
       })
       return
@@ -130,13 +131,14 @@ export function useAppQuery<TInput, TOutput>(
 
     const observable = (def.config as RxdbQueryConfig<TInput, TOutput>).query(
       rxEngine.db,
-      input as TInput
+      input as TInput,
     ) as MinimalObservable<unknown>
 
     let cancelled = false
     const sub = observable.subscribe({
       next: (value) => {
-        if (cancelled) return
+        if (cancelled)
+          return
         const parsed = def.config.output.safeParse(value)
         if (parsed.success) {
           setRxState({
@@ -144,20 +146,22 @@ export function useAppQuery<TInput, TOutput>(
             loading: false,
             error: null,
           })
-        } else {
+        }
+        else {
           setRxState({
             data: undefined,
             loading: false,
             error: new DataAccessError(
               'zod_parse_failed',
               `query "${name}" output failed schema validation: ${parsed.error.message}`,
-              parsed.error
+              parsed.error,
             ),
           })
         }
       },
       error: (err) => {
-        if (cancelled) return
+        if (cancelled)
+          return
         setRxState({
           data: undefined,
           loading: false,
@@ -176,9 +180,9 @@ export function useAppQuery<TInput, TOutput>(
   // (principle 57). Effective asyncFetch: explicit config flag wins;
   // otherwise inferred from input.days vs the provider's
   // brandRetentionDays. duckdb-only — the R2 fetch lands rows in DuckDB.
-  const asyncFetchEffective =
-    engine === 'duckdb' &&
-    resolveAsyncFetch(def.config, input, runtime.brandRetentionDays)
+  const asyncFetchEffective
+    = engine === 'duckdb'
+      && resolveAsyncFetch(def.config, input, runtime.brandRetentionDays)
 
   const [onDemand, setOnDemand] = React.useState<{
     fetching: boolean
@@ -186,10 +190,12 @@ export function useAppQuery<TInput, TOutput>(
   }>({ fetching: false, error: null })
 
   React.useEffect(() => {
-    if (!asyncFetchEffective) return
+    if (!asyncFetchEffective)
+      return
     const fetchOnDemand = runtime.engines.duckdb?.fetchOnDemand
     // No R2 path wired → local-only serve; fetching stays false.
-    if (!fetchOnDemand) return
+    if (!fetchOnDemand)
+      return
 
     let cancelled = false
     setOnDemand({ fetching: true, error: null })
@@ -201,14 +207,15 @@ export function useAppQuery<TInput, TOutput>(
         input,
         userId: ctx.userId,
         days: extractInputDays(input),
-      })
+      }),
     )
       .then(async () => {
         // Fetched rows landed in local DuckDB — refetch so the query
         // picks them up. TanStack keeps previous data visible during the
         // refetch, so `data` never disappears.
         await runtime.queryClient.invalidateQueries({ queryKey: [name] })
-        if (!cancelled) setOnDemand({ fetching: false, error: null })
+        if (!cancelled)
+          setOnDemand({ fetching: false, error: null })
       })
       .catch((err: unknown) => {
         // Failure surfaces via `error` while local data stays served.
@@ -229,12 +236,14 @@ export function useAppQuery<TInput, TOutput>(
   // via the observable stream.
   const patterns = def.config.invalidatedBy
   React.useEffect(() => {
-    if (isRxdb) return
-    if (!patterns || patterns.length === 0) return
-    const unsubs = patterns.map((pattern) =>
+    if (isRxdb)
+      return
+    if (!patterns || patterns.length === 0)
+      return
+    const unsubs = patterns.map(pattern =>
       runtime.bus.subscribePattern(pattern, () => {
         runtime.queryClient.invalidateQueries({ queryKey: [name] })
-      })
+      }),
     )
     return () => {
       for (const off of unsubs) off()
@@ -242,7 +251,8 @@ export function useAppQuery<TInput, TOutput>(
   }, [runtime.bus, runtime.queryClient, name, patterns, isRxdb])
 
   const refetch = React.useCallback(async () => {
-    if (isRxdb) return
+    if (isRxdb)
+      return
     await query.refetch()
   }, [isRxdb, query])
 
@@ -277,13 +287,13 @@ export function useAppQuery<TInput, TOutput>(
  * the mutation is pending and reverts on failure.
  */
 export function useAppMutation<TInput, TOutput>(
-  name: string
+  name: string,
 ): UseAppMutationResult<TInput, TOutput> {
   const runtime = useDataAccessRuntime()
   const def = lookupDefinition<MutationDefinition<TInput, TOutput>>(
     runtime.registry.mutations,
     'mutation',
-    name
+    name,
   )
 
   const [optimisticValue, setOptimisticValue] = React.useState<
@@ -297,7 +307,7 @@ export function useAppMutation<TInput, TOutput>(
         def.config.input,
         input,
         'input',
-        name
+        name,
       )
       // Authorize sees only the read context; exec gets the extended
       // MutationContext with engine write access (spec §Mutation flow).
@@ -305,13 +315,14 @@ export function useAppMutation<TInput, TOutput>(
       const mutationCtx = buildMutationContext(
         ctx,
         runtime.engines,
-        runtime.bus
+        runtime.bus,
       )
       const raw = await def.config.exec(parsedInput, mutationCtx)
       return parseWithSchema(def.config.output, raw, 'output', name)
     },
     onMutate: (input) => {
-      if (!def.config.optimistic) return undefined
+      if (!def.config.optimistic)
+        return undefined
       const ctx = runtime.getContext()
       const value = def.config.optimistic(input, ctx)
       setOptimisticValue(value)
@@ -328,11 +339,11 @@ export function useAppMutation<TInput, TOutput>(
           // deliberately do not emit it.
           const regex = compileGlob(pattern)
           for (const [queryName, queryDef] of Object.entries(
-            runtime.registry.queries
+            runtime.registry.queries,
           )) {
             const subscribed = queryDef.config.invalidatedBy ?? []
             const hit = subscribed.some(
-              (event) => !event.includes('*') && regex.test(event)
+              event => !event.includes('*') && regex.test(event),
             )
             if (hit) {
               runtime.queryClient.invalidateQueries({ queryKey: [queryName] })
@@ -352,8 +363,8 @@ export function useAppMutation<TInput, TOutput>(
     },
   })
 
-  const data =
-    mutation.isPending && optimisticValue !== undefined
+  const data
+    = mutation.isPending && optimisticValue !== undefined
       ? optimisticValue
       : mutation.data
 
@@ -377,7 +388,7 @@ export function useAppMutation<TInput, TOutput>(
  */
 export function useAppEvent<TPayload>(
   name: string,
-  handler: (payload: TPayload) => void
+  handler: (payload: TPayload) => void,
 ): void {
   const runtime = useDataAccessRuntime()
   const handlerRef = React.useRef(handler)
@@ -416,7 +427,7 @@ export function useRequestContext(): RequestContext {
 function buildMutationContext(
   ctx: RequestContext,
   engines: EngineAdapters,
-  bus: EventBus
+  bus: EventBus,
 ): MutationContext {
   const kv = engines.kv
   const analytics = engines.duckdb
@@ -425,15 +436,18 @@ function buildMutationContext(
     ...ctx,
     kv: {
       async get(key: string): Promise<unknown> {
-        if (!kv) throw missingMutationEngine('kv', 'get')
+        if (!kv)
+          throw missingMutationEngine('kv', 'get')
         return kv.get(key)
       },
       async set(key: string, value: unknown): Promise<void> {
-        if (!kv?.set) throw missingMutationEngine('kv', 'set')
+        if (!kv?.set)
+          throw missingMutationEngine('kv', 'set')
         await kv.set(key, value)
       },
       async delete(key: string): Promise<void> {
-        if (!kv?.delete) throw missingMutationEngine('kv', 'delete')
+        if (!kv?.delete)
+          throw missingMutationEngine('kv', 'delete')
         await kv.delete(key)
       },
     },
@@ -449,9 +463,10 @@ function buildMutationContext(
       },
       async execute(
         sql: string,
-        params?: Record<string, unknown>
+        params?: Record<string, unknown>,
       ): Promise<unknown[]> {
-        if (!analytics) throw missingMutationEngine('duckdb', 'execute')
+        if (!analytics)
+          throw missingMutationEngine('duckdb', 'execute')
         const rows = await analytics.execute(sql, params ?? {})
         return Array.isArray(rows) ? rows : [rows]
       },
@@ -463,25 +478,25 @@ function buildMutationContext(
 
 function missingMutationEngine(
   engine: 'kv' | 'duckdb',
-  method: string
+  method: string,
 ): DataAccessError {
   return new DataAccessError(
     'engine_missing',
-    `mutation context: engine '${engine}' does not provide ${method}() ` +
-      'in this dispatcher'
+    `mutation context: engine '${engine}' does not provide ${method}() `
+    + 'in this dispatcher',
   )
 }
 
 function lookupDefinition<T>(
   bag: Record<string, unknown>,
   label: 'query' | 'mutation',
-  name: string
+  name: string,
 ): T {
   const def = bag[name]
   if (!def) {
     throw new DataAccessError(
       'engine_missing',
-      `no ${label} named "${name}" is registered`
+      `no ${label} named "${name}" is registered`,
     )
   }
   return def as T
@@ -491,15 +506,16 @@ function parseWithSchema<T>(
   schema: z.ZodType<T> | undefined,
   value: unknown,
   side: 'input' | 'output',
-  name: string
+  name: string,
 ): T {
-  if (!schema) return value as T
+  if (!schema)
+    return value as T
   const result = schema.safeParse(value)
   if (!result.success) {
     throw new DataAccessError(
       'zod_parse_failed',
       `mutation "${name}" ${side} failed schema validation: ${result.error.message}`,
-      result.error
+      result.error,
     )
   }
   return result.data

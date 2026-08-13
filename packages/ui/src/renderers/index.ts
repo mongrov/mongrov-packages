@@ -6,19 +6,6 @@
  */
 
 export {
-  MessageRenderer,
-  useMessageRenderer,
-} from './MessageRenderer'
-export type {
-  MessageRendererProps,
-  MessageRenderProps,
-  DeliveryStatusInfo,
-  ContentRenderProps,
-  AttachmentRenderProps as MessageAttachmentRenderProps,
-  ReactionRenderProps as MessageReactionRenderProps,
-} from './MessageRenderer'
-
-export {
   AttachmentRenderer,
   useAttachmentRenderer,
 } from './AttachmentRenderer'
@@ -29,14 +16,27 @@ export type {
 } from './AttachmentRenderer'
 
 export {
+  MessageRenderer,
+  useMessageRenderer,
+} from './MessageRenderer'
+export type {
+  ContentRenderProps,
+  DeliveryStatusInfo,
+  AttachmentRenderProps as MessageAttachmentRenderProps,
+  ReactionRenderProps as MessageReactionRenderProps,
+  MessageRendererProps,
+  MessageRenderProps,
+} from './MessageRenderer'
+
+export {
+  EMOJI_CATEGORIES,
   ReactionPicker,
   useReactionPicker,
-  EMOJI_CATEGORIES,
 } from './ReactionPicker'
 export type {
+  CurrentReactionItem,
+  QuickReactionItem,
   ReactionPickerProps,
   ReactionPickerRenderProps,
-  QuickReactionItem,
-  CurrentReactionItem,
   UseReactionPickerOptions,
 } from './ReactionPicker'

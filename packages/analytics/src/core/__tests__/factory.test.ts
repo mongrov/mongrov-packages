@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
-
-import { AnalyticsError } from '../errors'
-import { LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
-import { LAST_ATTACH_TTL_MS } from '../persistence'
-import { createAnalytics } from '../factory'
 import type { AnalyticsConfig, AnalyticsEngine, AnalyticsLogger, AnalyticsState, AttachContext, TokenResponse } from '../types'
+
+import { describe, expect, it, vi } from 'vitest'
+import { AnalyticsError } from '../errors'
+import { createAnalytics } from '../factory'
+import { LAST_ATTACH_TTL_MS } from '../persistence'
+import { LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
 import { createFakeKV } from './__fakes__/fake-kv'
@@ -21,7 +21,8 @@ async function waitForState(
 ): Promise<AnalyticsState> {
   const targetSet = new Set(targets)
   for (let i = 0; i < maxSpins; i++) {
-    if (targetSet.has(engine.state)) return engine.state
+    if (targetSet.has(engine.state))
+      return engine.state
     await new Promise<void>(resolve => setTimeout(resolve, 0))
   }
   throw new Error(`waitForState: never reached ${targets.join('|')} (last=${engine.state})`)
@@ -204,7 +205,6 @@ describe('createAnalytics — subscribe + close', () => {
     await engine.close()
     expect(engine.state).toBe('idle')
   })
-
 })
 
 describe('createAnalytics — retention + persistence (Phase 6)', () => {
@@ -403,7 +403,8 @@ describe('createAnalytics — logger integration (Phase 7)', () => {
     const failingStorage = {
       ...config.storage,
       async set(key: string, value: unknown) {
-        if (key.startsWith('analytics:last-attach:')) throw new Error('kv down')
+        if (key.startsWith('analytics:last-attach:'))
+          throw new Error('kv down')
         return config.storage.set(key, value)
       },
     }
@@ -496,7 +497,7 @@ describe('createAnalytics — data-plane attached-state guard (T-21)', () => {
     expect(() => engine.createAppender('hrv')).toThrow(
       expect.objectContaining({
         code: 'not_attached',
-        message: expect.stringContaining("createAppender('hrv') requires an attached engine"),
+        message: expect.stringContaining('createAppender(\'hrv\') requires an attached engine'),
       }),
     )
     await engine.close()
@@ -514,10 +515,10 @@ describe('createAnalytics — duckdb tuning (T-22)', () => {
     await waitForState(engine, ['ready'])
 
     const pragmas = fakeDb.calls.map(c => c.sql)
-    expect(pragmas).toContain("SET memory_limit = '512MB'")
+    expect(pragmas).toContain('SET memory_limit = \'512MB\'')
     expect(pragmas).toContain('SET threads = 4')
     // PRAGMAs run before any extension LOAD.
-    const memIdx = pragmas.findIndex(s => s === "SET memory_limit = '512MB'")
+    const memIdx = pragmas.findIndex(s => s === 'SET memory_limit = \'512MB\'')
     const loadIdx = pragmas.findIndex(s => s.startsWith('LOAD '))
     expect(memIdx).toBeGreaterThanOrEqual(0)
     expect(memIdx).toBeLessThan(loadIdx)
@@ -611,7 +612,8 @@ describe('engine.getFamilyMembers (principle 39)', () => {
         ...config,
         familyMembersProvider: async () => {
           attempts += 1
-          if (attempts === 1) return ['alice']
+          if (attempts === 1)
+            return ['alice']
           throw new Error('rxdb offline')
         },
       } as AnalyticsConfig,

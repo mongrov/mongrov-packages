@@ -61,13 +61,15 @@ export class OverflowStore {
   async drain(table: string, limit?: number): Promise<BufferEntry[]> {
     const state = await this.#hydrate(table)
     const take = limit ?? state.seqs.length
-    if (take <= 0 || state.seqs.length === 0) return []
+    if (take <= 0 || state.seqs.length === 0)
+      return []
 
     const drained: BufferEntry[] = []
     const seqsToRemove = state.seqs.slice(0, take)
     for (const seq of seqsToRemove) {
       const entry = await this.#kv.get<BufferEntry>(chunkKey(table, seq))
-      if (entry) drained.push(entry)
+      if (entry)
+        drained.push(entry)
       await this.#kv.delete(chunkKey(table, seq))
     }
     state.seqs = state.seqs.slice(take)
@@ -103,7 +105,8 @@ export class OverflowStore {
 
   async #hydrate(table: string): Promise<TableState> {
     let state = this.#tables.get(table)
-    if (state && state.hydrated) return state
+    if (state && state.hydrated)
+      return state
 
     if (!state) {
       state = { seqs: [], nextSeq: 0, hydrated: false }

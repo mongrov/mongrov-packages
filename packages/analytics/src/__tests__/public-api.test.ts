@@ -1,13 +1,3 @@
-import { describe, expect, it } from 'vitest'
-
-import {
-  AnalyticsError,
-  createAnalytics,
-  NotImplementedError,
-  useAnalytics,
-  useInsight,
-  useTimeseries,
-} from '../index'
 import type {
   AnalyticsAppender,
   AnalyticsConfig,
@@ -25,6 +15,16 @@ import type {
   TokenResponse,
   TokenVendor,
   Unsubscribe,
+} from '../index'
+
+import { describe, expect, it } from 'vitest'
+import {
+  AnalyticsError,
+  createAnalytics,
+  NotImplementedError,
+  useAnalytics,
+  useInsight,
+  useTimeseries,
 } from '../index'
 
 /**

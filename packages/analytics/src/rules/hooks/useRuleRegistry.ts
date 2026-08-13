@@ -6,14 +6,14 @@
  * are stable references passed through from the engine.
  */
 
-import { useMemo, useSyncExternalStore, useCallback } from 'react'
 import type { Rule } from '../schema'
 import type { RulesEngine } from '../types'
+import { useCallback, useMemo, useSyncExternalStore } from 'react'
 
 export interface UseRuleRegistryResult {
   rules: Rule[]
-  enable(ruleId: string): Promise<void>
-  disable(ruleId: string): Promise<void>
+  enable: (ruleId: string) => Promise<void>
+  disable: (ruleId: string) => Promise<void>
 }
 
 interface Cache {
@@ -24,7 +24,7 @@ interface Cache {
 function makeCache(engine: RulesEngine): Cache {
   let snapshot = engine.list()
   return {
-    subscribe: (onStoreChange) => engine.subscribeRegistry(() => {
+    subscribe: onStoreChange => engine.subscribeRegistry(() => {
       snapshot = engine.list()
       onStoreChange()
     }),

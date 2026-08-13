@@ -34,22 +34,24 @@
  *   `local.{table}` or `r2.default.{table}` (principle 19).
  */
 
-import { METRIC_METADATA } from '../core/metric_metadata'
 import type { TableName } from '../core/schemas'
+import type { Aggregation, Compare, Rule, RuleContext, Target, Window } from './schema'
 import type { CompiledRule } from './types'
+import { METRIC_METADATA } from '../core/metric_metadata'
 import {
-  type Aggregation,
-  type Compare,
-  type Rule,
-  type RuleContext,
+
   RuleValidationError,
-  type Target,
-  type Window,
+
 } from './schema'
 
 /** Sanitize an identifier for direct interpolation. */
+// PLACEHOLDER_RE carries `g` and is driven with `.exec`; the loop in
+// placeholdersOf runs to exhaustion, which resets lastIndex to 0.
+const NON_WORD_RE = /\W/g
+const PLACEHOLDER_RE = /\$([A-Z_]\w*)/gi
+
 export function sanitizeIdent(raw: string): string {
-  return raw.replace(/[^A-Za-z0-9_]/g, '_')
+  return raw.replace(NON_WORD_RE, '_')
 }
 
 /**
@@ -141,12 +143,11 @@ const ALLOWED_RAW_PLACEHOLDERS = new Set(['userId', 'brand', 'familyId'])
 /** Extract every `$name` placeholder from a SQL string. */
 function placeholdersOf(sql: string): string[] {
   const out: string[] = []
-  const re = /\$([A-Za-z_][A-Za-z0-9_]*)/g
   let match: RegExpExecArray | null
-  match = re.exec(sql)
+  match = PLACEHOLDER_RE.exec(sql)
   while (match !== null) {
     out.push(match[1])
-    match = re.exec(sql)
+    match = PLACEHOLDER_RE.exec(sql)
   }
   return out
 }
@@ -174,9 +175,9 @@ export function compileRule(rule: Rule): CompiledRule {
 
   const description
     = `${rule.metric} ${rule.aggregation} over ${rule.window} ${rule.compare} `
-      + `${describeTarget(rule.target)}`
-      + (rule.context === 'any' ? '' : ` [${rule.context}]`)
-      + (rule.consecutive && rule.consecutive > 1 ? ` x${rule.consecutive} consecutive` : '')
+      + `${describeTarget(rule.target)}${
+        rule.context === 'any' ? '' : ` [${rule.context}]`
+      }${rule.consecutive && rule.consecutive > 1 ? ` x${rule.consecutive} consecutive` : ''}`
 
   const args: BuildArgs = {
     view,

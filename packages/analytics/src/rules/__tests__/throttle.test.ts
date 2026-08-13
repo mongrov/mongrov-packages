@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createThrottleStore } from '../throttle'
-import { createFakeStorage } from '../__fakes__/fakeStorage'
 import { createFakeClock } from '../__fakes__/fakeClock'
+import { createFakeStorage } from '../__fakes__/fakeStorage'
+import { createThrottleStore } from '../throttle'
 
 const throttle = { minGapMinutes: 60, maxPerDay: 3 }
 

@@ -20,11 +20,11 @@ export type {
   McpServerHandle,
 } from './server'
 
-export { createStdioTransport } from './transports/stdio'
-export type { CreateStdioTransportOptions } from './transports/stdio'
-
 export { createHttpTransport } from './transports/http'
 export type {
   CreateHttpTransportConfig,
   HttpTransportHandle,
 } from './transports/http'
+
+export { createStdioTransport } from './transports/stdio'
+export type { CreateStdioTransportOptions } from './transports/stdio'

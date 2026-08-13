@@ -32,8 +32,6 @@
  * integer codes here and never reach the warehouse.
  */
 
-import { nanoid } from 'nanoid'
-import { computeNightOf, parseTimestamp } from './time'
 import type {
   FirmwareSleepRow,
   MapperContext,
@@ -41,6 +39,8 @@ import type {
   SleepSessionRow,
   SleepStageRow,
 } from './types'
+import { nanoid } from 'nanoid'
+import { computeNightOf, parseTimestamp } from './time'
 
 const MINUTE_MS = 60_000
 const PRIMARY = 'primary'
@@ -126,7 +126,8 @@ export function reconstructSleepSessions(
   const bySession = new Map<string, FirmwareSleepRow[]>()
   for (const row of rows) {
     const bucket = bySession.get(row.start)
-    if (bucket) bucket.push(row)
+    if (bucket)
+      bucket.push(row)
     else bySession.set(row.start, [row])
   }
 
@@ -136,7 +137,8 @@ export function reconstructSleepSessions(
     const hasQualifyingPrimary = blocks.some(
       b => b.block_type === PRIMARY && b.confidence >= CONFIDENCE_FLOOR,
     )
-    if (!hasQualifyingPrimary) continue
+    if (!hasQualifyingPrimary)
+      continue
 
     // Envelope from the firmware's own session fields. `end` is exclusive of
     // nothing — it is the session end instant, so total is a plain delta.

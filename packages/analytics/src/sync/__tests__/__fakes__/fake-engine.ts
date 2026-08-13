@@ -36,14 +36,16 @@ export function createFakeEngine(): FakeEngineHandle {
   const engine = {
     createAppender(table: string): DuckDBAppender {
       const err = openErrors.shift()
-      if (err) throw err
+      if (err)
+        throw err
       return {
         appendRow(values: unknown[]) {
           appended.push({ table, values })
         },
         flush() {
           const ferr = flushErrors.shift()
-          if (ferr) throw ferr
+          if (ferr)
+            throw ferr
           flushCount += 1
         },
         close() {

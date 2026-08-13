@@ -16,8 +16,8 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { LOCAL_SCHEMAS } from '../../core/schemas'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { LOCAL_SCHEMAS } from '../../core/schemas'
 import { ACTIVE_PRIOR_CONFIGS_SQL } from '../factory'
 
 const PARAMS = {
@@ -74,9 +74,17 @@ describe('ACTIVE_PRIOR_CONFIGS_SQL ↔ device_config DDL', () => {
       // row to rebuild a DeviceConfigRow. A projection that dropped one
       // would surface as an undefined column here.
       for (const col of [
-        'device_id', 'brand', 'family_id', 'user_id', 'metric',
-        'interval_minutes', 'start_time', 'end_time', 'weeks',
-        'valid_from', 'valid_to',
+        'device_id',
+        'brand',
+        'family_id',
+        'user_id',
+        'metric',
+        'interval_minutes',
+        'start_time',
+        'end_time',
+        'weeks',
+        'valid_from',
+        'valid_to',
       ]) {
         expect(rows[0], `missing projected column ${col}`).toHaveProperty(col)
       }

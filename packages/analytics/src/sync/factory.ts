@@ -17,42 +17,40 @@
  * controls; hooks in `hooks.ts` subscribe to state transitions.
  */
 
-import { z } from 'zod'
-
 import type { HybridDuckDB } from '../core/engine'
+
+import type { TableName } from '../core/schemas'
 import type { AnalyticsEngine, AttachContext, KVStore } from '../core/types'
-import { createBaselineComputer } from './baseline-compute'
-import { SensorBuffer } from './buffer'
-import { bindFlushEvents, bindPushEvents } from './events'
+import type { RulesEngine } from '../rules/types'
 import type { EventBus } from './events'
-import { R2Fetcher } from './fetcher'
 import type { PrefetchPolicy } from './fetcher'
-import { BatchFlusher } from './flusher'
 import type { SyncEmitter } from './flusher'
-import { mapFirmwareExport } from './mapper/firmware'
+import type { SensorSink, SyncManager, SyncManagerState, SyncProgress } from './manager'
 import type {
   DeviceConfigRow,
   FirmwareExport,
   MapperContext,
   RingConfigTranslator,
 } from './mapper/types'
+import type { BackgroundTaskPort, ConstraintPort, SchedulerLogger, SchedulerState } from './scheduler'
+import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
+import { z } from 'zod'
+import { createBaselineComputer } from './baseline-compute'
+import { SensorBuffer } from './buffer'
+import { bindFlushEvents, bindPushEvents } from './events'
+import { R2Fetcher } from './fetcher'
+import { BatchFlusher } from './flusher'
+import { mapFirmwareExport } from './mapper/firmware'
 import { OverflowStore } from './overflow'
 import { PendingClosesStore } from './pending_closes'
 import { R2Pusher } from './pusher'
 import {
-  type BackgroundTaskPort,
-  type ConstraintPort,
-  type SchedulerLogger,
-  type SchedulerState,
+
   SyncScheduler,
 } from './scheduler'
-import type { SensorSink, SyncManager, SyncManagerState, SyncProgress } from './manager'
-import { FlushTriggers } from './triggers'
-import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
-import { WatermarkStore } from './watermark'
 
-import type { TableName } from '../core/schemas'
-import type { RulesEngine } from '../rules/types'
+import { FlushTriggers } from './triggers'
+import { WatermarkStore } from './watermark'
 
 const overflowPolicyEnum = z.enum(['drop-oldest', 'drop-newest', 'block'])
 
@@ -245,7 +243,8 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   }
 
   async function resolveTimezone(userId: string): Promise<string> {
-    if (!config.userTimezoneProvider) return deviceTimezone()
+    if (!config.userTimezoneProvider)
+      return deviceTimezone()
     try {
       return (await config.userTimezoneProvider(userId)) ?? deviceTimezone()
     }
@@ -337,68 +336,69 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       pushClosesForDeviceConfig: (isLocal || !config.tables.includes('device_config'))
         ? undefined
         : async (ctx) => {
-            const pending = await pendingClosesStore.drain(ctx)
-            if (pending.length === 0) return
-            try {
-              const result = await pusher.pushCloses(pending, ctx)
-              if (!result.ok) {
-                await pendingClosesStore.requeue(ctx, pending)
-                rulesLogger?.warn('sync.factory: pushCloses failed; requeued', {
-                  count: pending.length,
-                  code: result.error?.code,
-                })
-              }
-            }
-            catch (err) {
+          const pending = await pendingClosesStore.drain(ctx)
+          if (pending.length === 0)
+            return
+          try {
+            const result = await pusher.pushCloses(pending, ctx)
+            if (!result.ok) {
               await pendingClosesStore.requeue(ctx, pending)
-              rulesLogger?.warn('sync.factory: pushCloses threw; requeued', {
+              rulesLogger?.warn('sync.factory: pushCloses failed; requeued', {
                 count: pending.length,
-                err: err instanceof Error ? err.message : String(err),
+                code: result.error?.code,
               })
             }
-          },
+          }
+          catch (err) {
+            await pendingClosesStore.requeue(ctx, pending)
+            rulesLogger?.warn('sync.factory: pushCloses threw; requeued', {
+              count: pending.length,
+              err: err instanceof Error ? err.message : String(err),
+            })
+          }
+        },
       fetchIncremental: isLocal
         ? async () => []
         : async ctx => fetcher.fetchIncremental(ctx),
       computeBaselines: config.computeBaselines === false
         ? undefined
         : async () => {
-            // Fan out over the family so every member's baselines refresh
-            // on the device that synced — not just the signed-in user's.
-            // Empty roster (org scope, local mode, unattached) falls back
-            // to the attach ctx's own user.
-            let members: string[] = []
-            try {
-              members = await config.analytics.getFamilyMembers()
-            }
-            catch {
-              members = []
-            }
-            const userIds = members.length > 0 ? members : [config.ctx.userId]
-            for (const userId of userIds) {
-              const tz = await resolveTimezone(userId)
-              await baselineComputer.computeAll({
-                brand: config.ctx.brand,
-                familyId: config.ctx.tenantId,
-                userId,
-                userTimezone: tz,
-              })
-            }
-          },
+          // Fan out over the family so every member's baselines refresh
+          // on the device that synced — not just the signed-in user's.
+          // Empty roster (org scope, local mode, unattached) falls back
+          // to the attach ctx's own user.
+          let members: string[] = []
+          try {
+            members = await config.analytics.getFamilyMembers()
+          }
+          catch {
+            members = []
+          }
+          const userIds = members.length > 0 ? members : [config.ctx.userId]
+          for (const userId of userIds) {
+            const tz = await resolveTimezone(userId)
+            await baselineComputer.computeAll({
+              brand: config.ctx.brand,
+              familyId: config.ctx.tenantId,
+              userId,
+              userTimezone: tz,
+            })
+          }
+        },
       // Scheduled rules pass runs after the cycle's flush/push/fetch. Fire-
       // and-forget — a throw here would surface as a cycle error, but the
       // catch keeps the scheduler idle.
       onCycleComplete: rulesEngine
         ? async () => {
-            try {
-              await rulesEngine.evaluateScheduled()
-            }
-            catch (err) {
-              rulesLogger?.warn('sync.factory: rulesEngine.evaluateScheduled threw', {
-                err: err instanceof Error ? err.message : String(err),
-              })
-            }
+          try {
+            await rulesEngine.evaluateScheduled()
           }
+          catch (err) {
+            rulesLogger?.warn('sync.factory: rulesEngine.evaluateScheduled threw', {
+              err: err instanceof Error ? err.message : String(err),
+            })
+          }
+        }
         : undefined,
     },
     tables: [...config.tables],
@@ -605,7 +605,8 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
         ['device_config', asRows(mapped.device_config)],
       ]
       for (const [table, rows] of mappedTables) {
-        if (!rows || rows.length === 0) continue
+        if (!rows || rows.length === 0)
+          continue
         await buffer.push({
           table,
           brand: ctx.brand,

@@ -6,17 +6,17 @@
  * `on(...)` returns an `Unsubscribe` closure per spec's public surface.
  */
 
-import { describeError } from '../core/errors'
 import type { Unsubscribe } from '../core/types'
-import type { RuleViolation, RulesLogger } from './types'
+import type { RulesLogger, RuleViolation } from './types'
+import { describeError } from '../core/errors'
 
 type ViolationHandler = (v: RuleViolation) => void
 
 export interface RulesEmitter {
-  on(event: 'violation', handler: ViolationHandler): Unsubscribe
-  emit(event: 'violation', payload: RuleViolation): void
+  on: (event: 'violation', handler: ViolationHandler) => Unsubscribe
+  emit: (event: 'violation', payload: RuleViolation) => void
   /** Drop every subscriber. Idempotent. Used by `RulesEngine.close()`. */
-  close(): void
+  close: () => void
 }
 
 export interface CreateEmitterConfig {

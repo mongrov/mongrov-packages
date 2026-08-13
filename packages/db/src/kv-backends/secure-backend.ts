@@ -17,13 +17,13 @@ function getSecureStore(): SecureStoreModule {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     cachedSecureStore = require('expo-secure-store') as SecureStoreModule
     return cachedSecureStore
-  } catch {
+  }
+  catch {
     throw new Error(
-      '@mongrov/db: expo-secure-store is required for secure KVStore. ' +
-        'Install it with: npx expo install expo-secure-store'
+      '@mongrov/db: expo-secure-store is required for secure KVStore. '
+      + 'Install it with: npx expo install expo-secure-store',
     )
   }
 }
@@ -62,10 +62,12 @@ export class SecureBackend implements KVStore {
 
   async getObject<T>(key: string): Promise<T | null> {
     const value = await this.store.getItemAsync(key)
-    if (value === null) return null
+    if (value === null)
+      return null
     try {
       return JSON.parse(value) as T
-    } catch {
+    }
+    catch {
       return null
     }
   }
@@ -77,16 +79,18 @@ export class SecureBackend implements KVStore {
 
   async clear(): Promise<void> {
     const keys = await this.getAllKeys()
-    await Promise.all(keys.map((key) => this.store.deleteItemAsync(key)))
+    await Promise.all(keys.map(key => this.store.deleteItemAsync(key)))
     await this.store.deleteItemAsync(KEYS_REGISTRY)
   }
 
   async getAllKeys(): Promise<string[]> {
     const keysJson = await this.store.getItemAsync(KEYS_REGISTRY)
-    if (!keysJson) return []
+    if (!keysJson)
+      return []
     try {
       return JSON.parse(keysJson) as string[]
-    } catch {
+    }
+    catch {
       return []
     }
   }
@@ -94,7 +98,8 @@ export class SecureBackend implements KVStore {
   // ─── Internal key tracking ───────────────────────────────────────────────
 
   private async trackKey(key: string): Promise<void> {
-    if (key === KEYS_REGISTRY) return
+    if (key === KEYS_REGISTRY)
+      return
     const keys = await this.getAllKeys()
     if (!keys.includes(key)) {
       keys.push(key)
@@ -103,9 +108,10 @@ export class SecureBackend implements KVStore {
   }
 
   private async untrackKey(key: string): Promise<void> {
-    if (key === KEYS_REGISTRY) return
+    if (key === KEYS_REGISTRY)
+      return
     const keys = await this.getAllKeys()
-    const filtered = keys.filter((k) => k !== key)
+    const filtered = keys.filter(k => k !== key)
     if (filtered.length !== keys.length) {
       await this.store.setItemAsync(KEYS_REGISTRY, JSON.stringify(filtered))
     }

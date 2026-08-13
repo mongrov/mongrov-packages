@@ -12,15 +12,15 @@
  *   8. `subscribe()` observes idle → running → idle transitions.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import type { AttachContext } from '../../core/types'
 
-import { SyncScheduler } from '../scheduler'
 import type {
   BackgroundTaskPort,
   ConstraintPort,
   SyncCoordinator,
 } from '../scheduler'
-import type { AttachContext } from '../../core/types'
+import { describe, expect, it, vi } from 'vitest'
+import { SyncScheduler } from '../scheduler'
 
 const ctx: AttachContext = {
   brand: 'ziva',
@@ -37,7 +37,7 @@ function makeBackgroundTask(): BackgroundTaskPort & {
     handlers,
     register: async (name, h) => { handlers.set(name, h) },
     unregister: async (name) => { handlers.delete(name) },
-    isRegistered: async (name) => handlers.has(name),
+    isRegistered: async name => handlers.has(name),
   }
 }
 

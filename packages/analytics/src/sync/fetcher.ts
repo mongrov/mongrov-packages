@@ -7,9 +7,9 @@
  * Three modes:
  *   - `prefetchOnAttach(ctx, policy)` — one-shot bulk pull immediately after
  *     `analytics.attach()`, driven by a policy:
- *       * `all-family-on-attach` — every family row within `windowDays`
- *       * `recent-active-only`   — active users first (CTE)
- *       * `lazy`                 — no-op
+ *       `all-family-on-attach` — every family row within `windowDays`
+ *       `recent-active-only`   — active users first (CTE)
+ *       `lazy`                 — no-op
  *   - `fetchIncremental(ctx)`  — pulls only rows newer than the fetch
  *     watermark; `ON CONFLICT DO NOTHING` keeps re-runs idempotent.
  *   - `fetchOnDemand(ctx, params)` — bypasses watermark; caller-supplied
@@ -20,11 +20,12 @@
  */
 
 import type { HybridDuckDB } from '../core/engine'
-import { SCHEMAS, type TableName } from '../core/schemas'
-import { timeColumnFor } from '../core/table_metadata'
+import type { TableName } from '../core/schemas'
 import type { AttachContext } from '../core/types'
-import { SyncError } from './errors'
 import type { WatermarkStore } from './watermark'
+import { SCHEMAS } from '../core/schemas'
+import { timeColumnFor } from '../core/table_metadata'
+import { SyncError } from './errors'
 
 /**
  * `ON CONFLICT DO NOTHING` for idempotent re-fetch — but only on tables
@@ -69,8 +70,9 @@ export interface R2FetcherConfig {
 
 const DEFAULT_LOCAL = (_c: AttachContext, table: string) => `main.${table}`
 // 3-part remote for the same reason pusher's is 3-part — see pusher.ts.
-const DEFAULT_REMOTE = (c: AttachContext, table: string) =>
-  `zone_${c.tenantId}.default.${table}`
+function DEFAULT_REMOTE(c: AttachContext, table: string) {
+  return `zone_${c.tenantId}.default.${table}`
+}
 
 export class R2Fetcher {
   readonly #engine: HybridDuckDB
@@ -111,7 +113,8 @@ export class R2Fetcher {
     )
     return settled.map((r, i) => {
       const table = this.#tables[i]!
-      if (r.status === 'fulfilled') return r.value
+      if (r.status === 'fulfilled')
+        return r.value
       return this.#toFailure(table, r.reason)
     })
   }
@@ -125,7 +128,8 @@ export class R2Fetcher {
     )
     return settled.map((r, i) => {
       const table = this.#tables[i]!
-      if (r.status === 'fulfilled') return r.value
+      if (r.status === 'fulfilled')
+        return r.value
       return this.#toFailure(table, r.reason)
     })
   }
@@ -187,7 +191,8 @@ export class R2Fetcher {
       let nextWatermark: Date | undefined
       if (truncated) {
         const maxTs = stats?.max_ts ? new Date(stats.max_ts) : undefined
-        if (maxTs && !Number.isNaN(maxTs.getTime())) nextWatermark = maxTs
+        if (maxTs && !Number.isNaN(maxTs.getTime()))
+          nextWatermark = maxTs
         // else: truncated but nothing to anchor to — leave watermark alone.
       }
       else {

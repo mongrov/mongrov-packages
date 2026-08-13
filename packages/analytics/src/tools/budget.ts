@@ -19,7 +19,8 @@ export function applyOutputBudget(
   result: ToolResult,
   budget: OutputBudget,
 ): ToolResult {
-  if (result.bytes <= budget.maxBytes) return result
+  if (result.bytes <= budget.maxBytes)
+    return result
 
   const encoder = new TextEncoder()
   const suffixBytes = encoder.encode(TRUNCATE_SUFFIX).byteLength
@@ -56,10 +57,14 @@ function utf8SafeBoundary(bytes: Uint8Array, end: number): number {
   if (boundary > 0 && boundary < bytes.byteLength) {
     const lead = bytes[boundary]
     let seqLen = 0
-    if ((lead & 0x80) === 0x00) seqLen = 1
-    else if ((lead & 0xE0) === 0xC0) seqLen = 2
-    else if ((lead & 0xF0) === 0xE0) seqLen = 3
-    else if ((lead & 0xF8) === 0xF0) seqLen = 4
+    if ((lead & 0x80) === 0x00)
+      seqLen = 1
+    else if ((lead & 0xE0) === 0xC0)
+      seqLen = 2
+    else if ((lead & 0xF0) === 0xE0)
+      seqLen = 3
+    else if ((lead & 0xF8) === 0xF0)
+      seqLen = 4
     if (seqLen > 1 && boundary + seqLen > end) {
       // Partial sequence — drop lead byte.
       return boundary

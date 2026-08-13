@@ -9,12 +9,12 @@
  * fired against real data.
  */
 
-import { parseTimestamp } from './time'
 import type {
   DeviceBatteryRow,
   FirmwareBatteryRow,
   MapperContext,
 } from './types'
+import { parseTimestamp } from './time'
 
 /**
  * @deprecated Battery samples no longer emit `device_event` rows as of

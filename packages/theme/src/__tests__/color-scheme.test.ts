@@ -1,6 +1,6 @@
 import { Appearance } from 'react-native'
-import { createColorSchemeStore } from '../color-scheme-store'
 import { createUseColorScheme, resolveScheme } from '../color-scheme'
+import { createColorSchemeStore } from '../color-scheme-store'
 
 // We test resolveScheme directly (non-hook) and the factory for hook creation
 

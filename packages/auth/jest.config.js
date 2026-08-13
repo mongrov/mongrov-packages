@@ -1,4 +1,4 @@
-const preset = require('../../jest.preset');
+const preset = require('../../jest.preset')
 
 /** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
@@ -13,4 +13,4 @@ module.exports = {
     '^@mongrov/core$': '<rootDir>/__mocks__/@mongrov/core.ts',
     '^jwt-decode$': '<rootDir>/__mocks__/jwt-decode.ts',
   },
-};
+}

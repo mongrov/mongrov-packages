@@ -1,12 +1,13 @@
+import type { EngineAdapters } from '../dispatcher'
+import type { RequestContext } from '../types'
+
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-
 import { defineQuery } from '../define'
-import { executeQuery, runAuthorize, type EngineAdapters } from '../dispatcher'
+import { executeQuery, runAuthorize } from '../dispatcher'
 import { AuthorizationError, DataAccessError } from '../errors'
 import { createQueryInstrumentation } from '../instrumentation'
 import { mergeTenantParams } from '../tenant'
-import type { RequestContext } from '../types'
 
 const ctx: RequestContext = {
   userId: 'u1',
@@ -38,7 +39,7 @@ describe('T-08 · mergeTenantParams', () => {
   it('tenant fields win on collision (screens cannot forge brand/familyId/tz)', () => {
     const merged = mergeTenantParams(
       { userId: 'u1', brand: 'malicious', familyId: 'other', tz: 'Etc/GMT-14' },
-      ctx
+      ctx,
     )
     expect(merged.brand).toBe('zivaone')
     expect(merged.familyId).toBe('f1')
@@ -61,19 +62,19 @@ describe('T-07 · runAuthorize', () => {
 
   it('allows execution when authorize returns true', async () => {
     await expect(
-      runAuthorize(() => true, { userId: 'u1' }, ctx)
+      runAuthorize(() => true, { userId: 'u1' }, ctx),
     ).resolves.toBeUndefined()
   })
 
   it('awaits an async authorize', async () => {
     await expect(
-      runAuthorize(async () => true, { userId: 'u1' }, ctx)
+      runAuthorize(async () => true, { userId: 'u1' }, ctx),
     ).resolves.toBeUndefined()
   })
 
   it('throws AuthorizationError when authorize returns false', async () => {
     await expect(
-      runAuthorize(() => false, { userId: 'u1' }, ctx)
+      runAuthorize(() => false, { userId: 'u1' }, ctx),
     ).rejects.toBeInstanceOf(AuthorizationError)
   })
 
@@ -103,7 +104,7 @@ describe('T-06 · executeQuery — duckdb path', () => {
     expect(out).toEqual({ hrv: 45 })
     expect(execute).toHaveBeenCalledWith(
       'SELECT hrv FROM hrv WHERE user_id = $userId',
-      { userId: 'u1' }
+      { userId: 'u1' },
     )
   })
 
@@ -112,7 +113,7 @@ describe('T-06 · executeQuery — duckdb path', () => {
     const engines: EngineAdapters = { duckdb: { execute } }
     await expect(
       // @ts-expect-error — bad shape
-      executeQuery(duckdbDef, { userId: 42 }, ctx, engines)
+      executeQuery(duckdbDef, { userId: 42 }, ctx, engines),
     ).rejects.toMatchObject({ code: 'zod_parse_failed' })
     expect(execute).not.toHaveBeenCalled()
   })
@@ -121,13 +122,13 @@ describe('T-06 · executeQuery — duckdb path', () => {
     const execute = vi.fn(async () => ({ hrv: 'not-a-number' }))
     const engines: EngineAdapters = { duckdb: { execute } }
     await expect(
-      executeQuery(duckdbDef, { userId: 'u1' }, ctx, engines)
+      executeQuery(duckdbDef, { userId: 'u1' }, ctx, engines),
     ).rejects.toMatchObject({ code: 'zod_parse_failed' })
   })
 
   it('throws engine_missing when duckdb engine absent', async () => {
     await expect(
-      executeQuery(duckdbDef, { userId: 'u1' }, ctx, {})
+      executeQuery(duckdbDef, { userId: 'u1' }, ctx, {}),
     ).rejects.toMatchObject({ code: 'engine_missing' })
   })
 })
@@ -153,7 +154,7 @@ describe('T-06 · executeQuery — rxdb path', () => {
 
   it('throws engine_missing when rxdb engine absent', async () => {
     await expect(
-      executeQuery(rxdbDef, { userId: 'u1' }, ctx, {})
+      executeQuery(rxdbDef, { userId: 'u1' }, ctx, {}),
     ).rejects.toMatchObject({ code: 'engine_missing' })
   })
 })
@@ -163,7 +164,7 @@ describe('T-06 · executeQuery — kv path', () => {
     engine: 'kv',
     input: z.object({ userId: z.string() }),
     output: z.object({ theme: z.enum(['light', 'dark']) }),
-    keyBuilder: (input) => `user:${input.userId}:prefs`,
+    keyBuilder: input => `user:${input.userId}:prefs`,
   })
 
   it('reads via keyBuilder(input)', async () => {
@@ -186,7 +187,7 @@ describe('T-06 · executeQuery — kv path', () => {
 
   it('throws engine_missing when kv engine absent', async () => {
     await expect(
-      executeQuery(kvDef, { userId: 'u1' }, ctx, {})
+      executeQuery(kvDef, { userId: 'u1' }, ctx, {}),
     ).rejects.toMatchObject({ code: 'engine_missing' })
   })
 })
@@ -228,7 +229,7 @@ describe('T-07 · executeQuery — authorize gate at dispatch', () => {
     const execute = vi.fn(async () => ({ hrv: 45 }))
     const engines: EngineAdapters = { duckdb: { execute } }
     await expect(
-      executeQuery(def, { userId: 'attacker' }, ctx, engines)
+      executeQuery(def, { userId: 'attacker' }, ctx, engines),
     ).rejects.toBeInstanceOf(AuthorizationError)
     expect(execute).not.toHaveBeenCalled()
   })
@@ -255,12 +256,12 @@ describe('unknown engine (compile-time exhaustive fallthrough)', () => {
     }
     await expect(
       executeQuery(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         forged as any,
         undefined,
         ctx,
-        {}
-      )
+        {},
+      ),
     ).rejects.toBeInstanceOf(DataAccessError)
   })
 })
@@ -272,8 +273,11 @@ describe('T-45 — instrumentation hook', () => {
     keyBuilder: () => 'k',
   })
   const ctx = {
-    userId: 'u', brand: 'ziva', familyId: 'f',
-    timezone: 'UTC', now: () => new Date(),
+    userId: 'u',
+    brand: 'ziva',
+    familyId: 'f',
+    timezone: 'UTC',
+    now: () => new Date(),
   }
   const engines = { kv: { get: async () => 'v' } }
 
@@ -297,7 +301,8 @@ describe('T-45 — instrumentation hook', () => {
 
     await expect(
       executeQuery(def, {}, ctx, failing as never, {
-        instrumentation: inst, queryName: 'user.spo2SafeLevel',
+        instrumentation: inst,
+        queryName: 'user.spo2SafeLevel',
       }),
     ).rejects.toThrow('kv down')
 
@@ -308,7 +313,8 @@ describe('T-45 — instrumentation hook', () => {
   it('does not record when instrumentation is present but disabled', async () => {
     const inst = createQueryInstrumentation({ enabled: false })
     await executeQuery(def, {}, ctx, engines as never, {
-      instrumentation: inst, queryName: 'user.spo2SafeLevel',
+      instrumentation: inst,
+      queryName: 'user.spo2SafeLevel',
     })
     expect(inst.statsFor('user.spo2SafeLevel')).toBeNull()
   })
@@ -316,8 +322,11 @@ describe('T-45 — instrumentation hook', () => {
 
 describe('referenced-placeholder binding', () => {
   const ctx = {
-    userId: 'u1', brand: 'zivaone', familyId: 'f1',
-    timezone: 'America/New_York', now: () => new Date(),
+    userId: 'u1',
+    brand: 'zivaone',
+    familyId: 'f1',
+    timezone: 'America/New_York',
+    now: () => new Date(),
   }
 
   const q = (sql: string) => defineQuery({
@@ -336,7 +345,9 @@ describe('referenced-placeholder binding', () => {
     const execute = vi.fn(async () => [])
     await executeQuery(
       q('SELECT 1 WHERE u = $userId'),
-      { userId: 'u1' } as never, ctx, { duckdb: { execute } } as never,
+      { userId: 'u1' } as never,
+      ctx,
+      { duckdb: { execute } } as never,
     )
     expect(execute.mock.calls[0][1]).toEqual({ userId: 'u1' })
   })
@@ -345,10 +356,14 @@ describe('referenced-placeholder binding', () => {
     const execute = vi.fn(async () => [])
     await executeQuery(
       q('SELECT timezone($tz, ts) WHERE brand = $brand AND family_id = $familyId'),
-      {}, ctx, { duckdb: { execute } } as never,
+      {},
+      ctx,
+      { duckdb: { execute } } as never,
     )
     expect(execute.mock.calls[0][1]).toEqual({
-      brand: 'zivaone', familyId: 'f1', tz: 'America/New_York',
+      brand: 'zivaone',
+      familyId: 'f1',
+      tz: 'America/New_York',
     })
   })
 
@@ -357,7 +372,8 @@ describe('referenced-placeholder binding', () => {
     await executeQuery(
       q('SELECT 1 WHERE u = $userId'),
       { userId: 'u1', offset: 3, unused: 'x' } as never,
-      ctx, { duckdb: { execute } } as never,
+      ctx,
+      { duckdb: { execute } } as never,
     )
     expect(execute.mock.calls[0][1]).toEqual({ userId: 'u1' })
   })
@@ -367,7 +383,8 @@ describe('referenced-placeholder binding', () => {
     await executeQuery(
       q('SELECT 1 WHERE brand = $brand'),
       { brand: 'evil-brand' } as never,
-      ctx, { duckdb: { execute } } as never,
+      ctx,
+      { duckdb: { execute } } as never,
     )
     expect(execute.mock.calls[0][1]).toEqual({ brand: 'zivaone' })
   })

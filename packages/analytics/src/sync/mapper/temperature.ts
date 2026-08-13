@@ -6,8 +6,8 @@
  * (e.g. daily average) is expected to smooth the discretisation.
  */
 
-import { parseTimestamp } from './time'
 import type { FirmwareTempRow, MapperContext, TemperatureRow } from './types'
+import { parseTimestamp } from './time'
 
 export function mapTemperature(
   rows: readonly FirmwareTempRow[],

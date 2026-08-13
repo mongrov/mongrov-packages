@@ -18,12 +18,14 @@
  * concrete storage engine.
  */
 
+import type { DuckdbEngine, EngineAdapters } from '../dispatcher'
+import type { Registry, RequestContext } from '../types'
 import { QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import * as React from 'react'
+
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
-
 import {
   DataAccessProvider,
   defineMutation,
@@ -32,8 +34,6 @@ import {
   useAppMutation,
   useAppQuery,
 } from '../index'
-import type { EngineAdapters, DuckdbEngine } from '../dispatcher'
-import type { Registry, RequestContext } from '../types'
 
 afterEach(() => {
   cleanup()
@@ -66,7 +66,7 @@ function makeQueryClient() {
  * output schema resolves to. Bumping `state.n` here simulates upstream
  * data changing between refetches.
  */
-function makeCountingEngine(): DuckdbEngine & { bump(): void; readonly n: number } {
+function makeCountingEngine(): DuckdbEngine & { bump: () => void, readonly n: number } {
   const state = { n: 0 }
   return {
     async execute(_sql, _params) {
@@ -144,7 +144,7 @@ describe('T-23 · registry → provider → hooks smoke', () => {
         queryClient={client}
       >
         <Screen />
-      </DataAccessProvider>
+      </DataAccessProvider>,
     )
 
     // Initial fetch resolves to n=0.
@@ -213,7 +213,7 @@ describe('T-23 · registry → provider → hooks smoke', () => {
         queryClient={makeQueryClient()}
       >
         <Listener />
-      </DataAccessProvider>
+      </DataAccessProvider>,
     )
 
     await act(async () => {

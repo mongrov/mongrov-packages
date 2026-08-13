@@ -1,5 +1,6 @@
 // Mock for @rn-primitives/slot
-import React from 'react'
+import * as React from 'react'
 
-export const Text = ({ children, testID, className, ...props }: any) =>
-  React.createElement('span', { 'data-testid': testID, className, ...props }, children)
+export function Text({ children, testID, className, ...props }: any) {
+  return React.createElement('span', { 'data-testid': testID, className, ...props }, children)
+}

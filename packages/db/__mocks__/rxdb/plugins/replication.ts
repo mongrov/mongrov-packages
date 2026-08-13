@@ -20,11 +20,11 @@ interface MockReplicationState {
   _pushHandler?: (docs: unknown[]) => Promise<void>
   _pullHandler?: (
     checkpoint: unknown,
-    batchSize: number
-  ) => Promise<{ documents: unknown[]; checkpoint: unknown }>
+    batchSize: number,
+  ) => Promise<{ documents: unknown[], checkpoint: unknown }>
   // Trigger methods for testing
   _triggerPush: (docs: unknown[]) => Promise<void>
-  _triggerPull: (checkpoint: unknown, batchSize: number) => Promise<{ documents: unknown[]; checkpoint: unknown }>
+  _triggerPull: (checkpoint: unknown, batchSize: number) => Promise<{ documents: unknown[], checkpoint: unknown }>
   _emitError: (error: Error) => void
 }
 
@@ -39,7 +39,7 @@ export function replicateRxCollection(options: {
     batchSize?: number
   }
   pull?: {
-    handler: (checkpoint: unknown, batchSize: number) => Promise<{ documents: unknown[]; checkpoint: unknown }>
+    handler: (checkpoint: unknown, batchSize: number) => Promise<{ documents: unknown[], checkpoint: unknown }>
     batchSize?: number
   }
   autoStart?: boolean

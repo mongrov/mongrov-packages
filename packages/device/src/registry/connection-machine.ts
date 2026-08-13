@@ -22,13 +22,13 @@
  * only for its `ownership` shape (guards read the flag).
  */
 
-import { setup, assign } from 'xstate'
-
 import type {
   DeviceAdapter,
   ErrorDetail,
   ScanCandidate,
 } from '../types'
+
+import { assign, setup } from 'xstate'
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -36,13 +36,13 @@ import type {
  * Phase captured on entry to `suspended` so `RESUMED` can re-enter the
  * correct region rather than blindly returning to `idle`.
  */
-export type ActivePhase =
-  | 'scanning'
-  | 'connecting'
-  | 'discovering'
-  | 'enabling'
-  | 'connected'
-  | 'reconnecting'
+export type ActivePhase
+  = | 'scanning'
+    | 'connecting'
+    | 'discovering'
+    | 'enabling'
+    | 'connected'
+    | 'reconnecting'
 
 /** Trigger tag stamped on entry to `suspended`; cleared on `RESUMED`. */
 export type SuspendedReason = 'bt-off' | 'permission-revoked' | 'backgrounded'
@@ -76,25 +76,25 @@ export interface ConnectionInput {
   candidate?: ScanCandidate
 }
 
-export type ConnectionEvent =
+export type ConnectionEvent
   // Discovery / connect
-  | { type: 'SCAN_START' }
-  | { type: 'SCAN_FOUND'; candidate: ScanCandidate }
-  | { type: 'SCAN_COMPLETE' }
-  | { type: 'CONNECT'; candidate?: ScanCandidate }
-  | { type: 'CONNECT_SUCCESS' }
-  | { type: 'CONNECT_FAILURE'; detail: ErrorDetail }
+  = | { type: 'SCAN_START' }
+    | { type: 'SCAN_FOUND', candidate: ScanCandidate }
+    | { type: 'SCAN_COMPLETE' }
+    | { type: 'CONNECT', candidate?: ScanCandidate }
+    | { type: 'CONNECT_SUCCESS' }
+    | { type: 'CONNECT_FAILURE', detail: ErrorDetail }
   // Teardown
-  | { type: 'DISCONNECT' } // user, from READY region
-  | { type: 'UNEXPECTED_DISCONNECT'; detail?: ErrorDetail }
-  | { type: 'CANCEL' } // in-progress cancel, ACTIVE region
+    | { type: 'DISCONNECT' } // user, from READY region
+    | { type: 'UNEXPECTED_DISCONNECT', detail?: ErrorDetail }
+    | { type: 'CANCEL' } // in-progress cancel, ACTIVE region
   // Global (parent-forwarded)
-  | { type: 'BT_OFF' }
-  | { type: 'PERMISSION_REVOKED' }
-  | { type: 'BACKGROUNDED' }
-  | { type: 'RESUMED' }
+    | { type: 'BT_OFF' }
+    | { type: 'PERMISSION_REVOKED' }
+    | { type: 'BACKGROUNDED' }
+    | { type: 'RESUMED' }
   // Adapter telemetry (context-only)
-  | { type: 'RSSI'; rssi: number }
+    | { type: 'RSSI', rssi: number }
 
 export interface ConnectionDelays {
   scanTimeoutMs: number
@@ -223,7 +223,7 @@ export function createConnectionMachine(
         }),
       }),
       setUnexpectedDisconnectError: assign({
-        lastError: (_, params: { canRetry: boolean; phase?: string }) => ({
+        lastError: (_, params: { canRetry: boolean, phase?: string }) => ({
           category: 'unexpected-disconnect' as const,
           phase: params.phase ?? 'connected',
           canRetry: params.canRetry,

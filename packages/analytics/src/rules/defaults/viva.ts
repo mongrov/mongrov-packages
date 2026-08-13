@@ -2,8 +2,8 @@
  * Viva brand default rules. Sidecar: `viva.toml`.
  */
 
-import { parseCatalog } from './loader'
 import type { Rule } from '../schema'
+import { parseCatalog } from './loader'
 
 const TOML = `
 # Viva brand default rules (placeholder set for v0.1.0).

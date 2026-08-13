@@ -14,20 +14,21 @@
  * shape contract.
  */
 
-import { mapActivity } from './activity'
-import { mapBattery } from './battery'
-import { mapHeartRate } from './heart-rate'
-import { mapHrv } from './hrv'
-import { mapRingConfig, type RingConfigClose } from './ring-config'
-import { reconstructSleepSessions } from './sleep'
-import { mapSpo2 } from './spo2'
-import { mapTemperature } from './temperature'
+import type { RingConfigClose } from './ring-config'
 import type {
   DeviceConfigRow,
   FirmwareExport,
   MappedBatch,
   MapperContext,
 } from './types'
+import { mapActivity } from './activity'
+import { mapBattery } from './battery'
+import { mapHeartRate } from './heart-rate'
+import { mapHrv } from './hrv'
+import { mapRingConfig } from './ring-config'
+import { reconstructSleepSessions } from './sleep'
+import { mapSpo2 } from './spo2'
+import { mapTemperature } from './temperature'
 
 export interface MapFirmwareOptions {
   /** Override for deterministic tests. Defaults to `new Date()`. */

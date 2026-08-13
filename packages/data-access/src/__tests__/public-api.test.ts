@@ -1,6 +1,12 @@
+import type {
+  EventDefinition,
+  MutationDefinition,
+  QueryDefinition,
+  RequestContext,
+} from '../index'
 import { describe, expect, it } from 'vitest'
-import { z } from 'zod'
 
+import { z } from 'zod'
 import {
   AuthorizationError,
   DataAccessError,
@@ -8,12 +14,6 @@ import {
   defineMutation,
   defineQuery,
   NotImplementedError,
-} from '../index'
-import type {
-  EventDefinition,
-  MutationDefinition,
-  QueryDefinition,
-  RequestContext,
 } from '../index'
 
 describe('DataAccessError taxonomy', () => {
@@ -61,7 +61,7 @@ describe('defineQuery (T-03)', () => {
         output: z.object({ n: z.number() }),
         // @ts-expect-error — missing sql field
         sql: undefined,
-      })
+      }),
     ).toThrow(DataAccessError)
   })
 
@@ -71,7 +71,7 @@ describe('defineQuery (T-03)', () => {
         engine: 'duckdb',
         output: z.object({ n: z.number() }),
         sql: '',
-      })
+      }),
     ).toThrow(/non-empty `sql`/)
   })
 
@@ -82,7 +82,7 @@ describe('defineQuery (T-03)', () => {
         output: z.number(),
         // @ts-expect-error — missing query field
         query: undefined,
-      })
+      }),
     ).toThrow(/requires a `query` function/)
   })
 
@@ -104,7 +104,7 @@ describe('defineQuery (T-03)', () => {
         output: z.string(),
         // @ts-expect-error — missing keyBuilder field
         keyBuilder: undefined,
-      })
+      }),
     ).toThrow(/requires a `keyBuilder` function/)
   })
 
@@ -113,11 +113,11 @@ describe('defineQuery (T-03)', () => {
       engine: 'kv',
       input: z.object({ userId: z.string() }),
       output: z.string(),
-      keyBuilder: (input) => `user:${input.userId}`,
+      keyBuilder: input => `user:${input.userId}`,
     })
     expect(q.__kind).toBe('query')
     expect(q.config.engine === 'kv' && q.config.keyBuilder({ userId: 'u1' })).toBe(
-      'user:u1'
+      'user:u1',
     )
   })
 })
@@ -140,14 +140,14 @@ describe('defineMutation (T-04)', () => {
         input: z.object({ id: z.string() }),
         // @ts-expect-error — missing exec
         exec: undefined,
-      })
+      }),
     ).toThrow(/requires an `exec`/)
   })
 })
 
 describe('defineEvent (T-05)', () => {
   it('returns an event handle', () => {
-    const e = defineEvent<{ table: string; rows: number }>()
+    const e = defineEvent<{ table: string, rows: number }>()
     expect(e.__kind).toBe('event')
   })
 })
@@ -155,8 +155,8 @@ describe('defineEvent (T-05)', () => {
 describe('type-surface compile check', () => {
   it('QueryDefinition / MutationDefinition / EventDefinition are exported', () => {
     const _q: QueryDefinition<{ id: string }, number> | undefined = undefined
-    const _m: MutationDefinition<{ id: string }, boolean> | undefined =
-      undefined
+    const _m: MutationDefinition<{ id: string }, boolean> | undefined
+      = undefined
     const _e: EventDefinition<{ ok: true }> | undefined = undefined
     const _ctx: RequestContext | undefined = undefined
     expect(_q).toBeUndefined()

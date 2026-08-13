@@ -1,4 +1,4 @@
-const preset = require('../../jest.preset');
+const preset = require('../../jest.preset')
 
 /** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
@@ -25,4 +25,4 @@ module.exports = {
       statements: 25,
     },
   },
-};
+}

@@ -2,9 +2,9 @@
  * Tests for createDatabase factory
  */
 
-import { createDatabase, destroyDatabase } from '../database'
-import type { DatabaseConfig, CollectionConfig } from '../types'
+import type { CollectionConfig, DatabaseConfig } from '../types'
 import { __clearAllDatabases } from '../../__mocks__/rxdb'
+import { createDatabase, destroyDatabase } from '../database'
 
 // Sample schema for testing
 const messageSchema = {
@@ -109,7 +109,7 @@ describe('createDatabase', () => {
         name: 'messages',
         schema: schemaV1,
         migrationStrategies: {
-          1: (oldDoc) => ({ ...oldDoc, newField: 'default' }),
+          1: oldDoc => ({ ...oldDoc, newField: 'default' }),
         },
       },
     ]
@@ -144,15 +144,15 @@ describe('createDatabase', () => {
 
     expect(logger.info).toHaveBeenCalledWith(
       'Creating database',
-      expect.objectContaining({ name: 'logged-db', collectionCount: 1 })
+      expect.objectContaining({ name: 'logged-db', collectionCount: 1 }),
     )
     expect(logger.debug).toHaveBeenCalledWith(
       'Database created',
-      expect.objectContaining({ name: 'logged-db' })
+      expect.objectContaining({ name: 'logged-db' }),
     )
     expect(logger.info).toHaveBeenCalledWith(
       'Collections added',
-      expect.objectContaining({ names: ['messages'] })
+      expect.objectContaining({ names: ['messages'] }),
     )
   })
 

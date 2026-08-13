@@ -6,29 +6,29 @@
  */
 
 import type {
+  Attachment,
+  ConnectionStatus,
+  // Conversation types
+  Conversation,
+  ConversationType,
+  CreateConversationConfig,
+  DeliveryStatus,
+  FileUpload,
+  GroupState,
+  Member,
+  MemberRole,
   // Message types
   Message,
   MessageContent,
-  Attachment,
-  Reaction,
-  DeliveryStatus,
-  // Conversation types
-  Conversation,
-  Member,
-  CreateConversationConfig,
-  ConversationType,
-  GroupState,
+  // Common types
+  Pagination,
   // Participant types
   Participant,
   ParticipantType,
-  MemberRole,
   PresenceStatus,
-  // Common types
-  Pagination,
-  Unsubscribe,
-  ConnectionStatus,
-  FileUpload,
+  Reaction,
   SearchOpts,
+  Unsubscribe,
 } from '../index'
 
 // ─── Participant Type Tests ────────────────────────────────────────────────

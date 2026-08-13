@@ -1,6 +1,6 @@
-import React from 'react';
-import { Pressable, Share, Text } from 'react-native';
-import type { LogExportButtonProps } from './types';
+import type { LogExportButtonProps } from './types'
+import * as React from 'react'
+import { Pressable, Share, Text } from 'react-native'
 
 export function LogExportButton({
   getExportData,
@@ -8,16 +8,17 @@ export function LogExportButton({
   testID,
 }: LogExportButtonProps) {
   const handleExport = async () => {
-    const data = getExportData();
+    const data = getExportData()
     try {
       await Share.share({
         message: data,
         title: 'App Logs',
-      });
-    } catch {
+      })
+    }
+    catch {
       // Share cancelled or failed
     }
-  };
+  }
 
   return (
     <Pressable
@@ -29,5 +30,5 @@ export function LogExportButton({
         {label}
       </Text>
     </Pressable>
-  );
+  )
 }

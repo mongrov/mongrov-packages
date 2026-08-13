@@ -1,13 +1,13 @@
 // We need to test the real network-state module, so mock only expo-network
+// Must import AFTER mocking
+import { addNetworkStateListener, getNetworkState } from '../network-state'
+
 const mockGetNetworkStateAsync = jest.fn()
 
 jest.mock('expo-network', () => ({
   getNetworkStateAsync: mockGetNetworkStateAsync,
   NetworkStateType: { NONE: 0, WIFI: 1, CELLULAR: 2 },
 }))
-
-// Must import AFTER mocking
-import { getNetworkState, addNetworkStateListener } from '../network-state'
 
 describe('NetworkState', () => {
   beforeEach(() => {
@@ -79,7 +79,7 @@ describe('NetworkState', () => {
     await Promise.resolve()
 
     expect(listener).toHaveBeenCalledWith(
-      expect.objectContaining({ isConnected: false })
+      expect.objectContaining({ isConnected: false }),
     )
 
     sub.remove()

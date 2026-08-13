@@ -56,23 +56,24 @@ export class RingBufferTransport implements LogTransport {
   }
 
   private applyFilter(entries: LogEntry[], filter?: LogFilter): LogEntry[] {
-    if (!filter) return entries
+    if (!filter)
+      return entries
 
     let result = entries
 
     if (filter.level) {
       const minLevel = LEVEL_ORDER[filter.level]
-      result = result.filter((e) => LEVEL_ORDER[e.level] >= minLevel)
+      result = result.filter(e => LEVEL_ORDER[e.level] >= minLevel)
     }
 
     if (filter.since) {
       const sinceTime = filter.since.getTime()
-      result = result.filter((e) => new Date(e.timestamp).getTime() >= sinceTime)
+      result = result.filter(e => new Date(e.timestamp).getTime() >= sinceTime)
     }
 
     if (filter.search) {
       const search = filter.search.toLowerCase()
-      result = result.filter((e) => e.message.toLowerCase().includes(search))
+      result = result.filter(e => e.message.toLowerCase().includes(search))
     }
 
     if (filter.limit && filter.limit > 0) {

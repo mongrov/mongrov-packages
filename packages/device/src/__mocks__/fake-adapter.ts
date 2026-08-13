@@ -18,14 +18,14 @@ import type {
 
 export interface FakeAdapter extends DeviceAdapter {
   /** Fire a normalized connection-state change to every subscriber. */
-  emitConnectionChange(
+  emitConnectionChange: (
     deviceId: string,
     state: ConnectionState,
     detail?: ErrorDetail,
-  ): void
+  ) => void
 
   /** Fire a scan candidate to every active scanner. */
-  emitScanCandidate(candidate: ScanCandidate): void
+  emitScanCandidate: (candidate: ScanCandidate) => void
 
   /** Recorded connect() invocations, in order. */
   connectCalls: string[]
@@ -34,7 +34,7 @@ export interface FakeAdapter extends DeviceAdapter {
   disconnectCalls: string[]
 
   /** Whether a scan is currently active. */
-  isScanning(): boolean
+  isScanning: () => boolean
 }
 
 export interface FakeAdapterOptions {

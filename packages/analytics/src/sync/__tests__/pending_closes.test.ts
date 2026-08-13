@@ -9,11 +9,11 @@
  *   6. Empty enqueue / empty requeue is a no-op (no KV write).
  */
 
-import { describe, expect, it } from 'vitest'
-
-import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import type { AttachContext } from '../../core/types'
+
 import type { RingConfigClose } from '../mapper/ring-config'
+import { describe, expect, it } from 'vitest'
+import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { PendingClosesStore } from '../pending_closes'
 
 const ctx: Pick<AttachContext, 'brand' | 'tenantId'> = {

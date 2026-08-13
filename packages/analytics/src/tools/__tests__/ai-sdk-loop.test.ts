@@ -1,9 +1,9 @@
+import type { ToolContext } from '../types'
 import { generateText } from 'ai'
 import { MockLanguageModelV1 } from 'ai/test'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeEngine } from '../__fakes__/engine'
 import { createAnalyticsTools } from '../factory'
-import type { ToolContext } from '../types'
 
 /**
  * T-15 — Full AI SDK loop.
@@ -246,7 +246,7 @@ describe('generateText loop against analytics tools handle', () => {
       model,
       tools: handle.tools,
       maxSteps: 3,
-      prompt: "How is bob's HRV?",
+      prompt: 'How is bob\'s HRV?',
     })
 
     // Model got a chance to respond after the reject.

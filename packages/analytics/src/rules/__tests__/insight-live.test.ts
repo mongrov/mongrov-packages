@@ -9,15 +9,16 @@
  * violation lands as a queryable `insight` row with the spec columns.
  */
 
-import { describe, expect, it, vi } from 'vitest'
-
 import type { AnalyticsEngine, EventBus } from '../../core/types'
-import { createAnalytics } from '../../core/factory'
-import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { luminxDefaults } from '../defaults'
-import { createRulesEngine, type RulesEngine } from '../index'
 
+import type { RulesEngine } from '../index'
+import { describe, expect, it, vi } from 'vitest'
+import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
+import { createAnalytics } from '../../core/factory'
+
+import { luminxDefaults } from '../defaults'
+import { createRulesEngine } from '../index'
 
 const BRAND = 'luminx'
 const USER = 'user_asset_1'

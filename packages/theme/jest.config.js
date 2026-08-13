@@ -1,4 +1,4 @@
-const preset = require('../../jest.preset');
+const preset = require('../../jest.preset')
 
 /** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
@@ -10,4 +10,4 @@ module.exports = {
     '^react-native-mmkv$': '<rootDir>/__mocks__/react-native-mmkv.ts',
     '^react-native$': '<rootDir>/__mocks__/react-native.ts',
   },
-};
+}

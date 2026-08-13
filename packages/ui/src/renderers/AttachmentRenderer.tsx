@@ -5,8 +5,9 @@
  * App provides the actual UI components.
  */
 
-import { useMemo, type ReactNode } from 'react'
 import type { Attachment } from '@mongrov/types'
+import type { ReactNode } from 'react'
+import { useMemo } from 'react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -58,22 +59,23 @@ export interface AttachmentRenderProps {
   mimeCategory: MimeCategory
 }
 
-export type MimeCategory =
-  | 'image'
-  | 'video'
-  | 'audio'
-  | 'pdf'
-  | 'document'
-  | 'spreadsheet'
-  | 'presentation'
-  | 'archive'
-  | 'code'
-  | 'unknown'
+export type MimeCategory
+  = | 'image'
+    | 'video'
+    | 'audio'
+    | 'pdf'
+    | 'document'
+    | 'spreadsheet'
+    | 'presentation'
+    | 'archive'
+    | 'code'
+    | 'unknown'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatFileSize(bytes?: number): string {
-  if (bytes === undefined || bytes === null) return ''
+  if (bytes === undefined || bytes === null)
+    return ''
 
   const units = ['B', 'KB', 'MB', 'GB']
   let size = bytes
@@ -88,7 +90,8 @@ function formatFileSize(bytes?: number): string {
 }
 
 function formatDuration(seconds?: number): string | undefined {
-  if (seconds === undefined || seconds === null) return undefined
+  if (seconds === undefined || seconds === null)
+    return undefined
 
   const mins = Math.floor(seconds / 60)
   const secs = Math.floor(seconds % 60)
@@ -108,53 +111,57 @@ function getFileExtension(fileName: string): string {
 }
 
 function getMimeCategory(mimeType: string): MimeCategory {
-  if (mimeType.startsWith('image/')) return 'image'
-  if (mimeType.startsWith('video/')) return 'video'
-  if (mimeType.startsWith('audio/')) return 'audio'
-  if (mimeType === 'application/pdf') return 'pdf'
+  if (mimeType.startsWith('image/'))
+    return 'image'
+  if (mimeType.startsWith('video/'))
+    return 'video'
+  if (mimeType.startsWith('audio/'))
+    return 'audio'
+  if (mimeType === 'application/pdf')
+    return 'pdf'
 
   if (
-    mimeType.includes('document') ||
-    mimeType.includes('msword') ||
-    mimeType.includes('wordprocessing')
+    mimeType.includes('document')
+    || mimeType.includes('msword')
+    || mimeType.includes('wordprocessing')
   ) {
     return 'document'
   }
 
   if (
-    mimeType.includes('spreadsheet') ||
-    mimeType.includes('excel') ||
-    mimeType.includes('ms-excel')
+    mimeType.includes('spreadsheet')
+    || mimeType.includes('excel')
+    || mimeType.includes('ms-excel')
   ) {
     return 'spreadsheet'
   }
 
   if (
-    mimeType.includes('presentation') ||
-    mimeType.includes('powerpoint') ||
-    mimeType.includes('ms-powerpoint')
+    mimeType.includes('presentation')
+    || mimeType.includes('powerpoint')
+    || mimeType.includes('ms-powerpoint')
   ) {
     return 'presentation'
   }
 
   if (
-    mimeType.includes('zip') ||
-    mimeType.includes('rar') ||
-    mimeType.includes('tar') ||
-    mimeType.includes('gzip') ||
-    mimeType.includes('7z')
+    mimeType.includes('zip')
+    || mimeType.includes('rar')
+    || mimeType.includes('tar')
+    || mimeType.includes('gzip')
+    || mimeType.includes('7z')
   ) {
     return 'archive'
   }
 
   if (
-    mimeType.includes('javascript') ||
-    mimeType.includes('typescript') ||
-    mimeType.includes('json') ||
-    mimeType.includes('xml') ||
-    mimeType.includes('html') ||
-    mimeType.includes('css') ||
-    mimeType === 'text/plain'
+    mimeType.includes('javascript')
+    || mimeType.includes('typescript')
+    || mimeType.includes('json')
+    || mimeType.includes('xml')
+    || mimeType.includes('html')
+    || mimeType.includes('css')
+    || mimeType === 'text/plain'
   ) {
     return 'code'
   }
@@ -163,9 +170,12 @@ function getMimeCategory(mimeType: string): MimeCategory {
 }
 
 function getIconName(type: Attachment['type'], mimeCategory: MimeCategory): string {
-  if (type === 'image') return 'image'
-  if (type === 'video') return 'video'
-  if (type === 'audio') return 'audio'
+  if (type === 'image')
+    return 'image'
+  if (type === 'video')
+    return 'video'
+  if (type === 'audio')
+    return 'audio'
 
   // For files, use mime category
   const iconMap: Record<MimeCategory, string> = {
@@ -196,7 +206,7 @@ export function useAttachmentRenderer(
     isLoading?: boolean
     progress?: number
     error?: string
-  }
+  },
 ): AttachmentRenderProps {
   return useMemo(() => {
     const { type, fileName, mimeType, size, duration, thumbnail } = attachment

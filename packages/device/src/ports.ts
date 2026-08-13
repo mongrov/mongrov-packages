@@ -31,7 +31,7 @@ import type {
  * MAY re-emit overlapping backlog vs live; db collapses the overlap to one row.
  */
 export interface ReadingSink {
-  write(reading: DeviceReading): Promise<void>
+  write: (reading: DeviceReading) => Promise<void>
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -44,8 +44,8 @@ export interface ReadingSink {
  * pulls to terminator, and writes the new cursor back.
  */
 export interface ConfigStore {
-  getCursor(deviceId: string, metric: string): Promise<number | undefined>
-  setCursor(deviceId: string, metric: string, cursor: number): Promise<void>
+  getCursor: (deviceId: string, metric: string) => Promise<number | undefined>
+  setCursor: (deviceId: string, metric: string, cursor: number) => Promise<void>
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ export interface ConfigStore {
  * WebhookTransport for remote diagnostics.
  */
 export interface DeviceLogger {
-  log(event: DeviceDiagnosticEvent): void
+  log: (event: DeviceDiagnosticEvent) => void
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ export type LifecycleState = 'foreground' | 'background'
  * `AppState` directly — apps map their platform lifecycle to this port.
  */
 export interface LifecyclePort {
-  subscribe(listener: (state: LifecycleState) => void): LifecycleUnsubscribe
+  subscribe: (listener: (state: LifecycleState) => void) => LifecycleUnsubscribe
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -104,9 +104,9 @@ export interface LifecyclePort {
  * event persistence.
  */
 export interface DeviceEventSink {
-  emit<T extends DeviceEventType>(
+  emit: <T extends DeviceEventType>(
     eventType: T,
     deviceId: string,
     payload: DeviceEventPayload<T>,
-  ): void
+  ) => void
 }

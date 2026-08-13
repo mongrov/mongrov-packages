@@ -66,7 +66,7 @@ const rule: Rule.RuleModule = {
   },
   create(context) {
     const options = resolveOptions(
-      context.options[0] as Partial<Options> | undefined
+      context.options[0] as Partial<Options> | undefined,
     )
     const filename = context.filename ?? context.getFilename?.() ?? '<input>'
 
@@ -86,34 +86,34 @@ const rule: Rule.RuleModule = {
     }
 
     function checkSource(node: Rule.Node, source: string | null | undefined) {
-      if (!source) return
+      if (!source)
+        return
       const match = matchBlocked(source, options.blockedPackages)
-      if (match) report(node, match)
+      if (match)
+        report(node, match)
     }
 
     return {
       ImportDeclaration(node) {
         // eslint's AST types leak — cast to any for the source literal.
-        const src = (node as unknown as { source: { value?: unknown } }).source
-          ?.value
+        const src = (node as unknown as { source: { value?: unknown } }).source?.value
         if (typeof src === 'string') {
           checkSource(node as unknown as Rule.Node, src)
         }
       },
       ImportExpression(node) {
-        const src = (node as unknown as { source: { value?: unknown } }).source
-          ?.value
+        const src = (node as unknown as { source: { value?: unknown } }).source?.value
         if (typeof src === 'string') {
           checkSource(node as unknown as Rule.Node, src)
         }
       },
       CallExpression(node) {
-        const callee = (node as unknown as { callee: { name?: string; type: string } })
+        const callee = (node as unknown as { callee: { name?: string, type: string } })
           .callee
         if (!callee || callee.type !== 'Identifier' || callee.name !== 'require') {
           return
         }
-        const args = (node as unknown as { arguments: Array<{ type: string; value?: unknown }> })
+        const args = (node as unknown as { arguments: Array<{ type: string, value?: unknown }> })
           .arguments
         const first = args[0]
         if (first && first.type === 'Literal' && typeof first.value === 'string') {
@@ -134,7 +134,8 @@ function resolveOptions(raw: Partial<Options> | undefined): Options {
 }
 
 function isAllowed(filename: string, allowedDirs: string[]): boolean {
-  if (allowedDirs.length === 0) return false
+  if (allowedDirs.length === 0)
+    return false
   const normalized = filename.split(path.sep).join('/')
   return allowedDirs.some((dir) => {
     const normalizedDir = dir.split(path.sep).join('/')
@@ -144,7 +145,7 @@ function isAllowed(filename: string, allowedDirs: string[]): boolean {
 
 function matchBlocked(
   source: string,
-  blockedPackages: string[]
+  blockedPackages: string[],
 ): string | null {
   for (const pkg of blockedPackages) {
     if (source === pkg || source.startsWith(`${pkg}/`)) {
@@ -155,12 +156,14 @@ function matchBlocked(
 }
 
 function relativize(filename: string): string {
-  if (filename === '<input>') return filename
+  if (filename === '<input>')
+    return filename
   try {
     const rel = path.relative(process.cwd(), filename)
     // Show relative form when it's a descendant; keep absolute when it isn't.
     return rel.startsWith('..') ? filename : rel
-  } catch {
+  }
+  catch {
     return filename
   }
 }

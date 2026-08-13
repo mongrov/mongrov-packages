@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createActor } from 'xstate'
-
-import { analyticsMachine, computeRefreshDelay } from '../machine'
 import type { AttachContext } from '../types'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { createActor } from 'xstate'
+import { analyticsMachine, computeRefreshDelay } from '../machine'
 
 import { createFakeMachineActors } from './__fakes__/fake-machine-actors'
 

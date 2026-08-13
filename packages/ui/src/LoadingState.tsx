@@ -1,6 +1,6 @@
-import React from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
-import type { LoadingStateProps } from './types';
+import type { LoadingStateProps } from './types'
+import * as React from 'react'
+import { ActivityIndicator, Text, View } from 'react-native'
 
 export function LoadingState({ message, size = 'large', testID }: LoadingStateProps) {
   return (
@@ -10,5 +10,5 @@ export function LoadingState({ message, size = 'large', testID }: LoadingStatePr
         <Text className="mt-4 text-sm text-muted-foreground text-center">{message}</Text>
       )}
     </View>
-  );
+  )
 }

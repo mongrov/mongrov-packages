@@ -1,9 +1,9 @@
+import type { Rule } from '../schema'
 import { describe, expect, it, vi } from 'vitest'
-import { createRulesEngine } from '../factory'
+import { createFakeClock } from '../__fakes__/fakeClock'
 import { createFakeEngine } from '../__fakes__/fakeEngine'
 import { createFakeStorage } from '../__fakes__/fakeStorage'
-import { createFakeClock } from '../__fakes__/fakeClock'
-import type { Rule } from '../schema'
+import { createRulesEngine } from '../factory'
 
 const rule = {
   id: 'test.hrv.drop',

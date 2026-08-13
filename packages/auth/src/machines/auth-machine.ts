@@ -1,30 +1,30 @@
-import { setup, assign } from 'xstate';
-import type { AuthError, UserInfo } from '../types';
+import type { AuthError, UserInfo } from '../types'
+import { assign, setup } from 'xstate'
 
 // --- Context ---
 export interface AuthMachineContext {
-  user: UserInfo | null;
-  error: AuthError | null;
-  accessToken: string | null;
-  refreshToken: string | null;
-  isHydrated: boolean;
+  user: UserInfo | null
+  error: AuthError | null
+  accessToken: string | null
+  refreshToken: string | null
+  isHydrated: boolean
   /** @internal Tracks whether the current authenticating state was entered via hydrate or signIn */
-  _flow: 'none' | 'hydrate' | 'signIn';
+  _flow: 'none' | 'hydrate' | 'signIn'
 }
 
 // --- Events ---
-export type AuthMachineEvent =
-  | { type: 'HYDRATE_START' }
-  | { type: 'HYDRATE_SUCCESS'; user: UserInfo; accessToken: string; refreshToken: string | null }
-  | { type: 'HYDRATE_NO_TOKENS' }
-  | { type: 'HYDRATE_FAILURE'; error: AuthError }
-  | { type: 'SET_HYDRATED' }
-  | { type: 'SIGN_IN' }
-  | { type: 'SIGN_IN_SUCCESS'; user: UserInfo; accessToken: string; refreshToken: string | null }
-  | { type: 'SIGN_IN_FAILURE'; error: AuthError }
-  | { type: 'SIGN_OUT' }
-  | { type: 'TOKEN_REFRESHED'; accessToken: string; refreshToken: string | null }
-  | { type: 'REFRESH_FAILED' };
+export type AuthMachineEvent
+  = | { type: 'HYDRATE_START' }
+    | { type: 'HYDRATE_SUCCESS', user: UserInfo, accessToken: string, refreshToken: string | null }
+    | { type: 'HYDRATE_NO_TOKENS' }
+    | { type: 'HYDRATE_FAILURE', error: AuthError }
+    | { type: 'SET_HYDRATED' }
+    | { type: 'SIGN_IN' }
+    | { type: 'SIGN_IN_SUCCESS', user: UserInfo, accessToken: string, refreshToken: string | null }
+    | { type: 'SIGN_IN_FAILURE', error: AuthError }
+    | { type: 'SIGN_OUT' }
+    | { type: 'TOKEN_REFRESHED', accessToken: string, refreshToken: string | null }
+    | { type: 'REFRESH_FAILED' }
 
 export const authMachine = setup({
   types: {
@@ -172,6 +172,6 @@ export const authMachine = setup({
       actions: assign({ isHydrated: true }),
     },
   },
-});
+})
 
-export type AuthMachineSnapshot = ReturnType<typeof authMachine.getInitialSnapshot>;
+export type AuthMachineSnapshot = ReturnType<typeof authMachine.getInitialSnapshot>

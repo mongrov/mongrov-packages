@@ -6,15 +6,15 @@
  *   2. `useRuleRegistry` reflects register/enable/disable via useSyncExternalStore.
  */
 
+import type { Rule } from '../schema'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createRulesEngine } from '../factory'
+import { createFakeClock } from '../__fakes__/fakeClock'
 import { createFakeEngine } from '../__fakes__/fakeEngine'
 import { createFakeStorage } from '../__fakes__/fakeStorage'
-import { createFakeClock } from '../__fakes__/fakeClock'
+import { createRulesEngine } from '../factory'
 import { useRuleRegistry } from '../hooks/useRuleRegistry'
 import { useRuleViolations } from '../hooks/useRuleViolations'
-import type { Rule } from '../schema'
 
 const hrvRule = {
   id: 'test.hrv.drop',

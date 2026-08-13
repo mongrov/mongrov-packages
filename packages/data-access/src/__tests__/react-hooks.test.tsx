@@ -1,18 +1,18 @@
 // @vitest-environment jsdom
 
+import type { EngineAdapters } from '../dispatcher'
+import type { EventBus, Registry, RequestContext } from '../types'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
+
 import * as React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-
 import {
-  DataAccessProvider,
   createEventBus,
   DataAccessError,
+  DataAccessProvider,
   useAppEvent,
   useRequestContext,
 } from '../index'
-import type { EngineAdapters } from '../dispatcher'
-import type { EventBus, Registry, RequestContext } from '../types'
 
 const emptyRegistry: Registry = { queries: {}, mutations: {}, events: {} }
 const noEngines: EngineAdapters = {}
@@ -77,7 +77,7 @@ describe('T-16 · DataAccessProvider', () => {
         context={() => makeCtx({ brand: 'ziva-two' })}
       >
         <BrandProbe />
-      </DataAccessProvider>
+      </DataAccessProvider>,
     )
     expect(getByTestId('brand').textContent).toBe('ziva-two')
   })
@@ -87,7 +87,7 @@ describe('T-16 · DataAccessProvider', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       expect(() =>
-        renderHook(() => useRequestContext())
+        renderHook(() => useRequestContext()),
       ).toThrow(DataAccessError)
     }
     finally {
@@ -161,7 +161,7 @@ describe('T-15 · useAppEvent', () => {
 
     const { rerender } = renderHook(
       ({ h }: { h: (p: unknown) => void }) => useAppEvent('hrv:insert', h),
-      { wrapper: wrapperWith({ bus }), initialProps: { h: first } }
+      { wrapper: wrapperWith({ bus }), initialProps: { h: first } },
     )
     act(() => bus.emit('hrv:insert', 'a'))
     expect(first).toHaveBeenCalledWith('a')
@@ -182,7 +182,7 @@ describe('T-15 · useAppEvent', () => {
       {
         wrapper: wrapperWith({ bus }),
         initialProps: { name: 'hrv:insert' },
-      }
+      },
     )
     act(() => bus.emit('hrv:insert', 1))
     expect(handler).toHaveBeenCalledWith(1)
@@ -206,7 +206,7 @@ function BrandProbe() {
 function useAppEventProbe<T>(name: string) {
   const [received, setReceived] = React.useState<T[]>([])
   useAppEvent<T>(name, (payload) => {
-    setReceived((prev) => [...prev, payload])
+    setReceived(prev => [...prev, payload])
   })
   return { received }
 }

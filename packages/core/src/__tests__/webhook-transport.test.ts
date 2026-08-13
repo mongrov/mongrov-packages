@@ -1,5 +1,5 @@
+import type { LogContext, LogEntry } from '../types'
 import { WebhookTransport } from '../transports/webhook'
-import type { LogEntry, LogContext } from '../types'
 
 // Mock network-state (needed by OfflineQueue)
 jest.mock('../network-state', () => ({
@@ -48,7 +48,7 @@ describe('WebhookTransport', () => {
     jest.clearAllMocks()
     jest.useFakeTimers()
     // Clear persisted queue between tests
-    Object.keys(mmkvData).forEach((k) => delete mmkvData[k])
+    Object.keys(mmkvData).forEach(k => delete mmkvData[k])
     mockFetch.mockResolvedValue({ ok: true, status: 200 })
   })
 
@@ -110,7 +110,7 @@ describe('WebhookTransport', () => {
     await transport.send([makeEntry()])
 
     const [, options] = mockFetch.mock.calls[0]
-    expect(options.headers['Authorization']).toBe('Bearer token123')
+    expect(options.headers.Authorization).toBe('Bearer token123')
     expect(options.headers['Content-Type']).toBe('application/json')
 
     await transport.destroy()
@@ -120,8 +120,8 @@ describe('WebhookTransport', () => {
     const transport = new WebhookTransport({
       url: 'https://example.com/logs',
       batchSize: 1,
-      formatPayload: (entries) => ({
-        text: entries.map((e) => e.message).join(', '),
+      formatPayload: entries => ({
+        text: entries.map(e => e.message).join(', '),
       }),
     })
 

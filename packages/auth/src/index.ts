@@ -1,21 +1,21 @@
 // Factory
-export { createAuthClient } from './auth-client';
+export { createAuthClient } from './auth-client'
 
 // Context
-export { AuthProvider, useAuth, useAuthClient } from './auth-provider';
+export { AuthProvider, useAuth, useAuthClient } from './auth-provider'
 
-// Session
-export { useSession } from './session';
+// Biometric
+export { useBiometricGate } from './biometric'
 
 // Storage
-export { SecureTokenStore } from './secure-token-store';
+export { SecureTokenStore } from './secure-token-store'
 
 // Interceptor — exported via '@mongrov/auth/interceptor' subpath
 // to avoid leaking axios types into the main entry point.
 // import { createAuthInterceptor } from '@mongrov/auth/interceptor';
 
-// Biometric
-export { useBiometricGate } from './biometric';
+// Session
+export { useSession } from './session'
 
 // Social Auth — exported via '@mongrov/auth/social-auth' subpath
 // to avoid pulling expo-apple-authentication + @react-native-google-signin/google-signin
@@ -25,21 +25,21 @@ export { useBiometricGate } from './biometric';
 // Types
 export type {
   AuthAdapter,
-  AuthTokens,
-  AuthState,
-  AuthStatus,
-  AuthError,
-  AuthErrorCode,
   AuthClient,
   AuthClientConfig,
+  AuthError,
+  AuthErrorCode,
   AuthLogger,
-  TokenStore,
-  UserInfo,
+  AuthMethodConfig,
+  AuthState,
+  AuthStatus,
+  AuthTokens,
+  BackendConfig,
   Session,
+  SocialProvider,
   // Tenant types
   TenantConfig,
-  AuthMethodConfig,
-  SocialProvider,
-  BackendConfig,
   TenantContext,
-} from './types';
+  TokenStore,
+  UserInfo,
+} from './types'

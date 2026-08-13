@@ -11,8 +11,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { BASELINE_MIN_DAYS, getBaselineMetricIds } from '../../core/metric_metadata'
 import { buildBaselineSql, createBaselineComputer } from '../baseline-compute'
 
-import { createFakeEngine } from './__fakes__/fake-engine'
-
 const CTX = {
   brand: 'ziva',
   familyId: 'fam1',
@@ -26,7 +24,8 @@ function scriptedEngine(row: Record<string, unknown> | null) {
   const engine = {
     async execute(sql: string, params?: Record<string, unknown>) {
       calls.push({ sql, params: params ?? {} })
-      if (sql.includes('quantile_cont')) return row ? [row] : []
+      if (sql.includes('quantile_cont'))
+        return row ? [row] : []
       return []
     },
   }
@@ -115,8 +114,7 @@ describe('Ziva #3 — day-first vs raw quantiles diverge', () => {
       .sort((a, b) => a - b)
     const rawP10 = raw[Math.floor(0.1 * (raw.length - 1))]
 
-    const dailyValues = Array.from({ length: days }, () =>
-      perDay.reduce((a, v) => a + v, 0) / perDay.length)
+    const dailyValues = Array.from({ length: days }, () => perDay.reduce((a, v) => a + v, 0) / perDay.length)
     const dayFirstP10 = dailyValues[Math.floor(0.1 * (dailyValues.length - 1))]
 
     expect(rawP10).toBe(87) // the dip — wrong
@@ -130,8 +128,14 @@ describe('Ziva #3 — day-first vs raw quantiles diverge', () => {
 
 describe('computeOne', () => {
   const fullRow = {
-    p05: 92, p10: 93, p50: 96, p90: 98, p95: 99,
-    mean: 96, stddev: 1.5, sample_count: 28,
+    p05: 92,
+    p10: 93,
+    p50: 96,
+    p90: 98,
+    p95: 99,
+    mean: 96,
+    stddev: 1.5,
+    sample_count: 28,
   }
 
   it('UPSERTs and emits user_baseline:updated when there is enough data', async () => {
@@ -148,14 +152,22 @@ describe('computeOne', () => {
     expect(upsert).toBeDefined()
     expect(upsert!.sql).toContain('ON CONFLICT')
     expect(upsert!.params).toMatchObject({
-      brand: 'ziva', familyId: 'fam1', userId: 'alice',
-      metric: 'spo2', windowDays: 30, p10: 93, sampleCount: 28,
+      brand: 'ziva',
+      familyId: 'fam1',
+      userId: 'alice',
+      metric: 'spo2',
+      windowDays: 30,
+      p10: 93,
+      sampleCount: 28,
     })
 
     expect(emitted).toHaveLength(1)
     expect(emitted[0].name).toBe('user_baseline:updated')
     expect(emitted[0].payload).toMatchObject({
-      userId: 'alice', metric: 'spo2', windowDays: 30, sampleCount: 28,
+      userId: 'alice',
+      metric: 'spo2',
+      windowDays: 30,
+      sampleCount: 28,
     })
   })
 
@@ -200,8 +212,14 @@ describe('computeOne', () => {
 describe('computeAll', () => {
   it('covers every metric x window and reports the tally', async () => {
     const { engine } = scriptedEngine({
-      p05: 1, p10: 2, p50: 3, p90: 4, p95: 5,
-      mean: 3, stddev: 1, sample_count: 25,
+      p05: 1,
+      p10: 2,
+      p50: 3,
+      p90: 4,
+      p95: 5,
+      mean: 3,
+      stddev: 1,
+      sample_count: 25,
     })
     const computer = createBaselineComputer({ analytics: engine as never })
 
@@ -220,10 +238,17 @@ describe('computeAll', () => {
       async execute(sql: string) {
         if (sql.includes('quantile_cont')) {
           calls += 1
-          if (calls === 1) throw new Error('view v_hrv does not exist')
+          if (calls === 1)
+            throw new Error('view v_hrv does not exist')
           return [{
-            p05: 1, p10: 2, p50: 3, p90: 4, p95: 5,
-            mean: 3, stddev: 1, sample_count: 25,
+            p05: 1,
+            p10: 2,
+            p50: 3,
+            p90: 4,
+            p95: 5,
+            mean: 3,
+            stddev: 1,
+            sample_count: 25,
           }]
         }
         return []

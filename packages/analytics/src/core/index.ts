@@ -5,31 +5,10 @@
  * phased tasks in `.specifica/features/analytics-core/tasks.md`.
  */
 
-// Factory (T-02 stub → T-10 real)
-export { createAnalytics } from './factory'
-
-// Hooks (T-11/12/13)
-export { useAnalytics, useInsight, useTimeseries } from './hooks'
-export type {
-  UseAnalyticsResult,
-  UseInsightResult,
-  UseTimeseriesResult,
-} from './hooks'
-
 // Provider (Phase 5)
 export { AnalyticsProvider } from './context'
+
 export type { AnalyticsProviderProps } from './context'
-
-// Errors
-export { AnalyticsError, NotImplementedError } from './errors'
-export type { AnalyticsErrorCode } from './errors'
-
-// Table sync metadata registry (v0.2.0 — public surface for consumers
-// who need to know a table's sync watermark column or syncability flag,
-// e.g. when composing custom pushAll/fetch loops).
-export { isSyncable, TABLE_METADATA, timeColumnFor } from './table_metadata'
-export type { TableSyncMetadata } from './table_metadata'
-
 // Device event enum + payload schemas (Sprint 5 §6). Re-exported from
 // @mongrov/types so @mongrov/device can emit typed events without a
 // runtime dependency on the analytics engine.
@@ -41,27 +20,42 @@ export {
   isDeviceEventType,
   SyncTrigger,
 } from './device-events'
+
 export type {
   DeviceEventPayload,
   DeviceEventType,
   SyncTriggerValue,
 } from './device-events'
+// Errors
+export { AnalyticsError, NotImplementedError } from './errors'
 
-// Watermark cache (Sprint 5 T-07). Disabled by default — measurement-gated
-// on Ziva pilot p95 latency; the instrument runs regardless.
-export {
-  createWatermarkCache,
-  WATERMARK_CACHE_TTL_MS,
-} from './watermark-cache'
+export type { AnalyticsErrorCode } from './errors'
+// Factory (T-02 stub → T-10 real)
+export { createAnalytics } from './factory'
+
+// Hooks (T-11/12/13)
+export { useAnalytics, useInsight, useTimeseries } from './hooks'
 export type {
-  WatermarkCache,
-  WatermarkCacheOptions,
-  WatermarkCacheStats,
-} from './watermark-cache'
+  UseAnalyticsResult,
+  UseInsightResult,
+  UseTimeseriesResult,
+} from './hooks'
 
 // Insight dismissal (Sprint 5 §7b / T-15c).
 export { dismissInsight } from './insight'
 export type { DismissInsightArgs, DismissInsightDeps } from './insight'
+
+// Baseline metadata (Sprint 5 §7).
+export {
+  BASELINE_MIN_DAYS,
+  BASELINE_WINDOW_DAYS,
+  baselineAggregateFor,
+  getBaselineMetricIds,
+} from './metric_metadata'
+export type {
+  BaselineDailyAggregate,
+  BaselineWindowDays,
+} from './metric_metadata'
 
 // Effective sampling cadence (Sprint 5 T-41, principle 22). Chart data
 // providers and gap detection should resolve cadence through this rather
@@ -77,18 +71,6 @@ export type {
   SamplingResolver,
   SamplingResolverConfig,
 } from './sampling'
-
-// Baseline metadata (Sprint 5 §7).
-export {
-  baselineAggregateFor,
-  BASELINE_MIN_DAYS,
-  BASELINE_WINDOW_DAYS,
-  getBaselineMetricIds,
-} from './metric_metadata'
-export type {
-  BaselineDailyAggregate,
-  BaselineWindowDays,
-} from './metric_metadata'
 
 // Union views (Sprint 5 §3). Registry/rule/tool SQL targets `v_{table}`,
 // never `local.{table}` or `r2.default.{table}` (principle 19).
@@ -108,6 +90,12 @@ export {
   watermarkColumnFor,
 } from './schemas'
 export type { ViewedTable } from './schemas'
+
+// Table sync metadata registry (v0.2.0 — public surface for consumers
+// who need to know a table's sync watermark column or syncability flag,
+// e.g. when composing custom pushAll/fetch loops).
+export { isSyncable, TABLE_METADATA, timeColumnFor } from './table_metadata'
+export type { TableSyncMetadata } from './table_metadata'
 
 // Types
 export type {
@@ -129,3 +117,15 @@ export type {
   TokenVendor,
   Unsubscribe,
 } from './types'
+// Watermark cache (Sprint 5 T-07). Disabled by default — measurement-gated
+// on Ziva pilot p95 latency; the instrument runs regardless.
+export {
+  createWatermarkCache,
+  WATERMARK_CACHE_TTL_MS,
+} from './watermark-cache'
+
+export type {
+  WatermarkCache,
+  WatermarkCacheOptions,
+  WatermarkCacheStats,
+} from './watermark-cache'

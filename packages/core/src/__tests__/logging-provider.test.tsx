@@ -1,8 +1,9 @@
 /**
  * @jest-environment jsdom
  */
-import React from 'react'
+
 import { renderHook } from '@testing-library/react'
+import * as React from 'react'
 import { LoggingProvider, useLogger } from '../context/logging-provider'
 
 // Mock react-native
@@ -63,7 +64,7 @@ describe('LoggingProvider', () => {
 
     result.current.info('test from provider')
 
-    await new Promise((r) => setTimeout(r, 10))
+    await new Promise(r => setTimeout(r, 10))
 
     const logs = result.current.getLogs()
     expect(logs).toHaveLength(1)

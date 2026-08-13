@@ -22,13 +22,13 @@
  *   #5) so we can pin token content and observe refresh calls.
  */
 
+import type { DuckDBInstance } from '../../core/engine'
 import type {
   AnalyticsConfig,
   KVStore,
   TokenResponse,
   TokenVendor,
 } from '../../core/types'
-import type { DuckDBInstance } from '../../core/engine'
 import type { Endpoints } from './endpoints'
 
 // -------------------- REST catalog admin --------------------
@@ -52,7 +52,8 @@ export async function ensureNamespace(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ namespace: [namespace] }),
   })
-  if (res.ok || res.status === 409) return
+  if (res.ok || res.status === 409)
+    return
   const text = await res.text()
   throw new Error(`ensureNamespace(${namespace}) failed: ${res.status} ${text}`)
 }
@@ -89,13 +90,15 @@ export async function dropNamespace(
  * Uses parameterised secret creation so credentials never appear in
  * the query log.
  */
+const SCHEME_PREFIX_RE = /^https?:\/\//
+
 export async function ensureS3Secret(
   db: DuckDBInstance,
   ep: Endpoints,
 ): Promise<void> {
   // MinIO speaks the S3 API over plain HTTP on localhost — set URL_STYLE
   // to 'path' and disable SSL so DuckDB doesn't wrap the URL in `https://`.
-  const endpointHost = ep.s3Endpoint.replace(/^https?:\/\//, '')
+  const endpointHost = ep.s3Endpoint.replace(SCHEME_PREFIX_RE, '')
   await db.execute(
     `CREATE OR REPLACE SECRET minio_s3 (
        TYPE S3,
@@ -293,19 +296,19 @@ export function seedSleepSessionRows(
       ))
       app.appendRow([
         `${prefix}_${i}`, // session_id
-        start,            // ts_start
-        end,              // ts_end
-        brand,            // brand
-        familyId,         // family_id
-        userId,           // user_id
-        deviceId,         // device_id
-        420,              // total_minutes
-        90,               // deep_minutes
-        80,               // rem_minutes
-        180,              // light_minutes
-        70,               // awake_minutes
-        0.92,             // avg_confidence
-        nightOf,          // night_of (DATE)
+        start, // ts_start
+        end, // ts_end
+        brand, // brand
+        familyId, // family_id
+        userId, // user_id
+        deviceId, // device_id
+        420, // total_minutes
+        90, // deep_minutes
+        80, // rem_minutes
+        180, // light_minutes
+        70, // awake_minutes
+        0.92, // avg_confidence
+        nightOf, // night_of (DATE)
       ])
     }
     app.flush()
@@ -365,17 +368,17 @@ export function seedDeviceConfigRows(
     for (let i = 0; i < n; i++) {
       const validFrom = new Date(validFromStart.getTime() + i * stepMs)
       app.appendRow([
-        deviceId,             // device_id
-        brand,                // brand
-        familyId,             // family_id
-        userId,               // user_id
-        `${metricPrefix}_${i}`,     // metric (composite-PK component)
-        intervalMinutes,      // interval_minutes
-        startTime,            // start_time (nullable)
-        endTime,              // end_time (nullable)
-        weeks,                // weeks (nullable)
-        validFrom,            // valid_from
-        validTo,              // valid_to (nullable — SCD-2 open flag)
+        deviceId, // device_id
+        brand, // brand
+        familyId, // family_id
+        userId, // user_id
+        `${metricPrefix}_${i}`, // metric (composite-PK component)
+        intervalMinutes, // interval_minutes
+        startTime, // start_time (nullable)
+        endTime, // end_time (nullable)
+        weeks, // weeks (nullable)
+        validFrom, // valid_from
+        validTo, // valid_to (nullable — SCD-2 open flag)
       ])
     }
     app.flush()

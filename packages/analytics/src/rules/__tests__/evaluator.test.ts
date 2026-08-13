@@ -1,13 +1,13 @@
+import type { Rule } from '../schema'
 import { describe, expect, it, vi } from 'vitest'
+import { createFakeClock } from '../__fakes__/fakeClock'
 import { createFakeEngine } from '../__fakes__/fakeEngine'
 import { createFakeStorage } from '../__fakes__/fakeStorage'
-import { createFakeClock } from '../__fakes__/fakeClock'
 import { createCompilerCache } from '../compiler-cache'
 import { createEmitter } from '../emitter'
 import { createEvaluator } from '../evaluator'
 import { createRulesRegistry } from '../registry'
 import { createThrottleStore } from '../throttle'
-import type { Rule } from '../schema'
 
 const hrvRule = {
   id: 'test.hrv.drop',
@@ -52,8 +52,15 @@ async function harness() {
     clock,
   })
   return {
-    storage, clock, analytics, registry, cache, throttle, emitter,
-    familyMembersProvider, evaluator,
+    storage,
+    clock,
+    analytics,
+    registry,
+    cache,
+    throttle,
+    emitter,
+    familyMembersProvider,
+    evaluator,
   }
 }
 
@@ -94,7 +101,7 @@ describe('createEvaluator', () => {
         brand: 'ziva',
         familyId: 'fam1',
       })
-      expect(call.sql).not.toContain("'user-a'")
+      expect(call.sql).not.toContain('\'user-a\'')
     })
 
     it('emits + returns a violation when a row is returned', async () => {
@@ -148,7 +155,10 @@ describe('createEvaluator', () => {
     it('swallows execute errors and returns []', async () => {
       const h = await harness()
       const logger = {
-        debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
       }
       const storage = createFakeStorage()
       const clock = createFakeClock('2025-01-01T00:00:00Z')
@@ -158,10 +168,16 @@ describe('createEvaluator', () => {
       const throttle = createThrottleStore({ storage, clock })
       const emitter = createEmitter()
       const evaluator = createEvaluator({
-        registry, cache, throttle, emitter, analytics,
-        brand: 'ziva', familyId: 'fam1',
+        registry,
+        cache,
+        throttle,
+        emitter,
+        analytics,
+        brand: 'ziva',
+        familyId: 'fam1',
         familyMembersProvider: async () => ['u1'],
-        clock, logger,
+        clock,
+        logger,
       })
       await registry.register([hrvRule])
       analytics.__setError(new Error('duckdb blew up'))
@@ -199,13 +215,22 @@ describe('createEvaluator', () => {
       const throttle = createThrottleStore({ storage, clock })
       const emitter = createEmitter()
       const logger = {
-        debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
       }
       const evaluator = createEvaluator({
-        registry, cache, throttle, emitter, analytics,
-        brand: 'ziva', familyId: 'fam1',
+        registry,
+        cache,
+        throttle,
+        emitter,
+        analytics,
+        brand: 'ziva',
+        familyId: 'fam1',
         familyMembersProvider: async () => { throw new Error('rxdb offline') },
-        clock, logger,
+        clock,
+        logger,
       })
       await registry.register([hrvRule])
       const out = await evaluator.evaluateScheduled()
@@ -326,11 +351,15 @@ describe('createEvaluator', () => {
       const emitter = createEmitter()
       const bus = makeBus()
       const logger = {
-        debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
       }
       const original = analytics.execute.bind(analytics)
       analytics.execute = (async (sql: string, params?: Record<string, unknown>) => {
-        if (sql.startsWith('INSERT INTO insight')) throw new Error('insight table on fire')
+        if (sql.startsWith('INSERT INTO insight'))
+          throw new Error('insight table on fire')
         return original(sql, params)
       }) as typeof analytics.execute
       const evaluator = createEvaluator({
@@ -386,7 +415,10 @@ describe('createEvaluator', () => {
       const analytics = createFakeEngine()
       const registry = createRulesRegistry({ storage })
       const logger = {
-        debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(),
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
       }
       const bus = {
         emit: vi.fn(() => { throw new Error('subscriber exploded') }),

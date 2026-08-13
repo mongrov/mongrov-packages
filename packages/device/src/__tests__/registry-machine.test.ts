@@ -4,9 +4,10 @@
  * broadcasts global interrupts.
  */
 
-import { createActor } from 'xstate'
+import type { FakeAdapter } from '../__mocks__/fake-adapter'
 
-import { createFakeAdapter, type FakeAdapter } from '../__mocks__/fake-adapter'
+import { createActor } from 'xstate'
+import { createFakeAdapter } from '../__mocks__/fake-adapter'
 import { createConnectionMachine } from '../registry/connection-machine'
 import { createRegistryMachine } from '../registry/registry-machine'
 
@@ -79,7 +80,7 @@ describe('registry — scan fanout & aggregation', () => {
   it('canHandle routing: SCAN_HIT is only recorded when at least one adapter claims it', () => {
     const claiming = createFakeAdapter({
       id: 'jcring',
-      canHandle: (c) => c.id.startsWith('jc:'),
+      canHandle: c => c.id.startsWith('jc:'),
     })
     const rejecting = createFakeAdapter({
       id: 'gatt',
@@ -128,12 +129,16 @@ describe('registry — connect actor lifecycle', () => {
     registry.send({ type: 'CONNECT_REQUEST', deviceId: 'dev-1' })
     const firstActor = registry
       .getSnapshot()
-      .context.connectionActors.get('dev-1')
+      .context
+      .connectionActors
+      .get('dev-1')
 
     registry.send({ type: 'CONNECT_REQUEST', deviceId: 'dev-1' })
     const secondActor = registry
       .getSnapshot()
-      .context.connectionActors.get('dev-1')
+      .context
+      .connectionActors
+      .get('dev-1')
 
     expect(firstActor).toBe(secondActor)
     expect(registry.getSnapshot().context.activeConnections).toBe(1)

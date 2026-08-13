@@ -11,35 +11,35 @@
  * See `features/db/design.md` §1.
  */
 
+// TokenStore type re-exported for @mongrov/auth integration.
+export type { TokenStore } from './token-store'
+
 // Cross-engine types (no runtime)
 export type {
+  CollectionConfig,
+  // Docs engine
+  DatabaseConfig,
+  // Logging
+  DBLogger,
   // KV
   KVStore,
   KVStoreConfig,
-  // Logging
-  DBLogger,
-  // Docs engine
-  DatabaseConfig,
-  CollectionConfig,
+  MangoQueryType,
   MigrationStrategies,
   MigrationStrategy,
-  RxStorageType,
-  RxJsonSchemaType,
-  RxDatabaseType,
-  RxCollectionType,
-  RxDocumentType,
-  MangoQueryType,
-  RxReplicationStateType,
-  ReplicationCheckpoint,
-  ReplicationPushHandler,
-  ReplicationPullHandler,
-  ReplicationConfig,
-  // Timeseries engine (D3 stub)
-  TimeseriesHWM,
   ReadingSink,
   RemoteTarget,
+  ReplicationCheckpoint,
+  ReplicationConfig,
+  ReplicationPullHandler,
+  ReplicationPushHandler,
+  RxCollectionType,
+  RxDatabaseType,
+  RxDocumentType,
+  RxJsonSchemaType,
+  RxReplicationStateType,
+  RxStorageType,
   TimeseriesEngine,
+  // Timeseries engine (D3 stub)
+  TimeseriesHWM,
 } from './types'
-
-// TokenStore type re-exported for @mongrov/auth integration.
-export type { TokenStore } from './token-store'
