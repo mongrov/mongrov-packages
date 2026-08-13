@@ -504,3 +504,53 @@ function parseWithSchema<T>(
   }
   return result.data
 }
+
+/**
+ * Input type a `defineQuery` was declared with.
+ *
+ * Both parameters are inferred, not just the one being read. Matching on
+ * `QueryDefinition<infer I, unknown>` fails: the output position is not
+ * covariant, so a concrete definition does not extend it and the conditional
+ * silently resolves to `never` — which then accepts nothing and looks like a
+ * working constraint until you assign something valid.
+ */
+export type QueryInputOf<T> = T extends QueryDefinition<infer I, infer _O> ? I : never
+/** Output type a `defineQuery` was declared with. See `QueryInputOf`. */
+export type QueryOutputOf<T> = T extends QueryDefinition<infer _I, infer O> ? O : never
+
+/**
+ * Registry-typed hooks.
+ *
+ * `useAppQuery` is generic over `<TInput, TOutput>` that the CALLER supplies,
+ * so it believes whatever the call site asserts. That is not a hypothetical
+ * problem: zivaone_app annotated `user.spo2SafeLevel` as `{ value: number }`
+ * when the query returns a bare `number`, read `.data?.value`, got `undefined`
+ * forever, and silently fell back to a default of 90. It compiled, it never
+ * threw, and no test caught it — the shape was asserted, not checked.
+ *
+ * These hooks take the query NAME and derive both types from the registry
+ * entry, so a wrong annotation is not expressible. Wire them once:
+ *
+ * ```ts
+ * // src/data/hooks.ts
+ * export const { useAppQuery } = createRegistryHooks<typeof registry.queries>()
+ * ```
+ *
+ * The untyped `useAppQuery` remains exported and unchanged — the `Registry`
+ * interface erases variance, so a registry cannot be typed at the provider
+ * boundary without breaking every existing consumer.
+ */
+export function createRegistryHooks<
+  TQueries extends Record<string, QueryDefinition<never, unknown>>,
+>() {
+  return {
+    useAppQuery<TName extends keyof TQueries & string>(
+      name: TName,
+      input?: QueryInputOf<TQueries[TName]>,
+    ): UseAppQueryResult<QueryOutputOf<TQueries[TName]>> {
+      return useAppQuery(name, input) as UseAppQueryResult<
+        QueryOutputOf<TQueries[TName]>
+      >
+    },
+  }
+}
