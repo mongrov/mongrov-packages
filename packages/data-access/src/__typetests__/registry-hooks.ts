@@ -21,6 +21,7 @@
 import { z } from 'zod'
 
 import { defineQuery } from '../define'
+import { createRegistryHooks } from '../hooks'
 import type { QueryInputOf, QueryOutputOf } from '../hooks'
 
 const registry = {
@@ -58,3 +59,10 @@ const wrong: QueryOutputOf<Queries['user.safeLevel']> = { value: 94 }
 
     // @ts-expect-error spo2.day returns an object, not a number
     const asNumber: QueryOutputOf<Queries['spo2.day']> = 96
+
+// A concrete registry map must satisfy createRegistryHooks' constraint.
+// The first attempt used `QueryDefinition<never, unknown>`, which a real map
+// does NOT extend — the same variance erasure consumers double-cast around —
+// so wiring it in an app failed at the call site rather than here.
+const hooks = createRegistryHooks<Queries>()
+export type DayResult = ReturnType<typeof hooks.useAppQuery<'spo2.day'>>['data']

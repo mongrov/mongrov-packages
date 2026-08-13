@@ -541,7 +541,13 @@ export type QueryOutputOf<T> = T extends QueryDefinition<infer _I, infer O> ? O 
  * boundary without breaking every existing consumer.
  */
 export function createRegistryHooks<
-  TQueries extends Record<string, QueryDefinition<never, unknown>>,
+  // Structural constraint, not `QueryDefinition<never, unknown>`: TInput
+  // appears in function positions (`authorize`, `keyBuilder`) so it is
+  // contravariant, and a concrete map does not extend that shape — the same
+  // erasure consumers double-cast around. `QueryInputOf` / `QueryOutputOf`
+  // are conditional types and infer regardless of the constraint, so this
+  // only needs to be tight enough to reject non-registries.
+  TQueries extends Record<string, { readonly __kind: 'query' }>,
 >() {
   return {
     useAppQuery<TName extends keyof TQueries & string>(

@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/data-access",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Named query/mutation/event registry with engine dispatch for @mongrov apps",
   "license": "MIT",
   "repository": {
