@@ -2,39 +2,40 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, useColorScheme as useSystemColorScheme, Text, TextInput, TouchableOpacity } from 'react-native';
 import { GiftedChat, Bubble, type BubbleProps } from 'react-native-gifted-chat';
 import { useAIChat } from '../use-ai-chat';
-import type { ChatScreenProps } from '../types';
+import type { ChatScreenProps, ChatTheme } from '../types';
 import { toGiftedMessages, type AdapterConfig, type GiftedMessage } from './message-adapter';
 import { ChatEmptyState } from './ChatEmptyState';
 import { QuickReplyBar } from './QuickReplyBar';
 import { StreamingText } from './StreamingText';
 
-// Theme colors for light/dark mode
-const lightTheme = {
-  background: '#ffffff',
-  inputBackground: '#f5f5f5',
-  inputBorder: '#e0e0e0',
-  inputText: '#000000',
-  placeholder: '#9e9e9e',
-  sendButton: '#007AFF',
-  sendButtonDisabled: '#c7c7cc',
-  userBubble: '#007AFF',
-  userText: '#ffffff',
-  assistantBubble: '#e5e5ea',
-  assistantText: '#000000',
+/**
+ * The few colours that cannot be classNames.
+ *
+ * Everything this component renders itself is styled with uniwind classNames
+ * resolved from the consumer's semantic tokens, so it follows the app's theme
+ * and brand with no configuration. Two things resist that:
+ *
+ *   - `placeholderTextColor` is a React Native prop taking a raw colour
+ *   - gifted-chat's `Bubble` takes `wrapperStyle` / `textStyle` objects
+ *
+ * The `theme` prop covers exactly those. Defaults track the semantic tokens
+ * (`--color-muted`, `--color-muted-foreground`, `--color-primary`) so an app
+ * that passes nothing still looks native rather than iOS-generic.
+ */
+const lightBubbles: ChatTheme = {
+  placeholder: '#737373',
+  userBubble: '#FF6C00',
+  userText: '#FFFFFF',
+  assistantBubble: '#f5f5f5',
+  assistantText: '#0a0a0a',
 };
 
-const darkTheme = {
-  background: '#000000',
-  inputBackground: '#1c1c1e',
-  inputBorder: '#38383a',
-  inputText: '#ffffff',
-  placeholder: '#8e8e93',
-  sendButton: '#0a84ff',
-  sendButtonDisabled: '#3a3a3c',
-  userBubble: '#0a84ff',
-  userText: '#ffffff',
-  assistantBubble: '#2c2c2e',
-  assistantText: '#ffffff',
+const darkBubbles: ChatTheme = {
+  placeholder: '#a3a3a3',
+  userBubble: '#FF6C00',
+  userText: '#FFFFFF',
+  assistantBubble: '#262626',
+  assistantText: '#fafafa',
 };
 
 export function ChatScreen({
@@ -45,18 +46,17 @@ export function ChatScreen({
   assistantName = 'Assistant',
   assistantAvatar,
   onSend: onSendOverride,
-  colorScheme,
   theme: themeOverride,
   testID,
 }: ChatScreenProps) {
   const { messages, send, isStreaming, error } = useAIChat();
-  // `colorScheme` prop wins; the OS is only the fallback. An app with its
-  // own theme store would otherwise disagree with the chat.
-  const systemColorScheme = useSystemColorScheme();
-  const base = (colorScheme ?? systemColorScheme) === 'dark' ? darkTheme : lightTheme;
-  // Consumer overrides win, token by token, so a brand only has to name the
-  // colours that differ from the built-in iOS-generic palette.
-  const theme = useMemo(() => ({ ...base, ...themeOverride }), [base, themeOverride]);
+  // Scheme is still read for the raw-colour values above; everything else is
+  // a className, so the consumer's `dark` class drives it.
+  const isDark = useSystemColorScheme() === 'dark';
+  const theme = useMemo(
+    () => ({ ...(isDark ? darkBubbles : lightBubbles), ...themeOverride }),
+    [isDark, themeOverride],
+  );
   const [inputText, setInputText] = useState('');
 
   const adapterConfig: AdapterConfig = useMemo(
@@ -164,24 +164,16 @@ export function ChatScreen({
     if (!isStreaming) return null;
     return (
       <View
-        style={{
-          alignSelf: 'flex-start',
-          marginLeft: 12,
-          marginBottom: 8,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          borderRadius: 16,
-          backgroundColor: theme.assistantBubble,
-        }}
+        className="mb-2 ml-3 self-start rounded-2xl bg-muted px-3 py-2"
         testID={testID ? `${testID}-typing` : undefined}
       >
-        <Text style={{ color: theme.assistantText, fontSize: 14 }}>…</Text>
+        <Text className="text-sm text-foreground">…</Text>
       </View>
     );
   }, [isStreaming, theme, testID]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.background }} testID={testID}>
+    <View className="flex-1 bg-background" testID={testID}>
       <View style={{ flex: 1 }} pointerEvents="box-none">
         <GiftedChat
           messages={giftedMessages}
@@ -210,14 +202,10 @@ export function ChatScreen({
       */}
       {error && (
         <View
-          style={{
-            paddingHorizontal: 16,
-            paddingVertical: 10,
-            backgroundColor: theme.assistantBubble,
-          }}
+          className="bg-muted px-4 py-2.5"
           testID={testID ? `${testID}-error` : undefined}
         >
-          <Text style={{ color: theme.assistantText, fontSize: 13 }}>
+          <Text className="text-[13px] text-destructive">
             {error.message}
           </Text>
         </View>
@@ -225,15 +213,7 @@ export function ChatScreen({
 
       {/* Custom Input Toolbar */}
       <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'flex-end',
-          paddingHorizontal: 8,
-          paddingVertical: 8,
-          backgroundColor: theme.inputBackground,
-          borderTopWidth: 1,
-          borderTopColor: theme.inputBorder,
-        }}
+        className="flex-row items-end border-t border-border bg-muted px-2 py-2"
       >
         <TextInput
           value={inputText}
@@ -241,37 +221,18 @@ export function ChatScreen({
           placeholder={placeholder}
           placeholderTextColor={theme.placeholder}
           multiline
-          style={{
-            flex: 1,
-            minHeight: 40,
-            maxHeight: 120,
-            backgroundColor: theme.background,
-            borderRadius: 20,
-            paddingHorizontal: 16,
-            paddingTop: 10,
-            paddingBottom: 10,
-            fontSize: 16,
-            color: theme.inputText,
-            borderWidth: 1,
-            borderColor: theme.inputBorder,
-          }}
+          className="max-h-[120px] min-h-[40px] flex-1 rounded-[20px] border border-border bg-background px-4 py-2.5 text-base text-foreground"
           onSubmitEditing={handleSendMessage}
           blurOnSubmit={false}
         />
         <TouchableOpacity
           onPress={handleSendMessage}
           disabled={!canSend}
-          style={{
-            marginLeft: 8,
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: canSend ? theme.sendButton : theme.sendButtonDisabled,
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
+          className={`ml-2 size-10 items-center justify-center rounded-[20px] ${
+            canSend ? 'bg-primary' : 'bg-muted'
+          }`}
         >
-          <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: '600' }}>↑</Text>
+          <Text className="text-lg font-semibold text-primary-foreground">↑</Text>
         </TouchableOpacity>
       </View>
     </View>

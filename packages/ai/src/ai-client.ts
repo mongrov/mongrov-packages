@@ -1,16 +1,6 @@
 import { generateText, streamText } from 'ai';
 import type { AIClient, AIConfig, AILogger, Message } from './types';
 
-// Lazy load expo/fetch with fallback
-let streamFetch: typeof fetch = globalThis.fetch;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const expo = require('expo/fetch');
-  streamFetch = expo.fetch;
-} catch {
-  // Not in Expo — streaming may not work on RN, log warning if logger provided
-}
-
 const noopLogger: AILogger = {
   debug: () => {},
   info: () => {},
@@ -35,11 +25,6 @@ const MAX_TOOL_STEPS = 5;
 export function createAIClient(config: AIConfig): AIClient {
   const { model, logger = noopLogger, systemPrompt, tools } = config;
   let currentAbortController: AbortController | null = null;
-
-  // Warn if expo/fetch not available
-  if (streamFetch === globalThis.fetch) {
-    logger.warn('expo/fetch not available, streaming may not work correctly');
-  }
 
   async function* chat(
     messages: Message[]

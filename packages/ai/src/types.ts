@@ -99,35 +99,30 @@ export interface ChatScreenProps {
   assistantAvatar?: string | number;
   onSend?: (message: string) => void;
   /**
-   * Force light or dark, overriding the OS setting.
+   * Override the few colours that cannot be classNames — see `ChatTheme`.
    *
-   * ChatScreen otherwise reads react-native's `useColorScheme`, which is the
-   * SYSTEM appearance. An app with its own theme store — a settings toggle,
-   * a persisted preference — will disagree with it, and the chat renders
-   * light inside a dark app. Pass the app's resolved scheme to keep them
-   * together.
-   */
-  colorScheme?: 'light' | 'dark';
-  /**
-   * Override any of the chat's colours.
-   *
-   * The built-in palette is iOS-generic — `#007AFF` send button, grey
-   * bubbles — which reads as foreign inside a branded app. Merged over the
-   * resolved light/dark base, so pass only what differs.
+   * Rarely needed: the defaults follow the consumer's semantic tokens. Merged
+   * over them, so pass only what differs.
    */
   theme?: Partial<ChatTheme>;
   testID?: string;
 }
 
-/** Colour tokens ChatScreen paints with. */
+/**
+ * The colours ChatScreen cannot express as classNames.
+ *
+ * Everything the component renders itself is styled with uniwind classNames
+ * resolved from the consumer's semantic tokens, so it follows the app's theme
+ * and brand automatically. Two things resist that and are all this covers:
+ *
+ *   - `placeholderTextColor` is a React Native prop taking a raw colour
+ *   - gifted-chat's `Bubble` takes `wrapperStyle` / `textStyle` objects
+ *
+ * Defaults track `--color-muted`, `--color-muted-foreground` and
+ * `--color-primary`, so passing nothing still looks native.
+ */
 export interface ChatTheme {
-  background: string;
-  inputBackground: string;
-  inputBorder: string;
-  inputText: string;
   placeholder: string;
-  sendButton: string;
-  sendButtonDisabled: string;
   userBubble: string;
   userText: string;
   assistantBubble: string;
