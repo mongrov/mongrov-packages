@@ -7,6 +7,30 @@ on:
     branches: [main, master]
 
 jobs:
+  # One job, not a matrix entry: `eslint.config.mjs` is a single flat config
+  # at the root that covers every package, so linting per-package would run
+  # the same config eleven times.
+  #
+  # No build step. Nothing here is type-aware — the config sets no
+  # `tsconfigPath`, so every enabled rule is syntactic and does not need
+  # sibling packages' dist/ to exist.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
   test:
     runs-on: ubuntu-latest
     strategy:
