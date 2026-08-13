@@ -34,6 +34,7 @@ import {
   type MetricId,
   type MetricSamplingMinutes,
 } from './metric_metadata'
+import { describeError } from './errors'
 import type { AnalyticsEngine, AnalyticsLogger } from './types'
 
 /** Default memo lifetime. Ring schedules change on the order of never. */
@@ -125,7 +126,7 @@ export function createSamplingResolver(
         config.logger?.warn('sampling: device_config read failed, using fallback', {
           metric,
           deviceId,
-          err: (err as Error).message,
+          err: describeError(err),
         })
       }
 

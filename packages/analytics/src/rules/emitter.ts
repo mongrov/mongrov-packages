@@ -6,6 +6,7 @@
  * `on(...)` returns an `Unsubscribe` closure per spec's public surface.
  */
 
+import { describeError } from '../core/errors'
 import type { Unsubscribe } from '../core/types'
 import type { RuleViolation, RulesLogger } from './types'
 
@@ -39,7 +40,7 @@ export function createEmitter({ logger }: CreateEmitterConfig = {}): RulesEmitte
         }
         catch (err) {
           logger?.error('rules.emitter: violation handler threw', {
-            err: (err as Error).message,
+            err: describeError(err),
             ruleId: payload.ruleId,
           })
         }

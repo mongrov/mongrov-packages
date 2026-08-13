@@ -23,7 +23,7 @@
 import { nanoid } from 'nanoid'
 
 import { METRIC_METADATA, type MetricId } from '../core/metric_metadata'
-import { AnalyticsError } from '../core/errors'
+import { AnalyticsError, describeError } from '../core/errors'
 import type { AnalyticsEngine, EventBus, KVStore } from '../core/types'
 import { USER_SETTING_PARAM } from './compiler'
 import type { CompilerCache } from './compiler-cache'
@@ -141,7 +141,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
           ruleId,
           userId,
           key,
-          err: (err as Error).message,
+          err: describeError(err),
         })
       }
     }
@@ -193,7 +193,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       logger?.error('rules.evaluator: insight insert failed', {
         ruleId: rule.id,
         userId: violation.userId,
-        err: (err as Error).message,
+        err: describeError(err),
       })
       return null
     }
@@ -239,7 +239,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       logger?.error('rules.evaluator: execute failed', {
         ruleId: rule.id,
         userId: ctx.userId,
-        err: (err as Error).message,
+        err: describeError(err),
       })
       return null
     }
@@ -304,7 +304,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       catch (err) {
         logger?.error('rules.evaluator: event bus emit threw', {
           ruleId: rule.id,
-          err: (err as Error).message,
+          err: describeError(err),
         })
       }
     }
@@ -359,7 +359,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       catch (err) {
         logger?.error('rules.evaluator: familyMembersProvider failed', {
           familyId,
-          err: (err as Error).message,
+          err: describeError(err),
         })
         return []
       }

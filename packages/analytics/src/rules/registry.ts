@@ -8,6 +8,7 @@
  * `useSyncExternalStore`.
  */
 
+import { describeError } from '../core/errors'
 import type { KVStore, Unsubscribe } from '../core/types'
 import type { MetricId } from '../core/metric_metadata'
 import { RuleSchema, RuleValidationError, type Rule } from './schema'
@@ -64,7 +65,7 @@ export function createRulesRegistry({
       }
       catch (err) {
         logger?.error('rules.registry: listener threw', {
-          err: (err as Error).message,
+          err: describeError(err),
         })
       }
     }

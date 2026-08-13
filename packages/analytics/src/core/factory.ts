@@ -13,7 +13,7 @@
 
 import { createActor } from 'xstate'
 
-import { AnalyticsError, NotImplementedError } from './errors'
+import { AnalyticsError, describeError, NotImplementedError } from './errors'
 import type { DuckDBFactory, DuckDBInstance } from './engine'
 import { HybridDuckDB } from './engine'
 import { bootstrapExtensions } from './extensions'
@@ -348,7 +348,7 @@ export function createAnalytics(
       // be cached, and must not resolve to a permissive answer.
       log.error('analytics.getFamilyMembers: provider failed', {
         familyId: currentCtx.tenantId,
-        err: (cause as Error).message,
+        err: describeError(cause),
       })
       familyMembersCache = undefined
       throw new AnalyticsError(
