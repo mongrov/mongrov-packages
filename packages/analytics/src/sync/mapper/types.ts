@@ -21,13 +21,6 @@ export interface MapperContext {
   deviceId: string
   /** IANA timezone string, e.g. 'America/Los_Angeles'. */
   userTimezone: string
-  /**
-   * Random-id source for session ids (principle 25). Defaults to
-   * `() => nanoid(24)`. Injectable so tests can keep the mapper
-   * deterministic — the hash suffix of a session id is always
-   * deterministic regardless of this generator.
-   */
-  idGenerator?: () => string
 }
 
 // -------------------- firmware input --------------------

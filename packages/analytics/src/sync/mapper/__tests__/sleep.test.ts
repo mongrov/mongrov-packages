@@ -32,7 +32,9 @@ const ctx: MapperContext = {
 }
 
 // Principle 25 shape: nanoid(24) + '_' + 8-hex-char fnv1a32 suffix.
-const SESSION_ID_RE = /^[\w-]{24}_[0-9a-f]{8}$/
+// fnv1a32hex — 8 lowercase hex chars, no random prefix (principle 25,
+// amended 2026-08-14).
+const SESSION_ID_RE = /^[0-9a-f]{8}$/
 
 describe('reconstructSleepSessions', () => {
   it('emits a session when a qualifying primary block is present', () => {
@@ -166,7 +168,7 @@ describe('reconstructSleepSessions', () => {
     expect(session.deep_minutes).toBe(15)
   })
 
-  it('builds session ids per principle 25 with an injectable random source', () => {
+  it('builds deterministic session ids per principle 25 (amended 2026-08-14)', () => {
     const fw: FirmwareSleepRow[] = [
       {
         start: '2026.06.18 05:00:00',
@@ -176,29 +178,23 @@ describe('reconstructSleepSessions', () => {
         timestamp: '2026.06.18 05:00:00',
       },
     ]
-    const fixedRandom = 'A'.repeat(24)
-    const detCtx: MapperContext = { ...ctx, idGenerator: () => fixedRandom }
-    const { sleep_session } = reconstructSleepSessions(fw, detCtx)
-    const expectedHash = fnv1a32hex(
-      `ring_8047|user_alice|${new Date('2026-06-18T05:00:00Z').toISOString()}`,
+    const expected = fnv1a32hex(
+      `ring_8047|user_alice|${new Date('2026-06-18T05:00:00Z').toISOString()}`
+      + `|${new Date('2026-06-18T12:00:00Z').toISOString()}`,
     )
-    expect(sleep_session[0].session_id).toBe(`${fixedRandom}_${expectedHash}`)
+    const { sleep_session } = reconstructSleepSessions(fw, ctx)
+    expect(sleep_session[0].session_id).toBe(expected)
 
-    // The hash suffix is deterministic across runs...
-    const again = reconstructSleepSessions(fw, detCtx)
-    expect(again.sleep_session[0].session_id).toBe(sleep_session[0].session_id)
-
-    // ...and changes when any identifying component changes.
-    const otherDevice = reconstructSleepSessions(fw, {
-      ...detCtx,
-      deviceId: 'ring_9999',
-    })
-    expect(otherDevice.sleep_session[0].session_id.split('_').pop())
-      .not
-      .toBe(expectedHash)
+    // Changes when any identifying component changes.
+    const otherDevice = reconstructSleepSessions(fw, { ...ctx, deviceId: 'ring_9999' })
+    expect(otherDevice.sleep_session[0].session_id).not.toBe(expected)
   })
 
-  it('random prefix keeps ids distinct even with identical timestamps', () => {
+  it('maps the same night twice to the same id — re-sync is not a second night', () => {
+    // This assertion is the inverse of the one it replaces. The old id
+    // carried a `nanoid(24)` prefix and the test asserted two runs must NOT
+    // collide; that is exactly what made every re-sync duplicate, measured on
+    // device at ~8x row inflation (zivaone_app#75, principle 25 amended).
     const fw: FirmwareSleepRow[] = [
       {
         start: '2026.06.18 05:00:00',
@@ -208,12 +204,30 @@ describe('reconstructSleepSessions', () => {
         timestamp: '2026.06.18 05:00:00',
       },
     ]
-    // Two independent runs over the same (corrupted-duplicate) input must not
-    // collide — the nanoid prefix differs even though the hash suffix matches.
     const a = reconstructSleepSessions(fw, ctx).sleep_session[0].session_id
     const b = reconstructSleepSessions(fw, ctx).sleep_session[0].session_id
-    expect(a).not.toBe(b)
-    expect(a.split('_').pop()).toBe(b.split('_').pop())
+    expect(a).toBe(b)
+  })
+
+  it('keeps sessions distinct when they share a start but differ in end', () => {
+    // What `ts_session_end` in the tuple buys: the collision-safety the
+    // random prefix used to provide, without sacrificing determinism.
+    const base = {
+      start: '2026.06.18 05:00:00',
+      block_type: 'primary' as const,
+      confidence: 0.9,
+      timestamp: '2026.06.18 05:00:00',
+    }
+    const short = reconstructSleepSessions(
+      [{ ...base, end: '2026.06.18 09:00:00' }] as FirmwareSleepRow[],
+      ctx,
+    ).sleep_session[0].session_id
+    const long = reconstructSleepSessions(
+      [{ ...base, end: '2026.06.18 12:00:00' }] as FirmwareSleepRow[],
+      ctx,
+    ).sleep_session[0].session_id
+
+    expect(short).not.toBe(long)
   })
 
   it('drops sessions whose primary block confidence is below the floor', () => {

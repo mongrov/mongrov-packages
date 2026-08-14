@@ -75,7 +75,8 @@ describe('mapFirmwareExport', () => {
     // Sleep session id shape (principle 25: nanoid(24) + '_' + fnv1a32hex)
     // + night_of correctness.
     expect(batch.sleep_session[0].session_id).toMatch(
-      /^[\w-]{24}_[0-9a-f]{8}$/,
+      // 8 hex chars, no random prefix (principle 25, amended 2026-08-14).
+      /^[0-9a-f]{8}$/,
     )
     // 2026-06-18 05:00 UTC = 2026-06-17 22:00 LA → night_of = 2026-06-17.
     expect(batch.sleep_session[0].night_of.toISOString()).toBe(

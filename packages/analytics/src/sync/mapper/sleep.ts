@@ -15,9 +15,9 @@
  *     `ts_start = parse(start)`, `ts_end = parse(end)`. `total_minutes` is
  *     their difference. Deriving the envelope from block instants would
  *     under-report any session whose first/last minutes went unclassified.
- *   - `session_id` = `nanoid(24) + '_' + fnv1a32hex(device_id | user_id |
- *     ts_session_start)` (principle 25, locked) — collision-safe even with
- *     corrupted timestamps.
+ *   - `session_id` = `fnv1a32hex(device_id | user_id | ts_session_start |
+ *     ts_session_end)` (principle 25, amended 2026-08-14) — fully
+ *     deterministic, so the same night mapped twice yields the same id.
  *   - `night_of` = 6pm-6pm rule applied to `ts_start` (see `time.ts`).
  *   - Stages: one row per classified block, carrying `session_id` and the
  *     DDL's integer `stage` code. `primary` is the session envelope marker,
@@ -39,7 +39,6 @@ import type {
   SleepSessionRow,
   SleepStageRow,
 } from './types'
-import { nanoid } from 'nanoid'
 import { computeNightOf, parseTimestamp } from './time'
 
 const MINUTE_MS = 60_000
@@ -150,7 +149,7 @@ export function reconstructSleepSessions(
     )
 
     const nightOf = computeNightOf(tsStart, ctx.userTimezone)
-    const sessionId = makeSessionId(ctx, tsStart)
+    const sessionId = makeSessionId(ctx, tsStart, tsEnd)
 
     // Stage rows + per-stage minute accumulation in one pass.
     const stageMinutes: Record<string, number> = {
@@ -203,29 +202,33 @@ export function reconstructSleepSessions(
 }
 
 /**
- * Session id components (principle 25, locked):
- *   `nanoid(24) + '_' + fnv1a32hex(device_id | user_id | ts_session_start)`
+ * Session id (principle 25, as amended 2026-08-14):
+ *   `fnv1a32hex(device_id | user_id | ts_session_start | ts_session_end)`
  *
- * The random prefix makes ids collision-safe even when the firmware emits
- * corrupted/duplicated timestamps; the hash suffix is deterministic over the
- * identifying tuple so ids remain diagnosable (same device+user+start ⇒
- * same suffix). The random source is injectable via `ctx.idGenerator` to
- * keep the mapper testable — the suffix is always deterministic.
+ * Fully deterministic — the same night mapped twice yields the same id.
+ * It previously carried a `nanoid(24)` prefix, which made every re-sync
+ * produce a new id for a night already stored, indistinguishable from a
+ * second night. Measured on device at ~8x row inflation, which then skews the
+ * `sleep_total_minutes` percentiles in `user_baseline` (zivaone_app#75).
+ *
+ * `ts_session_end` is in the tuple, not decoration: it is what recovers the
+ * collision-safety the random prefix was there for. Two genuinely distinct
+ * sessions that share a start remain distinguishable. If firmware ever
+ * duplicates start AND end, the two are identical under every identifying
+ * field we hold and no id scheme can separate them.
+ *
+ * Deduplication is the job of the table's identity key (principle 66), never
+ * of the id.
  */
-export function sessionIdComponents(
+export function makeSessionId(
   ctx: MapperContext,
   tsSessionStart: Date,
-): { random: string, hash: string } {
-  const random = ctx.idGenerator ? ctx.idGenerator() : nanoid(24)
-  const hash = fnv1a32hex(
-    `${ctx.deviceId}|${ctx.userId}|${tsSessionStart.toISOString()}`,
+  tsSessionEnd: Date,
+): string {
+  return fnv1a32hex(
+    `${ctx.deviceId}|${ctx.userId}|${tsSessionStart.toISOString()}`
+    + `|${tsSessionEnd.toISOString()}`,
   )
-  return { random, hash }
-}
-
-function makeSessionId(ctx: MapperContext, startTs: Date): string {
-  const { random, hash } = sessionIdComponents(ctx, startTs)
-  return `${random}_${hash}`
 }
 
 /**
