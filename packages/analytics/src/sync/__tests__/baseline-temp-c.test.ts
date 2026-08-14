@@ -178,3 +178,59 @@ describe('temp_c baseline (T-01)', () => {
     await db.close?.()
   })
 })
+
+describe('temp_c storage precision', () => {
+  /**
+   * The column was INTEGER until sprint6 T-01. sprint6 SS4/SS5 specify a
+   * user-settable flag level of 37.5 C over a 37.2-38.1 range, and against an
+   * integer column every value in that range rounds to 37 or 38 — measured,
+   * thresholds 37.2 and 37.9 selected identical rows, so the control had two
+   * states rather than a range.
+   *
+   * This asserts the range discriminates. It fails against INTEGER storage,
+   * which is the regression it exists to catch.
+   */
+  it('stores tenths, so a fractional flag level actually discriminates', async () => {
+    const db = await boot()
+    for (const v of [37.2, 37.4, 37.5, 37.6, 37.9, 38.0, 38.1]) {
+      await db.execute(
+        `INSERT INTO memory.temperature (ts, brand, family_id, user_id, device_id, temp_c)
+         VALUES (now(), $brand, $fam, $user, $dev, $v)`,
+        { brand: BRAND, fam: FAMILY, user: USER, dev: DEVICE, v },
+      )
+    }
+
+    const above = async (t: number): Promise<number> => {
+      const rows = await db.execute<{ n: number }>(
+        `SELECT count(*)::INTEGER AS n FROM memory.temperature WHERE temp_c > CAST($t AS DECIMAL(4,1))`,
+        { t },
+      )
+      return Number(rows[0]!.n)
+    }
+
+    // Each step of the spec's range selects a different set.
+    expect(await above(37.2)).toBe(6)
+    expect(await above(37.5)).toBe(4)
+    expect(await above(37.9)).toBe(2)
+    expect(await above(38.1)).toBe(0)
+
+    // The specific pair that collapsed under INTEGER storage.
+    expect(await above(37.2)).not.toBe(await above(37.9))
+
+    await db.close?.()
+  })
+
+  it('round-trips a tenth without rounding', async () => {
+    const db = await boot()
+    await db.execute(
+      `INSERT INTO memory.temperature (ts, brand, family_id, user_id, device_id, temp_c)
+       VALUES (now(), $brand, $fam, $user, $dev, $v)`,
+      { brand: BRAND, fam: FAMILY, user: USER, dev: DEVICE, v: 36.8 },
+    )
+    const rows = await db.execute<{ temp_c: number }>(
+      `SELECT temp_c::DOUBLE AS temp_c FROM memory.temperature`,
+    )
+    expect(Number(rows[0]!.temp_c)).toBeCloseTo(36.8, 4)
+    await db.close?.()
+  })
+})

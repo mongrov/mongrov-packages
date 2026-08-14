@@ -52,6 +52,12 @@ const STEP5_COUNT = 1
  * does not silently break this count.
  */
 const STEP6_COUNT = Object.keys(IDENTITY_COLUMNS).length
+/**
+ * step-7 (temp_c INTEGER -> DECIMAL) probes `listColumns` for `temperature`.
+ * The fake returns no columns, so the table reads as absent and the rebuild
+ * is skipped — one statement.
+ */
+const STEP7_COUNT = 1
 
 const CTX = { brand: 'brandA', tenantId: 'fam123' }
 const CATALOG = 'zone_fam123'
@@ -70,7 +76,7 @@ describe('ensureMigrations', () => {
     // remote catalog (0.5.0 fix for "ensureSchemas never creates local.*
     // tables"), minus the local-only tables remote-side; then steps 2-4.
     expect(fake.calls).toHaveLength(
-      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT,
+      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT + STEP7_COUNT,
     )
     // Local tables come first (baseline migration order).
     expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS memory.hrv')
@@ -139,7 +145,7 @@ describe('ensureMigrations', () => {
     expect(fake.calls[1].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.default.device_battery')
     expect(fake.calls[1].sql).toContain('PARTITIONED BY (day(ts), device_id)')
     // Steps 3 + 4 follow (see first-run test).
-    expect(fake.calls).toHaveLength(STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT)
+    expect(fake.calls).toHaveLength(STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT + STEP7_COUNT)
   })
 
   it('upgrade from v2 runs only step-3 — insight recreate with data mapping', async () => {
@@ -182,7 +188,7 @@ describe('ensureMigrations', () => {
     expect(result.from).toBe(0)
     expect(result.to).toBe(CURRENT_VERSION)
     expect(fake.calls.length).toBe(
-      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT,
+      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT + STEP7_COUNT,
     )
 
     // Same call again — no-op. KV already at CURRENT_VERSION.

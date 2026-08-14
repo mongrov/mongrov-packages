@@ -108,7 +108,16 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   family_id VARCHAR NOT NULL,
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
-  temp_c INTEGER NOT NULL
+  -- DECIMAL, not an integer type. The current ring emits whole degrees and
+  -- the mapper stores them verbatim, which made INTEGER look free — but
+  -- sprint6 specifies a user-settable flag level of 37.5 C over a 37.2-38.1
+  -- range, and against an integer column every value in that range rounds to
+  -- 37 or 38. Measured: thresholds 37.2 and 37.9 select identical rows, so
+  -- the control has two states rather than a range. It also forecloses the
+  -- 0.1 C next-gen rings that sprint6 SS7 plans a precision gate for.
+  --
+  -- 4 digits, 1 decimal: -999.9 to 999.9, far past any body temperature.
+  temp_c DECIMAL(4,1) NOT NULL
 ) PARTITIONED BY (day(ts), user_id);`,
 
   activity: `CREATE TABLE activity (

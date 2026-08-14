@@ -302,6 +302,45 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       }
     },
   },
+  {
+    version: 7,
+    name: 'temperature.temp_c INTEGER -> DECIMAL(4,1) (sprint6 T-01 finding)',
+    // The column was INTEGER because the current ring emits whole degrees.
+    // sprint6 then specified a user-settable flag level of 37.5 C over a
+    // 37.2-38.1 range, which an integer column cannot represent: measured,
+    // thresholds 37.2 and 37.9 select identical rows, so the control has two
+    // states rather than a range.
+    //
+    // Widening only — every stored integer is representable as DECIMAL(4,1),
+    // so the copy is lossless and the migration is safe to re-run.
+    //
+    // Local only. An attached Iceberg catalog created before this still has
+    // the integer column; the union view coerces on read, but PUSHING
+    // decimals into it would truncate. Cloud sync is off today, which is the
+    // window to evolve the remote schema server-side — see the note in the
+    // sprint6 propose-diff.
+    async up(db, catalogs) {
+      const local = quoteQualifier(catalogs.local)
+      const cols = await listColumns(db, catalogs.local, 'temperature')
+      if (cols.length === 0)
+        return // table absent; migration 1 creates it with the new type
+
+      const columnList = cols.join(', ')
+      await db.execute(`DROP TABLE IF EXISTS ${local}.temperature_v2;`)
+      await db.execute(
+        LOCAL_SCHEMAS.temperature.replace(
+          'CREATE TABLE temperature',
+          `CREATE TABLE ${local}.temperature_v2`,
+        ),
+      )
+      await db.execute(
+        `INSERT INTO ${local}.temperature_v2 (${columnList}) `
+        + `SELECT ${columnList} FROM ${local}.temperature ON CONFLICT DO NOTHING;`,
+      )
+      await db.execute(`DROP TABLE ${local}.temperature;`)
+      await db.execute(`ALTER TABLE ${local}.temperature_v2 RENAME TO temperature;`)
+    },
+  },
 ])
 
 /** Version of the latest known migration — target for every attach. */
