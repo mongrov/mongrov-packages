@@ -32,7 +32,7 @@ import type { Clock, CompiledRule, FlushSummary, RulesLogger, RuleViolation } fr
 import { nanoid } from 'nanoid'
 import { AnalyticsError, describeError } from '../core/errors'
 import { METRIC_METADATA } from '../core/metric_metadata'
-import { USER_SETTING_PARAM } from './compiler'
+import { BASELINE_OFFSET_PARAM, USER_SETTING_PARAM } from './compiler'
 
 export interface EvaluatorConfig {
   registry: RulesRegistry
@@ -229,6 +229,18 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
           ctx.userId,
           compiled.userSettingKey,
           compiled.userSettingDefault ?? 0,
+          rule.id,
+        )
+      }
+      // sprint6 T-03 — same mechanism, different parameter. A
+      // `baseline_offset` target with an `offsetKey` reads its offset from
+      // KVStore per user, so one compiled statement serves a family whose
+      // members each chose a different sensitivity.
+      if (compiled.offsetKey !== undefined) {
+        params[BASELINE_OFFSET_PARAM] = await resolveUserSetting(
+          ctx.userId,
+          compiled.offsetKey,
+          compiled.offsetDefault ?? 0,
           rule.id,
         )
       }

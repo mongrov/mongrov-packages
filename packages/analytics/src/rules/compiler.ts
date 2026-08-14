@@ -158,6 +158,9 @@ function placeholdersOf(sql: string): string[] {
  */
 export const USER_SETTING_PARAM = 'userSettingValue'
 
+/** Placeholder the evaluator binds for a `baseline_offset` target's offset. */
+export const BASELINE_OFFSET_PARAM = 'baselineOffset'
+
 /** Compile a validated rule to a `CompiledRule`. */
 export function compileRule(rule: Rule): CompiledRule {
   const meta = METRIC_METADATA[rule.metric]
@@ -189,6 +192,7 @@ export function compileRule(rule: Rule): CompiledRule {
     target: rule.target,
     compare: rule.compare,
     consecutive: rule.consecutive,
+    metricId: rule.metric,
   }
 
   const { sql, params } = rule.consecutive && rule.consecutive > 1
@@ -204,6 +208,9 @@ export function compileRule(rule: Rule): CompiledRule {
     /** Evaluator binds `$userSettingValue` from this key when present. */
     userSettingKey: rule.target.type === 'user_setting' ? rule.target.key : undefined,
     userSettingDefault: rule.target.type === 'user_setting' ? rule.target.defaultValue : undefined,
+    /** Evaluator binds `$baselineOffset` from this key when present. */
+    offsetKey: rule.target.type === 'baseline_offset' ? rule.target.offsetKey : undefined,
+    offsetDefault: rule.target.type === 'baseline_offset' ? rule.target.offset : undefined,
   }
 }
 
@@ -214,6 +221,10 @@ function describeTarget(target: Target): string {
     case 'baseline_stddev': return `${target.stddevs} stddev over ${target.windowDays}d baseline`
     case 'range': return `[${target.min}, ${target.max}]`
     case 'user_setting': return `user setting ${target.key} (default ${target.defaultValue})`
+    case 'baseline_offset': return (
+      `${target.offset} ${target.direction} ${target.windowDays}d baseline p50${
+        target.offsetKey ? ` (key ${target.offsetKey})` : ''}`
+    )
   }
 }
 
@@ -227,6 +238,8 @@ interface BuildArgs {
   target: Target
   compare: Compare
   consecutive?: number
+  /** Rule metric id — the `user_baseline.metric` key for baseline_offset. */
+  metricId: string
 }
 
 /** Tenant + window predicate, shared by both paths. */
@@ -241,7 +254,7 @@ function buildForTarget(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>
 } {
-  const { view, join, ts, interval, column, agg, target, compare } = args
+  const { view, join, ts, interval, column, agg, target, compare, metricId } = args
   const where = whereClause(ts, interval)
   const from = `FROM ${view} m${join}`
 
@@ -278,6 +291,46 @@ HAVING ${compareClause(compare, 'observed_value', `$${USER_SETTING_PARAM}`)};`
 ${from}
 ${where}
 HAVING ${outside};`
+    return { sql, params }
+  }
+
+  if (target.type === 'baseline_offset') {
+    // Reads the STORED baseline, not a recomputed mean. `user_baseline.p50`
+    // is day-first and ≥20-day gated (principle 27); the inline AVG the
+    // other baseline targets use is neither, so recomputing here would let
+    // this rule and the user's own "usual range" mean different numbers.
+    //
+    // Unqualified `user_baseline` resolves to the local catalog, same as the
+    // insight INSERT — baselines are local-first.
+    //
+    // Every parameter is CAST. react-native-duckdb resolves param types from
+    // SQL context at prepare time, and a bare param in a projection or an
+    // arithmetic expression has none (zivaone_app#70/#72).
+    const params: Record<string, string | number> = {
+      baselineDays: target.windowDays,
+      baselineMetric: metricId,
+    }
+    // Bound at eval time when `offsetKey` is set; otherwise the evaluator
+    // binds the literal default. Either way the SQL is identical, so one
+    // compiled statement serves every user in the family.
+    if (target.offsetKey === undefined)
+      params.baselineOffset = target.offset
+
+    const sign = target.direction === 'below' ? '-' : '+'
+    const operator = target.direction === 'below' ? 'less_than' : 'greater_than'
+
+    const sql = `WITH baseline AS (
+  SELECT p50
+  FROM user_baseline
+  WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+    AND metric = CAST($baselineMetric AS VARCHAR)
+    AND window_days = CAST($baselineDays AS INTEGER)
+)
+SELECT ${agg} AS observed_value,
+       (SELECT p50 FROM baseline) ${sign} CAST($baselineOffset AS DOUBLE) AS threshold_value
+${from}
+${where}
+HAVING ${compareClause(operator, 'observed_value', 'threshold_value')};`
     return { sql, params }
   }
 

@@ -54,6 +54,18 @@ export interface CompiledRule {
   userSettingKey?: string
   /** Fallback threshold when the user has never set the value. */
   userSettingDefault?: number
+  /**
+   * KVStore key the evaluator reads to bind `$baselineOffset` (sprint6 T-03).
+   * Present only for `target.type: 'baseline_offset'` with an `offsetKey`.
+   *
+   * Separate from `userSettingKey` rather than reusing it: a rule could in
+   * principle carry both a user-set threshold and a user-set offset, and
+   * collapsing them into one field would make that unrepresentable for the
+   * sake of saving a property.
+   */
+  offsetKey?: string
+  /** Offset used when the key is unset — the target's own `offset`. */
+  offsetDefault?: number
 }
 
 /** Structured violation delivered to `on('violation', handler)` subscribers. */

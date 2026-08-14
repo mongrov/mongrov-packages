@@ -98,12 +98,43 @@ const TargetUserSetting = z.object({
   compare: z.enum(['as_configured']).default('as_configured'),
 })
 
+/**
+ * sprint6 §3 — a fixed offset from the user's OWN stored baseline.
+ *
+ * Distinct from `baseline_percent`/`baseline_stddev` in where the baseline
+ * comes from, which matters more than it looks. Those two recompute a mean
+ * inline over raw readings in the window. This one reads `user_baseline.p50`
+ * — the stored, day-first, ≥20-day-gated percentile (principle 27). An HRV
+ * drop of 10 ms is only meaningful against the number the user's screen also
+ * calls "usual"; recomputing a different average here would let the rule and
+ * the chart disagree about the same word.
+ *
+ * `direction` fixes the comparison, so the rule's own `compare` is ignored
+ * for this target — `below` fires when the observed value sits at least
+ * `offset` under p50, `above` when it sits at least `offset` over.
+ *
+ * `offsetKey` makes the offset user-configurable at eval time, the same
+ * mechanism as `user_setting`: the compiled SQL binds a parameter and the
+ * evaluator resolves it from KVStore per user. `offset` is the fallback when
+ * the key is unset, and is required so a rule always has a defined threshold.
+ */
+const TargetBaselineOffset = z.object({
+  type: z.literal('baseline_offset'),
+  windowDays: z.number().int().positive(),
+  /** Absolute units of the metric — ms for hrv_ms, °C for temp_c. */
+  offset: z.number().positive(),
+  direction: z.enum(['below', 'above']),
+  /** KVStore key overriding `offset` at eval time. Registry-validated. */
+  offsetKey: z.string().min(1).optional(),
+})
+
 export const TargetSchema = z.discriminatedUnion('type', [
   TargetAbsolute,
   TargetBaselinePercent,
   TargetBaselineStddev,
   TargetRange,
   TargetUserSetting,
+  TargetBaselineOffset,
 ])
 export type Target = z.infer<typeof TargetSchema>
 
