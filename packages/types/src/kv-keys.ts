@@ -49,6 +49,8 @@ export const KV_KEY_REGISTRY = {
     valueType: 'number',
     description: 'SpO₂ percentage below which the safe-level rule fires',
     usedBy: ['ziva.spo2-safe-level'],
+    defaultValue: 90,
+    range: [86, 94],
   },
   /** Whether SpO₂ violations raise a notification. UX state, not a threshold. */
   'user:spo2Notify': {
@@ -64,6 +66,57 @@ export const KV_KEY_REGISTRY = {
     description: 'User dismissed the day-30 baseline-ready banner',
     usedBy: [],
   },
+
+  // ── sprint6: temperature (T-06) ───────────────────────────────────────
+  /**
+   * Canonical °C, never °F. The screen converts for display; storing the
+   * display unit would make the same number mean different things to two
+   * users. Fractional on purpose — `temperature.temp_c` is DECIMAL(4,1) as
+   * of analytics 0.9.1 precisely so this range discriminates.
+   */
+  'user:tempFlagLevel': {
+    kind: 'threshold',
+    valueType: 'number',
+    description: 'Temperature in °C at or above which the temp flag rule fires',
+    usedBy: ['ziva.temp-flag-level'],
+    defaultValue: 37.5,
+    range: [37.2, 38.1],
+    step: 0.1,
+  },
+  'user:tempNotify': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'User opted in to temperature notifications',
+    usedBy: [],
+    defaultValue: true,
+  },
+
+  // ── sprint6: HRV (T-06) ───────────────────────────────────────────────
+  /**
+   * A DROP in milliseconds below the user's own baseline, not an absolute
+   * HRV floor. HRV has no meaningful absolute threshold — `ziva.hrv-below-usual`
+   * is relative-only by locked decision D3, and the rules validator rejects
+   * an absolute-threshold rule on `hrv_ms`.
+   */
+  'user:hrvDropMs': {
+    kind: 'threshold',
+    valueType: 'number',
+    description: 'Milliseconds below baseline p50 that counts as an HRV drop',
+    usedBy: ['ziva.hrv-below-usual'],
+    defaultValue: 10,
+    range: [5, 25],
+    step: 1,
+  },
+  /** Consecutive DAYS the drop must persist. Cadence is days, not readings. */
+  'user:hrvDropDays': {
+    kind: 'threshold',
+    valueType: 'number',
+    description: 'Consecutive days an HRV drop must persist before firing',
+    usedBy: ['ziva.hrv-below-usual'],
+    defaultValue: 3,
+    range: [2, 7],
+    step: 1,
+  },
 } as const satisfies Record<string, KvKeyEntry>
 
 export interface KvKeyEntry {
@@ -78,6 +131,19 @@ export interface KvKeyEntry {
   description: string
   /** Rule ids known to read this key. Documentation, not enforcement. */
   usedBy: readonly string[]
+  /**
+   * Value used when the key is unset.
+   *
+   * Declared here so the rule catalog, the settings UI and the evaluator's
+   * fallback cannot disagree. `spo2SafeLevel`'s range lived only in a prose
+   * comment on this file until sprint6, which is how the temperature flag
+   * came to be specified over a range its column could not represent.
+   */
+  defaultValue?: number | boolean | string
+  /** Inclusive bounds a settings UI must clamp to. Numeric keys only. */
+  range?: readonly [min: number, max: number]
+  /** Smallest meaningful increment, where the UI steps rather than slides. */
+  step?: number
 }
 
 export type KvKey = keyof typeof KV_KEY_REGISTRY

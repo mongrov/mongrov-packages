@@ -17,12 +17,39 @@ import {
 } from '../kv-keys'
 
 describe('KV_KEY_REGISTRY', () => {
-  it('registers the keys the Ziva SpO₂ surface uses', () => {
+  it('registers exactly the declared surface — adding a key is deliberate', () => {
+    // Closed-world on purpose. This list failing is the intended cost of
+    // adding a key: the registry is the rules validator's allow-list, not
+    // documentation, so growth should require a decision rather than happen.
     expect(Object.keys(KV_KEY_REGISTRY).sort()).toEqual([
+      'user:hrvDropDays',
+      'user:hrvDropMs',
       'user:spo2Day30BannerDismissed',
       'user:spo2Notify',
       'user:spo2SafeLevel',
+      'user:tempFlagLevel',
+      'user:tempNotify',
     ])
+  })
+
+  it('numeric thresholds declare a default inside their own range', () => {
+    // The pairing matters more than either value: sprint6 specified a
+    // temperature flag of 37.5 over 37.2-38.1 against a column that could
+    // represent neither bound distinctly. Declaring them together here is
+    // what lets a settings UI and the rule catalog agree without copying.
+    // Reported as one object so a failure names the offending key — jest's
+    // expect() takes no message argument.
+    const offenders = Object.entries(KV_KEY_REGISTRY)
+      .filter(([, e]) => e.kind === 'threshold')
+      .filter(([, e]) => {
+        if (typeof e.defaultValue !== 'number' || !e.range)
+          return true
+        const [min, max] = e.range
+        return min >= max || e.defaultValue < min || e.defaultValue > max
+      })
+      .map(([k]) => k)
+
+    expect(offenders).toEqual([])
   })
 
   it('every entry declares kind, valueType and a description', () => {
@@ -54,7 +81,15 @@ describe('rule readability', () => {
   })
 
   it('ruleReadableKvKeys lists exactly the thresholds', () => {
-    expect(ruleReadableKvKeys()).toEqual(['user:spo2SafeLevel'])
+    expect(ruleReadableKvKeys().sort()).toEqual([
+      'user:hrvDropDays',
+      'user:hrvDropMs',
+      'user:spo2SafeLevel',
+      'user:tempFlagLevel',
+    ])
+    // Notification toggles are ux_state — a rule thresholding on "did they
+    // opt in to notifications" is a bug, not a feature.
+    expect(ruleReadableKvKeys()).not.toContain('user:tempNotify')
   })
 })
 

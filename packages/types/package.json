@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/types",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Shared type definitions for @mongrov packages",
   "license": "MIT",
   "repository": {
