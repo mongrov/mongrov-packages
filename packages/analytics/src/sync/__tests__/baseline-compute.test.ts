@@ -39,7 +39,11 @@ describe('buildBaselineSql — day-first shape', () => {
     // The CTE is the whole point: quantiles run over `daily_values`, never
     // over raw readings.
     expect(sql).toContain('WITH daily_values AS')
-    expect(sql).toContain(`date_trunc('day', timezone($tz, ts))`)
+    // Converts, not labels: `ts` is naive TIMESTAMP, and DuckDB resolves
+    // the timezone() overload from its second argument, so the inner
+    // timezone('UTC', ts) is what makes the outer call a conversion
+    // (zivaone_app#73). This assertion previously pinned the buggy form.
+    expect(sql).toContain(`date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', ts)))`)
     expect(sql).toContain('avg(spo2) AS daily_value')
     expect(sql).toContain('GROUP BY day')
     expect(sql).toContain('quantile_cont(daily_value, 0.10)')
@@ -82,7 +86,10 @@ describe('buildBaselineSql — day-first shape', () => {
 
   it('binds the window rather than concatenating it into an INTERVAL', () => {
     const sql = buildBaselineSql('spo2', 90)
-    expect(sql).toContain('(INTERVAL 1 DAY) * $windowDays')
+    // The CAST is required for the react-native-duckdb prepare path, and
+    // must be BIGINT — INTEGER widens ambiguously against the interval
+    // overloads (zivaone_app#72). This previously pinned the uncast form.
+    expect(sql).toContain('(INTERVAL 1 DAY) * CAST($windowDays AS BIGINT)')
     expect(sql).not.toContain('INTERVAL 90')
   })
 

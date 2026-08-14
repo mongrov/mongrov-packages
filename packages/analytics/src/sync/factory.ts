@@ -309,6 +309,31 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
 
   const pendingClosesStore = new PendingClosesStore(config.storage)
 
+  // Both fallbacks below are the right default — a consumer without an RN
+  // background-task adapter should still get a SyncManager. What was wrong is
+  // that they were silent (zivaone_app#74).
+  //
+  // `noopBackgroundTask()` stores the handler and never calls it, so
+  // `scheduler.start()` registers a cycle that can never fire and still logs
+  // success. Every scheduled path — flushAll, pushAll, fetchIncremental,
+  // computeBaselines — becomes unreachable. The observable symptom is an
+  // empty `user_baseline` with no error anywhere, which cost an afternoon and
+  // three wrong hypotheses before anyone looked here.
+  //
+  // `alwaysAllowedConstraints()` silently disables the wifi/charging gates,
+  // which starts mattering the moment cloud sync pushes to R2.
+  if (!config.backgroundTask) {
+    config.logger?.warn(
+      'sync.factory: no backgroundTask supplied — scheduler cycles will never '
+      + 'fire (flush, push, fetch and baseline compute are all unreachable)',
+    )
+  }
+  if (!config.constraints) {
+    config.logger?.warn(
+      'sync.factory: no constraints supplied — wifi/charging gates are disabled',
+    )
+  }
+
   const scheduler = new SyncScheduler({
     backgroundTask: config.backgroundTask ?? noopBackgroundTask(),
     constraints: config.constraints ?? alwaysAllowedConstraints(),

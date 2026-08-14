@@ -19,7 +19,7 @@ export const getHRV: ToolImpl<GetHRVInput> = async (input, ctx) => {
     `SELECT date_trunc('day', ts)::VARCHAR AS day, AVG(hrv_ms)::DOUBLE AS avg_hrv
      FROM v_hrv
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-       AND ts >= now() - INTERVAL ($days) DAY
+       AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
        AND hrv_ms IS NOT NULL
      GROUP BY 1 ORDER BY 1`,
     {

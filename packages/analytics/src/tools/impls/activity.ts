@@ -37,7 +37,7 @@ export const getActivityTotal: ToolImpl<GetActivityTotalInput> = async (
     `SELECT date_trunc('day', ts)::VARCHAR AS day, SUM(steps)::INTEGER AS steps
      FROM v_activity
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-       AND ts >= now() - INTERVAL ($days) DAY
+       AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
      GROUP BY 1 ORDER BY 1`,
     params,
   )
@@ -48,7 +48,7 @@ export const getActivityTotal: ToolImpl<GetActivityTotalInput> = async (
             SUM(distance_km)::DOUBLE AS distance_km
      FROM v_activity_bucket
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-       AND ts >= now() - INTERVAL ($days) DAY
+       AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
      GROUP BY 1 ORDER BY 1`,
     params,
   )

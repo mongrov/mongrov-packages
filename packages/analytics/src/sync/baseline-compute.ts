@@ -89,8 +89,20 @@ export function buildBaselineSql(
 
   // DuckDB cannot bind a parameter inside an INTERVAL literal, but it can
   // multiply a static unit interval by a bound integer. Same trick the
-  // rules compiler uses.
-  const windowBind = `(INTERVAL 1 DAY) * $windowDays`
+  // rules compiler uses — including, until now, the same defect.
+  //
+  // The CAST is not cosmetic (zivaone_app#72). react-native-duckdb prepares
+  // with no values and executes with them, so a parameter's type has to
+  // resolve from SQL context at prepare time; with none it stays UNKNOWN and
+  // the bind throws ParameterNotResolvedException. Interval multiplication
+  // has no INTEGER overload, so this site has no context to resolve from.
+  //
+  // BIGINT, not INTEGER: `CAST($p AS INTEGER)` still fails here because
+  // INTEGER widens ambiguously against the interval overloads.
+  //
+  // This does not reproduce on node/Python DuckDB, which hand values to the
+  // binder and therefore always have a type. Only a device build shows it.
+  const windowBind = `(INTERVAL 1 DAY) * CAST($windowDays AS BIGINT)`
 
   let dailySelect: string
   let tsColumn: string
@@ -120,8 +132,26 @@ export function buildBaselineSql(
 
   const fn = aggregate === 'sum' ? 'sum' : 'avg'
   tsColumn = 'ts'
+  // Two separate defects fixed here (zivaone_app#73); either alone is wrong.
+  //
+  // 1. `CAST($tz AS VARCHAR)` — the untyped-parameter defect above.
+  //
+  // 2. The nested `timezone('UTC', ts)` — direction. Every `ts` column is
+  //    `TIMESTAMP NOT NULL` (naive UTC), and DuckDB picks the `timezone()`
+  //    overload from its SECOND argument:
+  //      timezone(tz, TIMESTAMPTZ) -> converts into that zone   (wanted)
+  //      timezone(tz, TIMESTAMP)   -> LABELS the naive value    (what we had)
+  //    So a 02:00 UTC reading was labelled 02:00-07:00 rather than converted
+  //    to 19:00 the previous day, attributing evening readings to the next
+  //    local day and grouping the daily aggregates on the wrong boundary.
+  //    Inner `timezone('UTC', ts)` makes it a TIMESTAMPTZ first.
+  //
+  // This one changes the percentiles `user_baseline` stores, not merely
+  // whether the query runs — casting alone would bind fine and still bucket
+  // wrong. `timezone($tz, now())` elsewhere is correct as-is: `now()` is
+  // already TIMESTAMPTZ.
   dailySelect
-    = `date_trunc('day', timezone($tz, ${tsColumn})) AS day, ${fn}(${column}) AS daily_value`
+    = `date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', ${tsColumn}))) AS day, ${fn}(${column}) AS daily_value`
 
   return `
     WITH daily_values AS (

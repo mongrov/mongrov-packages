@@ -38,7 +38,7 @@ export const getInsights: ToolImpl<GetInsightsInput> = async (input, ctx) => {
      FROM insight
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND dismissed_at IS NULL
-       AND ts >= now() - INTERVAL ($days) DAY${severityClause}
+       AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY${severityClause}
      ORDER BY ts DESC`,
     params,
   )

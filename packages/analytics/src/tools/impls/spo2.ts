@@ -71,7 +71,7 @@ export const getSpO2: ToolImpl<GetSpO2Input> = async (input, ctx) => {
        AND s.family_id = m.family_id
        AND m.ts BETWEEN s.ts_start AND s.ts_end
      WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId
-       AND m.ts >= now() - INTERVAL ($days) DAY
+       AND m.ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
      GROUP BY s.night_of
      ORDER BY s.night_of`,
     params,

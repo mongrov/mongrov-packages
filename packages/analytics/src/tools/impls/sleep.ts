@@ -29,7 +29,7 @@ export const getSleepSummary: ToolImpl<GetSleepSummaryInput> = async (
             SUM(light_minutes)::INTEGER AS light_minutes
      FROM v_sleep_session
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-       AND ts_start >= now() - INTERVAL ($days) DAY
+       AND ts_start >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
      GROUP BY night_of ORDER BY night_of`,
     {
       userId: input.userId,
