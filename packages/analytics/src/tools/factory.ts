@@ -25,6 +25,7 @@ import type { GetHRVInput } from './impls/hrv'
 import type { GetInsightsInput } from './impls/insights'
 import type { GetSleepSummaryInput } from './impls/sleep'
 import type { GetSpO2Input } from './impls/spo2'
+import type { GetTemperatureInput } from './impls/temperature'
 import type { RateLimiter } from './rate-limit'
 
 import type {
@@ -62,6 +63,7 @@ import {
   getSleepSummaryInputSchema,
 } from './impls/sleep'
 import { getSpO2, getSpO2InputSchema } from './impls/spo2'
+import { getTemperature, getTemperatureInputSchema } from './impls/temperature'
 import { createRateLimiter } from './rate-limit'
 import {
   DEFAULT_OUTPUT_BUDGET,
@@ -86,6 +88,7 @@ const DESCRIPTIONS = {
   getSpO2: 'Return nightly blood-oxygen averages during sleep for a user, '
     + 'with how many brief low moments occurred each night and how it '
     + 'compares to their usual range. Args: userId, days (1..90).',
+  getTemperature: 'Return a user\'s daily temperature in Celsius — average, high and low per day — alongside their own usual range. Says how it compares to their usual, never whether it is high. Args: userId, days (1..90).',
   getInsights: 'Return recent AI-generated insights for a user. Args: userId, '
     + 'days (1..30, default 7), optional severity (info|warn|urgent).',
 } as const
@@ -97,6 +100,7 @@ export interface AnalyticsToolMap {
   compareTrend: ReturnType<typeof makeTool<CompareTrendInput>>
   detectAnomaly: ReturnType<typeof makeTool<DetectAnomalyInput>>
   getSpO2: ReturnType<typeof makeTool<GetSpO2Input>>
+  getTemperature: ReturnType<typeof makeTool<GetTemperatureInput>>
   getInsights: ReturnType<typeof makeTool<GetInsightsInput>>
 }
 
@@ -158,6 +162,13 @@ export function createAnalyticsTools(
       description: DESCRIPTIONS.getSpO2,
       inputSchema: getSpO2InputSchema,
       impl: getSpO2,
+    }),
+    getTemperature: makeTool({
+      ...shared,
+      name: 'getTemperature',
+      description: DESCRIPTIONS.getTemperature,
+      inputSchema: getTemperatureInputSchema,
+      impl: getTemperature,
     }),
     getHRV: makeTool({
       ...shared,

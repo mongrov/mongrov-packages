@@ -157,10 +157,10 @@ describe('T-31 — getSpO2 formatter copy', () => {
 })
 
 describe('T-32 — every shipped formatter is guarded', () => {
-  it('ships seven tools, all sharing the guarded finalize path', () => {
+  it('ships eight tools, all sharing the guarded finalize path', () => {
     const engine = createFakeEngine()
     const handle = createAnalyticsTools({ analytics: engine as never })
-    expect(Object.keys(handle.tools)).toHaveLength(7)
+    expect(Object.keys(handle.tools)).toHaveLength(8)
   })
 
   it('a clinical string in the DATA cannot reach the model', async () => {

@@ -30,6 +30,7 @@ describe('AnalyticsQuerySchemas', () => {
       'HrvDailySchemas',
       'SleepSummarySchemas',
       'SpO2NightlySchemas',
+      'TempDailySchemas',
     ])
   })
 

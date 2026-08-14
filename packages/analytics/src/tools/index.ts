@@ -54,6 +54,11 @@ export {
   type GetSleepSummaryInput,
   getSleepSummaryInputSchema,
 } from './impls/sleep'
+export {
+  getTemperature,
+  type GetTemperatureInput,
+  getTemperatureInputSchema,
+} from './impls/temperature'
 export * from './rate-limit'
 export * from './types'
 

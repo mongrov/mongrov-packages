@@ -37,6 +37,20 @@ export const BANNED_MEDICAL_VOCABULARY = [
   'tachycardia',
   'ischemia',
   'ischemic',
+  // sprint6 §6 — temperature. Ziva says "running warm", never a diagnosis.
+  'febrile',
+  'pyrexia',
+  // sprint6 §6 — HRV. The metric names are as clinical as the conditions:
+  // an LLM handed "RMSSD" in context will hand it back to the user, and a
+  // grandmother reading "reduced vagal tone" hears a diagnosis nobody made.
+  // `arrhythmia`/`arrhythmic` were already banned above.
+  'rmssd',
+  'sdnn',
+  'autonomic',
+  'sympathetic',
+  'parasympathetic',
+  'vagal',
+  'afib',
 ] as const
 
 export type BannedTerm = (typeof BANNED_MEDICAL_VOCABULARY)[number]

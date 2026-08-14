@@ -58,6 +58,44 @@ export const HrvDailySchemas = {
   }),
 } as const
 
+/**
+ * Daily temperature for `getTemperature` (sprint6 §6).
+ *
+ * Values are canonical °C. `unit` is carried explicitly rather than assumed:
+ * the ring reports Celsius, the user may read Fahrenheit, and a number whose
+ * unit is inferred at the far end is how 37.5 becomes a fever in one locale
+ * and a shrug in another.
+ *
+ * `precision` is what the DEVICE reports, not what the column stores —
+ * `temperature.temp_c` is DECIMAL(4,1) while today's ring emits whole
+ * degrees. A formatter that prints one decimal off a 1.0-precision reading
+ * is inventing detail the hardware never measured.
+ */
+export const TempDailySchemas = {
+  input: userDaysInput(90),
+  output: z.object({
+    daily: z.array(
+      z.object({
+        day: z.string(),
+        avgTempC: z.number(),
+        hiTempC: z.number(),
+        loTempC: z.number(),
+      }),
+    ),
+    /** The user's own usual range, absent until the 20-day gate passes. */
+    baseline: z
+      .object({
+        p10: z.number(),
+        p50: z.number(),
+        p90: z.number(),
+        computedAt: z.string(),
+      })
+      .nullable(),
+    unit: z.literal('C'),
+    precision: z.number(),
+  }),
+} as const
+
 export const SpO2NightlySchemas = {
   input: userDaysInput(90),
   output: z.object({
@@ -224,6 +262,7 @@ export const FamilyHrvTodaySchemas = {
 export const AnalyticsQuerySchemas = {
   HrvDailySchemas,
   SpO2NightlySchemas,
+  TempDailySchemas,
   SleepSummarySchemas,
   ActivityTotalSchemas,
   CompareTrendSchemas,
@@ -234,6 +273,8 @@ export const AnalyticsQuerySchemas = {
 
 export type HrvDailyInput = z.infer<typeof HrvDailySchemas.input>
 export type HrvDailyOutput = z.infer<typeof HrvDailySchemas.output>
+export type TempDailyInput = z.infer<typeof TempDailySchemas.input>
+export type TempDailyOutput = z.infer<typeof TempDailySchemas.output>
 export type SpO2NightlyInput = z.infer<typeof SpO2NightlySchemas.input>
 export type SpO2NightlyOutput = z.infer<typeof SpO2NightlySchemas.output>
 export type SleepSummaryInput = z.infer<typeof SleepSummarySchemas.input>
