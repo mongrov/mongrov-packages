@@ -67,9 +67,12 @@ describe('BatchFlusher.flush (happy path)', () => {
 
     const result = await flusher.flush('hrv', 'manual')
     expect(result).toEqual({ table: 'hrv', rowsFlushed: 2, ok: true })
+    // Appends land in the unconstrained staging mirror; a set-based
+    // `INSERT ... ON CONFLICT DO NOTHING` moves them into `hrv`
+    // (principle 66). Column order is what this assertion is really about.
     expect(engineFake.appended).toEqual([
-      { table: 'hrv', values: ['t0', 50, 20] },
-      { table: 'hrv', values: ['t1', 55, 25] },
+      { table: 'hrv__stg', values: ['t0', 50, 20] },
+      { table: 'hrv__stg', values: ['t1', 55, 25] },
     ])
     expect(engineFake.flushCount).toBe(1)
     expect(engineFake.closeCount).toBe(1)
@@ -179,7 +182,8 @@ describe('BatchFlusher.scheduleFlush (priority)', () => {
     flusher.resumeQueue()
     await Promise.all([fg, bg])
 
-    expect(appenderCallOrder[0]).toBe('hrv')
+    // Staging mirrors — the assertion is about ORDER, not the table names.
+    expect(appenderCallOrder[0]).toBe('hrv__stg')
     expect(appenderCallOrder[1]).toBe('hr')
   })
 })

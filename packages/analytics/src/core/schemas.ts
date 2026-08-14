@@ -448,6 +448,49 @@ export function qualifyDdl(baseDdl: string, table: TableName, catalog: string): 
  *
  * Exported for tests; call sites should prefer `LOCAL_SCHEMAS`.
  */
+/**
+ * What identifies a row, per table (principle 66).
+ *
+ * Re-syncing the same data must be a no-op rather than an append. Ten of the
+ * twelve sync-written tables had no key at all, so a repeated sync silently
+ * duplicated — measured on device as `sleep_stage` 16399 rows for `sleep_raw`
+ * 2082 blocks, which then skews the percentiles in `user_baseline`.
+ *
+ * The tenant triple is spelled out rather than relying on `device_id` to imply
+ * it (principle 26 derives device_id from brand + hardware_id, so brand IS
+ * recoverable). A key whose scope you have to derive from another principle is
+ * one someone will get wrong later.
+ *
+ * LOCAL ONLY. These become `PRIMARY KEY` in `LOCAL_SCHEMAS`; the Iceberg
+ * `SCHEMAS` variant is untouched, matching migration 5's rule that the client
+ * never destructively rewrites the attached remote catalog.
+ *
+ * Absent on purpose:
+ *   - `tool_call_audit` — an append-only audit log written by `tools/audit.ts`,
+ *     not by sync. Two identical calls at the same instant are two real events.
+ *   - `sleep_session`, `device_config` — already carry their own PRIMARY KEY.
+ */
+export const IDENTITY_COLUMNS: Readonly<Partial<Record<TableName, readonly string[]>>>
+  = Object.freeze({
+    // One reading per device per instant.
+    hrv: ['brand', 'family_id', 'user_id', 'device_id', 'ts'],
+    heart_rate: ['brand', 'family_id', 'user_id', 'device_id', 'ts'],
+    spo2: ['brand', 'family_id', 'user_id', 'device_id', 'ts'],
+    temperature: ['brand', 'family_id', 'user_id', 'device_id', 'ts'],
+    activity: ['brand', 'family_id', 'user_id', 'device_id', 'ts'],
+    activity_bucket: ['brand', 'family_id', 'user_id', 'device_id', 'ts'],
+    device_battery: ['brand', 'family_id', 'user_id', 'device_id', 'ts'],
+    // `event_type` is part of identity: a sync_completed and a battery_low can
+    // legitimately share a timestamp.
+    device_event: ['brand', 'family_id', 'user_id', 'device_id', 'ts', 'event_type'],
+    // A stage belongs to a session; the session is part of what identifies it.
+    sleep_stage: ['brand', 'family_id', 'user_id', 'device_id', 'session_id', 'ts'],
+    sleep_raw: ['brand', 'family_id', 'user_id', 'device_id', 'ts_session_start', 'ts'],
+  })
+
+// The DDL's closing paren, which is where the key clause is spliced in.
+const DDL_TAIL_RE = /\n\);$/
+
 export function toLocalDdl(baseDdl: string): string {
   // The clause always terminates the DDL, and its column list contains
   // nested parens (`day(ts)`), so strip from the closing table paren to
@@ -463,9 +506,24 @@ export function toLocalDdl(baseDdl: string): string {
  */
 export const LOCAL_SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze(
   Object.fromEntries(
-    TABLE_NAMES.map(table => [table, toLocalDdl(SCHEMAS[table])]),
+    TABLE_NAMES.map(table => [table, withIdentityKey(table, toLocalDdl(SCHEMAS[table]))]),
   ) as Record<TableName, string>,
 )
+
+/**
+ * Inject the declared identity tuple as a `PRIMARY KEY` on the local DDL.
+ *
+ * A no-op for tables absent from `IDENTITY_COLUMNS`, and for DDL that already
+ * declares one — `sleep_session` and `device_config` spell their own key in
+ * the base schema, and two PRIMARY KEY clauses is a parser error rather than
+ * a merge.
+ */
+export function withIdentityKey(table: TableName, localDdl: string): string {
+  const cols = IDENTITY_COLUMNS[table]
+  if (!cols || localDdl.includes('PRIMARY KEY'))
+    return localDdl
+  return localDdl.replace(DDL_TAIL_RE, `,\n  PRIMARY KEY (${cols.join(', ')})\n);`)
+}
 
 /**
  * Create every warehouse table under `<catalog>.<table>`, in `TABLE_NAMES` order.

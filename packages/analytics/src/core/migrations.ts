@@ -21,9 +21,10 @@
  */
 
 import type { HybridDuckDB } from './engine'
+import type { TableName } from './schemas'
 import type { KVStore } from './types'
 import { AnalyticsError } from './errors'
-import { ensureSchemas, insightIndexDdl, LOCAL_SCHEMAS, qualifyDdl, quoteQualifier, SCHEMAS } from './schemas'
+import { ensureSchemas, IDENTITY_COLUMNS, insightIndexDdl, LOCAL_SCHEMAS, qualifyDdl, quoteQualifier, SCHEMAS } from './schemas'
 
 export interface MigrationContext {
   brand: string
@@ -253,6 +254,52 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       await db.execute(
         `ALTER TABLE ${quoteQualifier(catalogs.local)}.device_config_v2 RENAME TO device_config;`,
       )
+    },
+  },
+  {
+    version: 6,
+    name: 'identity keys on sync-written tables (principle 66)',
+    // Ten of the twelve sync-written tables had no key, so re-syncing the
+    // same data appended silently — measured on device as `sleep_stage`
+    // 16399 rows for `sleep_raw` 2082 blocks, which then skews the
+    // percentiles in `user_baseline`.
+    //
+    // Existing installs already hold those duplicates, so the constraint
+    // cannot simply be added: it would fail on the first user who has them.
+    // The rebuild dedupes as it copies, using the new key itself to do the
+    // work — `ON CONFLICT DO NOTHING` against the v2 table keeps the first
+    // row of each identity tuple and drops the rest.
+    //
+    // Local only. The client never destructively rewrites the attached
+    // Iceberg catalog (same rule as migration 5), and `IDENTITY_COLUMNS`
+    // is applied to `LOCAL_SCHEMAS` alone.
+    async up(db, catalogs) {
+      const local = quoteQualifier(catalogs.local)
+
+      for (const table of Object.keys(IDENTITY_COLUMNS) as TableName[]) {
+        const cols = await listColumns(db, catalogs.local, table)
+        if (cols.length === 0)
+          continue // table absent; migration 1 will create it with the key
+
+        // Column list is spelled out rather than `SELECT *` so a future
+        // column reorder cannot silently shift values between columns.
+        const columnList = cols.join(', ')
+
+        await db.execute(`DROP TABLE IF EXISTS ${local}.${table}_v2;`)
+        await db.execute(
+          LOCAL_SCHEMAS[table].replace(
+            `CREATE TABLE ${table}`,
+            `CREATE TABLE ${local}.${table}_v2`,
+          ),
+        )
+        await db.execute(
+          `INSERT INTO ${local}.${table}_v2 (${columnList}) `
+          + `SELECT ${columnList} FROM ${local}.${table} `
+          + `ON CONFLICT DO NOTHING;`,
+        )
+        await db.execute(`DROP TABLE ${local}.${table};`)
+        await db.execute(`ALTER TABLE ${local}.${table}_v2 RENAME TO ${table};`)
+      }
     },
   },
 ])
