@@ -1,13 +1,8 @@
 import type { MetricId } from '../metric_metadata'
 
 import { describe, expect, it } from 'vitest'
-import {
-  getExposedMetricIds,
-  isMetricExposed,
-  METRIC_METADATA,
-
-} from '../metric_metadata'
-import { TABLE_NAMES } from '../schemas'
+import { getExposedMetricIds, isMetricExposed, METRIC_METADATA, precisionFor, supportsContinuousCurve } from '../metric_metadata'
+import { LOCAL_SCHEMAS, TABLE_NAMES } from '../schemas'
 
 const METRIC_IDS = Object.keys(METRIC_METADATA) as MetricId[]
 
@@ -59,5 +54,39 @@ describe('getExposedMetricIds', () => {
     expect(exposed).not.toContain('systolic_bp')
     expect(exposed).not.toContain('diastolic_bp')
     expect(exposed).not.toContain('vascular_aging')
+  })
+})
+
+describe('reporting precision (sprint6 T-08)', () => {
+  it('reports 1.0 for the whole-degree ring — the temp precision gate', () => {
+    // sprint6 §7's acceptance: a whole-degree device makes the gate report
+    // 1.0, which is what tells the Day view to draw discrete marks.
+    expect(precisionFor('temp_c')).toBe(1)
+    expect(supportsContinuousCurve('temp_c')).toBe(false)
+  })
+
+  it('declares precision for every metric a vital screen renders', () => {
+    // These four have screens in sprint6 (spo2, temp, hrv, stress) plus hr.
+    // An undeclared precision would leave the mark rule undecidable rather
+    // than wrong, which is harder to notice.
+    for (const id of ['spo2', 'temp_c', 'hrv_ms', 'stress', 'hr_bpm'] as const)
+      expect(precisionFor(id)).toBeDefined()
+  })
+
+  it('separates reporting precision from storage precision', () => {
+    // temp_c is DECIMAL(4,1) as of analytics 0.9.1 so a finer ring needs no
+    // migration, but the CURRENT hardware still emits whole degrees. The two
+    // numbers are allowed to disagree, and this is the one metric where they
+    // currently do.
+    expect(LOCAL_SCHEMAS.temperature).toContain('temp_c DECIMAL(4,1)')
+    expect(precisionFor('temp_c')).toBe(1)
+  })
+
+  it('would flip the mark rule for a finer device', () => {
+    // Guards the comparison, not the constant: if precision ever drops below
+    // 1 the curve becomes legitimate, and this is the line that decides it.
+    expect(supportsContinuousCurve('temp_c')).toBe(false)
+    const finer = { ...METRIC_METADATA.temp_c, precision: 0.1 }
+    expect(finer.precision < 1).toBe(true)
   })
 })

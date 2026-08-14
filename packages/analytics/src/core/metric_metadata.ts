@@ -49,6 +49,24 @@ export interface MetricMetadataEntry {
    * distance and sleep_score have no baseline consumer in v0.2.0).
    */
   baselineDailyAggregate?: BaselineDailyAggregate
+  /**
+   * Smallest increment the CURRENT ring actually reports, in the metric's
+   * own units (sprint6 §7).
+   *
+   * Drives the display precision clamp and the Day-view mark rule: a
+   * whole-degree temperature reading cannot support a continuous intra-day
+   * curve, so the screen shows discrete marks instead of segments. Storage
+   * precision is a separate thing — `temperature.temp_c` is DECIMAL(4,1) so
+   * a finer device needs no migration, but today's hardware still emits 1.0.
+   *
+   * NOT per device generation, which is what sprint6 §7 asks for. There is
+   * no generation, model or hardware-revision field anywhere in the schema:
+   * `device_id` is `hash(brand + hardware_id)` by principle 26 and is opaque
+   * by construction, so nothing can key a per-generation lookup today. This
+   * field is the current-hardware value; when a generation key exists, this
+   * becomes its default row rather than being replaced.
+   */
+  precision?: number
 }
 
 /**
@@ -58,14 +76,14 @@ export interface MetricMetadataEntry {
  * change (bump metadata; add DDL column if new).
  */
 export const METRIC_METADATA = Object.freeze({
-  hrv_ms: { table: 'hrv', column: 'hrv_ms', sampling_minutes: 60, exposure: 'full', baselineDailyAggregate: 'avg' },
-  stress: { table: 'hrv', column: 'stress', sampling_minutes: 60, exposure: 'full', baselineDailyAggregate: 'avg' },
+  hrv_ms: { table: 'hrv', column: 'hrv_ms', sampling_minutes: 60, exposure: 'full', baselineDailyAggregate: 'avg', precision: 1 },
+  stress: { table: 'hrv', column: 'stress', sampling_minutes: 60, exposure: 'full', baselineDailyAggregate: 'avg', precision: 1 },
   systolic_bp: { table: 'hrv', column: 'systolic_bp', sampling_minutes: 60, exposure: 'collected_only' },
   diastolic_bp: { table: 'hrv', column: 'diastolic_bp', sampling_minutes: 60, exposure: 'collected_only' },
   vascular_aging: { table: 'hrv', column: 'vascular_aging', sampling_minutes: 60, exposure: 'collected_only' },
-  hr_bpm: { table: 'heart_rate', column: 'bpm', sampling_minutes: 10, exposure: 'full', baselineDailyAggregate: 'avg' },
-  spo2: { table: 'spo2', column: 'spo2', sampling_minutes: 30, exposure: 'full', baselineDailyAggregate: 'avg' },
-  temp_c: { table: 'temperature', column: 'temp_c', sampling_minutes: 30, exposure: 'full', baselineDailyAggregate: 'avg' },
+  hr_bpm: { table: 'heart_rate', column: 'bpm', sampling_minutes: 10, exposure: 'full', baselineDailyAggregate: 'avg', precision: 1 },
+  spo2: { table: 'spo2', column: 'spo2', sampling_minutes: 30, exposure: 'full', baselineDailyAggregate: 'avg', precision: 1 },
+  temp_c: { table: 'temperature', column: 'temp_c', sampling_minutes: 30, exposure: 'full', baselineDailyAggregate: 'avg', precision: 1 },
   activity_steps: { table: 'activity', column: 'steps', sampling_minutes: 1, exposure: 'full', baselineDailyAggregate: 'sum' },
   calories: { table: 'activity_bucket', column: 'calories', sampling_minutes: 10, exposure: 'full' },
   distance_km: { table: 'activity_bucket', column: 'distance_km', sampling_minutes: 10, exposure: 'full' },
@@ -116,6 +134,32 @@ export function baselineAggregateFor(
 ): BaselineDailyAggregate | undefined {
   const entry = METRIC_METADATA[id] as MetricMetadataEntry
   return entry.baselineDailyAggregate
+}
+
+/**
+ * Reporting precision for a metric, or `undefined` when unstated.
+ *
+ * Accessor rather than a property read for the same reason as
+ * `baselineAggregateFor`: the `as const` registry narrows each entry to its
+ * own literal type, and the field is genuinely absent — not `undefined` — on
+ * entries without one.
+ */
+export function precisionFor(id: MetricId): number | undefined {
+  const entry = METRIC_METADATA[id] as MetricMetadataEntry
+  return entry.precision
+}
+
+/**
+ * Does this metric's data support a continuous intra-day curve?
+ *
+ * `false` when the device reports in steps coarse enough that a line between
+ * readings would be drawn detail the hardware never measured — the temp
+ * screen's mark rule (sprint6 §7): whole-degree ⇒ discrete marks, no
+ * segments.
+ */
+export function supportsContinuousCurve(id: MetricId): boolean {
+  const p = precisionFor(id)
+  return p !== undefined && p < 1
 }
 
 /** Baseline windows computed per metric (Sprint 5 §7). */
