@@ -25,11 +25,13 @@
  */
 
 import noStorageEngineImports from './rules/no-storage-engine-imports'
+import noStringTransform from './rules/no-string-transform'
 
 const PLUGIN_NAME = '@mongrov/data-access'
 
 const rules = {
   'no-storage-engine-imports': noStorageEngineImports,
+  'no-string-transform': noStringTransform,
 } as const
 
 const configs = {
@@ -37,6 +39,7 @@ const configs = {
     plugins: [PLUGIN_NAME],
     rules: {
       [`${PLUGIN_NAME}/no-storage-engine-imports`]: 'error',
+      [`${PLUGIN_NAME}/no-string-transform`]: 'error',
     },
   },
 } as const
