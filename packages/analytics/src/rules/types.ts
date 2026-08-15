@@ -108,6 +108,26 @@ export interface RulesEngineConfig {
    * to the `insight` table (principle 35 fire-and-forget).
    */
   eventBus?: EventBus
+  /**
+   * The user's own IANA timezone, resolved per evaluation.
+   *
+   * Every timestamp is stored in UTC, so this is the only thing that decides
+   * which local day a reading belongs to. It is the USER's attribute
+   * (`UserInfo.timezone` / `User.timezone`), never the device's: a user who
+   * travels must not have their days re-bucketed by the handset they happen
+   * to be holding.
+   *
+   * Same seam as `createSyncManager({ userTimezoneProvider })`, deliberately
+   * — a rule and the baseline it compares against must agree about what "a
+   * day" is (sprint6 design decision 2), and two different sources is how
+   * they come to disagree.
+   *
+   * When absent, day-cadence rules are SKIPPED with a warning rather than
+   * evaluated against a guessed zone. A rule that fires on the wrong day is
+   * worse than one that does not fire, and silently substituting UTC is the
+   * failure mode that cost an afternoon in zivaone_app#74.
+   */
+  userTimezoneProvider?: (userId: string) => Promise<string | undefined>
   logger?: RulesLogger
   clock?: Clock
 }

@@ -66,6 +66,27 @@ export interface UserInfo {
   name?: string
   avatar?: string
   roles?: string[]
+  /**
+   * IANA zone, e.g. `'America/Los_Angeles'`. The user's own attribute, not
+   * the device's.
+   *
+   * Load-bearing rather than cosmetic. Every timestamp is stored in UTC, so
+   * this is the only thing that decides which local day a reading belongs
+   * to — sleep-session attribution via the 6pm-6pm rule (principle 24),
+   * baseline compute grouping by local day (principle 27), and day-cadence
+   * rules. Mirrors `User.timezone` in `@mongrov/types/tenancy`, which is the
+   * analytics plane's model of the same attribute.
+   *
+   * Typed rather than left to the extensible index because consumers pass it
+   * into query parameters: an untyped `session.user.timezone` reads as
+   * `unknown` and gets cast at each call site, which is how a device
+   * timezone ends up substituted for a user's without anyone noticing.
+   *
+   * Optional: a profile captured before this field existed has none, and the
+   * consumer decides what to do about that. Falling back to the device zone
+   * silently is what it must NOT do without saying so.
+   */
+  timezone?: string
   [key: string]: unknown // extensible
 }
 
