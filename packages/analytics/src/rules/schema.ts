@@ -147,6 +147,22 @@ export const ThrottleSchema = z
 
 export type Throttle = z.infer<typeof ThrottleSchema>
 
+/**
+ * What a "sample" is when counting `consecutive` (sprint6 §3).
+ *
+ * `reading` (default, existing behaviour) counts adjacent raw readings.
+ * `day` collapses to one value per LOCAL day first, then counts adjacent
+ * days — so `consecutive: 3` means "three days running", not "three readings
+ * in a row", which for an hourly metric could be three hours of one evening.
+ *
+ * Local means the user's own zone, resolved from their profile attribute.
+ * Days are midnight-to-midnight in that zone, matching `user_baseline`
+ * compute exactly: a rule and the baseline it compares against must not
+ * disagree about what a day is.
+ */
+export const CADENCES = ['reading', 'day'] as const
+export type RuleCadence = (typeof CADENCES)[number]
+
 export const RuleSchema = z.object({
   id: z.string().min(1),
   brand: z.string().optional(),
@@ -166,6 +182,19 @@ export const RuleSchema = z.object({
    * `>= 2` switches the compiler to run-length detection.
    */
   consecutive: z.number().int().min(1).optional(),
+  /**
+   * Unit `consecutive` counts in. Default `reading` — existing behaviour.
+   *
+   * `day` requires `consecutive >= 2` unless `allowSingleDay` is set: a
+   * single-day rule with day cadence is just an aggregate over one day,
+   * which the reading path already expresses more cheaply, and writing it
+   * this way usually means the author meant "days running".
+   */
+  cadence: z.enum(CADENCES).default('reading'),
+  /** Opt out of the `cadence: 'day'` ⇒ `consecutive >= 2` requirement. */
+  allowSingleDay: z.boolean().optional(),
+  /** KVStore key overriding `consecutive` at eval time (sprint6 §4). */
+  consecutiveKey: z.string().min(1).optional(),
   target: TargetSchema,
   severity: z.enum(SEVERITIES),
   throttle: ThrottleSchema,

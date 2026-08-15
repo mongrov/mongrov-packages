@@ -161,6 +161,20 @@ export const USER_SETTING_PARAM = 'userSettingValue'
 /** Placeholder the evaluator binds for a `baseline_offset` target's offset. */
 export const BASELINE_OFFSET_PARAM = 'baselineOffset'
 
+/**
+ * The local-day bucket for a naive-UTC timestamp column.
+ *
+ * Exported so the compiler and its tests share one definition rather than
+ * two that agree today. The nested `timezone('UTC', …)` is load-bearing:
+ * DuckDB selects the `timezone()` overload from its SECOND argument, so
+ * `timezone($tz, ts)` on a naive column LABELS the value with the zone
+ * instead of converting into it, leaving an evening reading on its UTC date
+ * (zivaone_app#73).
+ */
+export function localDayExpr(tsColumn: string): string {
+  return `date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', ${tsColumn})))`
+}
+
 /** Compile a validated rule to a `CompiledRule`. */
 export function compileRule(rule: Rule): CompiledRule {
   const meta = METRIC_METADATA[rule.metric]
@@ -195,9 +209,11 @@ export function compileRule(rule: Rule): CompiledRule {
     metricId: rule.metric,
   }
 
-  const { sql, params } = rule.consecutive && rule.consecutive > 1
-    ? buildConsecutive(args)
-    : buildForTarget(args)
+  const { sql, params } = rule.cadence === 'day'
+    ? buildDayCadence(args)
+    : rule.consecutive && rule.consecutive > 1
+      ? buildConsecutive(args)
+      : buildForTarget(args)
 
   return {
     ruleId: rule.id,
@@ -211,6 +227,8 @@ export function compileRule(rule: Rule): CompiledRule {
     /** Evaluator binds `$baselineOffset` from this key when present. */
     offsetKey: rule.target.type === 'baseline_offset' ? rule.target.offsetKey : undefined,
     offsetDefault: rule.target.type === 'baseline_offset' ? rule.target.offset : undefined,
+    cadence: rule.cadence,
+    consecutiveKey: rule.consecutiveKey,
   }
 }
 
@@ -391,6 +409,119 @@ HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
  * rejects the combination rather than silently emitting something subtly
  * wrong.
  */
+/**
+ * `cadence: 'day'` — collapse to one value per LOCAL day, then count runs of
+ * days (sprint6 T-04).
+ *
+ * Not a variant of `buildConsecutive`. That builder rejects baseline targets
+ * because a per-sample comparison has no stable threshold; here the threshold
+ * IS stable for the whole window (a stored `user_baseline` row), and the
+ * things being compared are daily aggregates. Different shape, different
+ * builder.
+ *
+ * Three things the SQL has to get right, each of which has already been a bug
+ * somewhere in this codebase:
+ *
+ *   1. **Direction of the zone conversion.** `ts` is naive UTC, and DuckDB
+ *      picks the `timezone()` overload from its SECOND argument — so
+ *      `timezone($tz, ts)` LABELS the value rather than converting it, which
+ *      attributed evening readings to the next local day (zivaone_app#73).
+ *      The inner `timezone('UTC', ts)` is what makes it a conversion.
+ *   2. **The partial current day is excluded.** Today is still accumulating;
+ *      including it lets a quiet morning break a run that the full day would
+ *      have continued, so a 3-day rule would fire or not depending on the
+ *      hour it happened to run.
+ *   3. **Every parameter is CAST**, for the react-native-duckdb prepare path
+ *      (zivaone_app#70/#72).
+ */
+function buildDayCadence(args: BuildArgs): {
+  sql: string
+  params: Record<string, string | number>
+} {
+  const { view, join, ts, interval, target, consecutive, metricId, agg } = args
+
+  if (target.type !== 'baseline_offset' && target.type !== 'absolute'
+    && target.type !== 'user_setting') {
+    throw new RuleValidationError(
+      `cadence 'day' supports absolute, user_setting and baseline_offset `
+      + `targets; got '${target.type}'.`,
+    )
+  }
+
+  const params: Record<string, string | number> = {}
+  // Daily aggregate — the same collapse `user_baseline` performs, so the two
+  // agree about what a day's value is, not merely about where it starts.
+  const dailyAgg = agg
+  const localDay = localDayExpr(`m.${ts}`)
+
+  let thresholdExpr: string
+  let baselineCte = ''
+  if (target.type === 'absolute') {
+    params.threshold_absolute = target.value
+    thresholdExpr = 'CAST($threshold_absolute AS DOUBLE)'
+  }
+  else if (target.type === 'user_setting') {
+    thresholdExpr = `CAST($${USER_SETTING_PARAM} AS DOUBLE)`
+  }
+  else {
+    params.baselineDays = target.windowDays
+    params.baselineMetric = metricId
+    if (target.offsetKey === undefined)
+      params.baselineOffset = target.offset
+    const sign = target.direction === 'below' ? '-' : '+'
+    baselineCte = `baseline AS (
+  SELECT p50
+  FROM user_baseline
+  WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+    AND metric = CAST($baselineMetric AS VARCHAR)
+    AND window_days = CAST($baselineDays AS INTEGER)
+),
+`
+    thresholdExpr = `(SELECT p50 FROM baseline) ${sign} CAST($${BASELINE_OFFSET_PARAM} AS DOUBLE)`
+  }
+
+  const direction = target.type === 'baseline_offset' && target.direction === 'above'
+    ? 'greater_than'
+    : target.type === 'baseline_offset'
+      ? 'less_than'
+      : args.compare
+  const extreme = direction === 'greater_than' ? 'MAX' : 'MIN'
+
+  const sql = `WITH ${baselineCte}daily AS (
+  SELECT ${localDay} AS day,
+         ${dailyAgg} AS value
+  FROM ${view} m${join}
+  WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId
+    AND m.${ts} > NOW() - ${interval}
+  GROUP BY day
+  -- Exclude today: it is still accumulating, and a half-finished day would
+  -- make the same rule fire or not depending on the hour it ran.
+  HAVING day < date_trunc('day', timezone(CAST($tz AS VARCHAR), NOW()))
+),
+marked AS (
+  SELECT day, value,
+         (${compareClause(direction, 'value', thresholdExpr)}) AS breached,
+         ${thresholdExpr} AS threshold_value
+  FROM daily
+),
+runs AS (
+  SELECT day, value, breached, threshold_value,
+         ROW_NUMBER() OVER (ORDER BY day)
+           - ROW_NUMBER() OVER (PARTITION BY breached ORDER BY day) AS run_key
+  FROM marked
+)
+SELECT ${extreme}(value) AS observed_value,
+       ANY_VALUE(threshold_value) AS threshold_value
+FROM runs
+WHERE breached
+GROUP BY run_key
+HAVING COUNT(*) >= CAST($consecutive AS BIGINT)
+ORDER BY observed_value ${direction === 'greater_than' ? 'DESC' : 'ASC'}
+LIMIT 1;`
+
+  return { sql, params: { ...params, consecutive: consecutive ?? 2 } }
+}
+
 function buildConsecutive(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>

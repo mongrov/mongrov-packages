@@ -85,6 +85,7 @@ function samplingLabel(metric: MetricId): string {
  */
 export function validateRule(rule: Rule, logger?: RulesLogger): void {
   validateConsecutive(rule)
+  validateCadence(rule)
   validateContext(rule)
   validateUserSettingKey(rule)
 
@@ -126,6 +127,24 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
  * is deliberately permissive — a denser real device only makes a rule MORE
  * satisfiable, never less.
  */
+function validateCadence(rule: Rule): void {
+  if (rule.cadence !== 'day')
+    return
+
+  // A day-cadence rule counting one day is an aggregate over a single day,
+  // which the reading path already expresses more cheaply. Authors who write
+  // it almost always meant "days running", so this is a prompt rather than a
+  // prohibition — `allowSingleDay` opts out.
+  const n = rule.consecutive ?? 1
+  if (n < 2 && rule.allowSingleDay !== true) {
+    throw new RuleValidationError(
+      `Rule ${rule.id}: cadence 'day' needs consecutive >= 2 (got ${n}). `
+      + `A single day is an aggregate, not a run — use cadence 'reading', `
+      + `or set allowSingleDay: true if one day is genuinely intended.`,
+    )
+  }
+}
+
 function validateConsecutive(rule: Rule): void {
   const n = rule.consecutive
   if (n === undefined || n <= 1)
@@ -133,6 +152,15 @@ function validateConsecutive(rule: Rule): void {
 
   // Baseline targets resolve per-window, not per-sample; the compiler has
   // no correct query shape for the combination.
+  //
+  // `baseline_offset` under `cadence: 'day'` is the exception, and the
+  // reasoning above is why: the objection is about resolving a threshold
+  // per SAMPLE. Day cadence compares one value per day against a stored
+  // baseline that is stable for the whole window, so there is a correct
+  // shape — see buildDayCadence.
+  if (rule.target.type === 'baseline_offset' && rule.cadence === 'day')
+    return
+
   if (rule.target.type === 'baseline_percent' || rule.target.type === 'baseline_stddev') {
     throw new RuleValidationError(
       `Rule ${rule.id}: consecutive is not supported with target.type `

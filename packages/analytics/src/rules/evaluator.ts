@@ -55,6 +55,8 @@ export interface EvaluatorConfig {
   /** Optional app bus for `threshold:violation` / `insight:insert`. */
   eventBus?: EventBus
   logger?: RulesLogger
+  /** The user's own IANA zone; day-cadence rules are skipped without it. */
+  userTimezoneProvider?: (userId: string) => Promise<string | undefined>
 }
 
 interface EvaluationRow {
@@ -92,7 +94,32 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     eventBus,
     logger,
     storage,
+    userTimezoneProvider,
   } = config
+
+  /**
+   * The user's own zone, or undefined.
+   *
+   * Deliberately does NOT fall back to the device zone the way sync's
+   * resolver does. Sync's fallback is defensible — a baseline in the device
+   * zone beats no baseline. A rule is different: firing "three days running"
+   * against days that started at the wrong hour is a wrong alert, and a
+   * wrong alert about someone's health is worse than a missing one.
+   */
+  async function resolveTimezone(userId: string): Promise<string | undefined> {
+    if (!userTimezoneProvider)
+      return undefined
+    try {
+      return await userTimezoneProvider(userId)
+    }
+    catch (err) {
+      logger?.warn('rules.evaluator: userTimezoneProvider threw', {
+        userId,
+        err: describeError(err),
+      })
+      return undefined
+    }
+  }
 
   /**
    * Per-eval-batch cache of resolved user settings. A batch may evaluate
@@ -232,6 +259,30 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
           rule.id,
         )
       }
+      // sprint6 T-04 — day cadence buckets on the USER's zone, so the
+      // rule and `user_baseline` agree about what a day is. No zone means
+      // the boundary is unknowable: skip the rule and say so, rather than
+      // bucketing on UTC and firing a day early for anyone west of it.
+      if (compiled.cadence === 'day') {
+        const tz = await resolveTimezone(ctx.userId)
+        if (tz === undefined) {
+          logger?.warn('rules.evaluator: skipping day-cadence rule, no user timezone', {
+            ruleId: rule.id,
+            userId: ctx.userId,
+          })
+          return null
+        }
+        params.tz = tz
+        if (compiled.consecutiveKey !== undefined) {
+          params.consecutive = await resolveUserSetting(
+            ctx.userId,
+            compiled.consecutiveKey,
+            compiled.params.consecutive as number,
+            rule.id,
+          )
+        }
+      }
+
       // sprint6 T-03 — same mechanism, different parameter. A
       // `baseline_offset` target with an `offsetKey` reads its offset from
       // KVStore per user, so one compiled statement serves a family whose

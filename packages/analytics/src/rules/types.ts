@@ -15,7 +15,7 @@ import type {
   KVStore,
   Unsubscribe,
 } from '../core/types'
-import type { Rule } from './schema'
+import type { Rule, RuleCadence } from './schema'
 
 export type { Unsubscribe }
 
@@ -66,6 +66,14 @@ export interface CompiledRule {
   offsetKey?: string
   /** Offset used when the key is unset — the target's own `offset`. */
   offsetDefault?: number
+  /**
+   * Evaluation cadence (sprint6 T-04). `'day'` means the SQL collapses to one
+   * value per LOCAL day before counting runs, so the evaluator must bind
+   * `$tz` — and must skip the rule when it has no user zone to bind.
+   */
+  cadence?: RuleCadence
+  /** KVStore key overriding the run length at eval time. */
+  consecutiveKey?: string
 }
 
 /** Structured violation delivered to `on('violation', handler)` subscribers. */
