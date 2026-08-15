@@ -6,7 +6,7 @@ import { RuleValidationError } from '../schema'
 const rule = {
   id: 'test.hrv',
   name: 'HRV drop',
-  metric: 'hrv_ms',
+  metric: 'spo2',
   window: '24h',
   aggregation: 'avg',
   compare: 'less_than',
@@ -69,9 +69,9 @@ describe('createRulesRegistry', () => {
     const storage = createFakeStorage()
     const registry = createRulesRegistry({ storage })
     await registry.register([rule, secondRule])
-    expect(registry.getByMetric('hrv_ms')).toHaveLength(1)
+    expect(registry.getByMetric('spo2')).toHaveLength(1)
     expect(registry.getByMetric('stress')).toHaveLength(1)
-    expect(registry.getByMetric('spo2')).toHaveLength(0)
+    expect(registry.getByMetric('hrv_ms')).toHaveLength(0)
   })
 
   it('getByBrand filters by rule.brand ?? default', async () => {

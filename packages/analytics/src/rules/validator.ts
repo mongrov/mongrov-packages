@@ -127,6 +127,57 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
  * is deliberately permissive — a denser real device only makes a rule MORE
  * satisfiable, never less.
  */
+/**
+ * D3 — HRV rules are relative-only (sprint6 §4).
+ *
+ * There is no meaningful absolute HRV threshold: 30 ms is alarming for one
+ * person and unremarkable for another, so a fixed flag is a number that means
+ * something different for every user who sees it.
+ *
+ * This is a validator rather than a review note because review has already
+ * failed at it. Every generation of the HRV screen so far has shipped an
+ * absolute flag — the most recent as `thresh: 35` on a drag control — and
+ * each was caught by a person, late, after the work was done. Code catches
+ * it whoever writes it and whenever they write it.
+ *
+ * `user_setting` is absolute too: letting the user pick 35 ms does not make
+ * 35 ms mean anything. Relative targets (`baseline_percent`,
+ * `baseline_stddev`, `baseline_offset`) are the whole permitted set.
+ */
+const RELATIVE_ONLY_METRICS = new Set(['hrv_ms'])
+const ABSOLUTE_TARGET_TYPES = new Set(['absolute', 'range', 'user_setting'])
+
+/**
+ * Admission policy, checked at REGISTRATION rather than inside
+ * `validateRule`.
+ *
+ * `validateRule` answers "is this rule well-formed?" — a structural question
+ * with the same answer everywhere. This answers "may this rule enter the
+ * system?", which is a product decision. Keeping them apart matters
+ * practically as well as conceptually: unit tests use `hrv_ms` as an ordinary
+ * metric to exercise the compiler's absolute branch and the window minimums,
+ * and a policy living in the structural validator made 36 of them fail for
+ * reasons that had nothing to do with what they assert.
+ */
+export function assertRegistrable(rule: Rule): void {
+  validateRelativeOnly(rule)
+}
+
+function validateRelativeOnly(rule: Rule): void {
+  if (!RELATIVE_ONLY_METRICS.has(rule.metric))
+    return
+  if (!ABSOLUTE_TARGET_TYPES.has(rule.target.type))
+    return
+
+  throw new RuleValidationError(
+    `Rule ${rule.id}: metric ${rule.metric} is relative-only (decision D3) — `
+    + `target.type '${rule.target.type}' sets an absolute threshold. There is `
+    + `no HRV number that means the same thing for two people; compare against `
+    + `the user's own baseline instead (baseline_offset, baseline_percent or `
+    + `baseline_stddev). See .specifica/hrv/spec.md D3.`,
+  )
+}
+
 function validateCadence(rule: Rule): void {
   if (rule.cadence !== 'day')
     return

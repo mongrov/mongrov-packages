@@ -5,7 +5,7 @@ describe('RuleSchema', () => {
   const baseRule = {
     id: 'test.rule',
     name: 'Test rule',
-    metric: 'hrv_ms',
+    metric: 'spo2',
     window: '24h',
     aggregation: 'avg',
     compare: 'less_than',

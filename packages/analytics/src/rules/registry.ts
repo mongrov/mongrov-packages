@@ -14,7 +14,7 @@ import type { Rule } from './schema'
 import type { RulesLogger } from './types'
 import { describeError } from '../core/errors'
 import { RuleSchema, RuleValidationError } from './schema'
-import { validateRule } from './validator'
+import { assertRegistrable, validateRule } from './validator'
 
 const KV_ENABLED_PREFIX = 'analytics:rules:'
 
@@ -79,6 +79,7 @@ export function createRulesRegistry({
       for (const raw of rules) {
         const parsed = RuleSchema.parse(raw)
         validateRule(parsed, logger)
+        assertRegistrable(parsed)
         validated.push(parsed)
       }
 
@@ -99,6 +100,7 @@ export function createRulesRegistry({
       for (const raw of rules) {
         const parsed = RuleSchema.parse(raw)
         validateRule(parsed, logger)
+        assertRegistrable(parsed)
         validated.push(parsed)
       }
 

@@ -149,3 +149,91 @@ value = 88
 [rule.throttle]
 minGapMinutes = 720
 maxPerDay = 1
+
+# ── sprint6: temperature ─────────────────────────────────────────────────
+#
+# Mirrors ziva.spo2-safe-level with the direction flipped. Canonical °C, and
+# fractional on purpose: temp_c is DECIMAL(4,1) as of analytics 0.9.1
+# precisely so the 37.2–38.1 range this setting offers discriminates. Against
+# the old INTEGER column every value in that range selected the same rows.
+[[rule]]
+id = "ziva.temp-flag-level"
+brand = "ziva"
+name = "Running warm"
+description = "Temperature at or above the level you set."
+metric = "temp_c"
+window = "24h"
+aggregation = "max"
+compare = "greater_than"
+context = "any"
+severity = "warn"
+
+[rule.target]
+type = "user_setting"
+key = "user:tempFlagLevel"
+defaultValue = 37.5
+
+[rule.throttle]
+minGapMinutes = 60
+maxPerDay = 3
+
+# Relative secondary insight: warm compared to YOUR usual, not to a number.
+# Two days rather than one — a single warm day is weather, a mattress, or a
+# late workout.
+[[rule]]
+id = "ziva.temp-warm-days"
+brand = "ziva"
+name = "Warmer than usual"
+description = "Daily average ran above your usual range two days running."
+metric = "temp_c"
+window = "30d"
+aggregation = "avg"
+compare = "greater_than"
+cadence = "day"
+consecutive = 2
+severity = "info"
+
+[rule.target]
+type = "baseline_offset"
+windowDays = 30
+offset = 0.3
+direction = "above"
+
+[rule.throttle]
+minGapMinutes = 1440
+maxPerDay = 1
+
+# ── sprint6: HRV ─────────────────────────────────────────────────────────
+#
+# HRV's ONLY rule, and relative-only by locked decision D3. There is no
+# meaningful absolute HRV threshold: 30 ms is alarming for one person and
+# unremarkable for another. Every generation of the HRV screen so far has
+# tried to add an absolute flag anyway, which is why the validator now
+# rejects one rather than a reviewer having to catch it.
+#
+# Both the drop and the day count are user-settable (user:hrvDropMs,
+# user:hrvDropDays) — the same KVStore mechanism the SpO₂ safe level uses.
+[[rule]]
+id = "ziva.hrv-below-usual"
+brand = "ziva"
+name = "HRV below your usual"
+description = "Daily average HRV ran below your usual range for several days."
+metric = "hrv_ms"
+window = "30d"
+aggregation = "avg"
+compare = "less_than"
+cadence = "day"
+consecutive = 3
+consecutiveKey = "user:hrvDropDays"
+severity = "info"
+
+[rule.target]
+type = "baseline_offset"
+windowDays = 30
+offset = 10
+direction = "below"
+offsetKey = "user:hrvDropMs"
+
+[rule.throttle]
+minGapMinutes = 1440
+maxPerDay = 1

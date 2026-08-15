@@ -9,10 +9,12 @@ import { createEvaluator } from '../evaluator'
 import { createRulesRegistry } from '../registry'
 import { createThrottleStore } from '../throttle'
 
+// Named for history; the metric is spo2 because hrv_ms is relative-only
+// by decision D3 and cannot be registered with an absolute target.
 const hrvRule = {
   id: 'test.hrv.drop',
   name: 'HRV drop',
-  metric: 'hrv_ms',
+  metric: 'spo2',
   window: '24h',
   aggregation: 'avg',
   compare: 'less_than',
@@ -79,7 +81,10 @@ describe('createEvaluator', () => {
 
       await h.evaluator.evaluateOnBatch({
         affectedUserIds: ['u1'],
-        affectedTables: ['hrv'], // both rules match (hrv_ms, stress → hrv table)
+        // The generic fixture is spo2 (hrv_ms is relative-only by D3 and
+        // cannot be registered with an absolute target), so the two rules
+        // now span two tables rather than sharing one.
+        affectedTables: ['spo2', 'hrv'],
       })
       expect(h.analytics.__calls).toHaveLength(2)
     })
@@ -90,7 +95,7 @@ describe('createEvaluator', () => {
       h.analytics.__setResult([])
       await h.evaluator.evaluateOnBatch({
         affectedUserIds: ['user-a'],
-        affectedTables: ['hrv'],
+        affectedTables: ['spo2'],
       })
       const call = h.analytics.__calls[0]
       expect(call.sql).toContain('$userId')
@@ -115,7 +120,7 @@ describe('createEvaluator', () => {
 
       const out = await h.evaluator.evaluateOnBatch({
         affectedUserIds: ['u1'],
-        affectedTables: ['hrv'],
+        affectedTables: ['spo2'],
       })
       expect(out).toHaveLength(1)
       expect(listener).toHaveBeenCalledOnce()
@@ -138,7 +143,7 @@ describe('createEvaluator', () => {
       ])
       const first = await h.evaluator.evaluateOnBatch({
         affectedUserIds: ['u1'],
-        affectedTables: ['hrv'],
+        affectedTables: ['spo2'],
       })
       expect(first).toHaveLength(1)
 
@@ -146,7 +151,7 @@ describe('createEvaluator', () => {
       const before = h.analytics.__calls.length
       const second = await h.evaluator.evaluateOnBatch({
         affectedUserIds: ['u1'],
-        affectedTables: ['hrv'],
+        affectedTables: ['spo2'],
       })
       expect(second).toHaveLength(0)
       expect(h.analytics.__calls.length).toBe(before)
@@ -183,7 +188,7 @@ describe('createEvaluator', () => {
       analytics.__setError(new Error('duckdb blew up'))
       const out = await evaluator.evaluateOnBatch({
         affectedUserIds: ['u1'],
-        affectedTables: ['hrv'],
+        affectedTables: ['spo2'],
       })
       expect(out).toEqual([])
       expect(logger.error).toHaveBeenCalled()
@@ -382,7 +387,7 @@ describe('createEvaluator', () => {
 
       const out = await evaluator.evaluateOnBatch({
         affectedUserIds: ['u1'],
-        affectedTables: ['hrv'],
+        affectedTables: ['spo2'],
       })
 
       // Fire-and-forget: evaluation returns the violation and the private
@@ -405,7 +410,7 @@ describe('createEvaluator', () => {
       await h.registry.register([hrvRule])
       h.analytics.__setResult([{ observed_value: 25, threshold_value: 40 }])
       await expect(
-        h.evaluator.evaluateOnBatch({ affectedUserIds: ['u1'], affectedTables: ['hrv'] }),
+        h.evaluator.evaluateOnBatch({ affectedUserIds: ['u1'], affectedTables: ['spo2'] }),
       ).resolves.toHaveLength(1)
     })
 
@@ -443,7 +448,7 @@ describe('createEvaluator', () => {
 
       const out = await evaluator.evaluateOnBatch({
         affectedUserIds: ['u1'],
-        affectedTables: ['hrv'],
+        affectedTables: ['spo2'],
       })
       expect(out).toHaveLength(1)
       expect(logger.error).toHaveBeenCalledWith(

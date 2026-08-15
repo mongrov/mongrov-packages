@@ -19,7 +19,7 @@ import { useRuleViolations } from '../hooks/useRuleViolations'
 const hrvRule = {
   id: 'test.hrv.drop',
   name: 'HRV drop',
-  metric: 'hrv_ms',
+  metric: 'spo2',
   window: '24h',
   aggregation: 'avg',
   compare: 'less_than',
@@ -68,7 +68,7 @@ describe('useRuleViolations', () => {
       await act(async () => {
         await engine.evaluateOnBatch({
           affectedUserIds: [`u${i}`],
-          affectedTables: ['hrv'],
+          affectedTables: ['spo2'],
         })
       })
     }
@@ -85,7 +85,7 @@ describe('useRuleViolations', () => {
     await act(async () => {
       await engine.evaluateOnBatch({
         affectedUserIds: ['u1'],
-        affectedTables: ['hrv'],
+        affectedTables: ['spo2'],
       })
     })
     expect(result.current.violations).toHaveLength(1)

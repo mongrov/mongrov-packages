@@ -8,7 +8,7 @@ import { createRulesEngine } from '../factory'
 const rule = {
   id: 'test.hrv.drop',
   name: 'HRV drop',
-  metric: 'hrv_ms',
+  metric: 'spo2',
   window: '24h',
   aggregation: 'avg',
   compare: 'less_than',
@@ -40,7 +40,7 @@ describe('createRulesEngine', () => {
     const unsub = engine.on('violation', v => seen.push(v))
     const violations = await engine.evaluateOnBatch({
       affectedUserIds: ['u1'],
-      affectedTables: ['hrv'],
+      affectedTables: ['spo2'],
     })
     expect(violations).toHaveLength(1)
     expect(seen).toHaveLength(1)
@@ -89,7 +89,7 @@ describe('createRulesEngine', () => {
     analytics.__setResult([])
     await engine.evaluateOnBatch({
       affectedUserIds: ['u1'],
-      affectedTables: ['hrv'],
+      affectedTables: ['spo2'],
     })
     // Only the ziva rule ran.
     expect(analytics.__calls).toHaveLength(1)
@@ -130,7 +130,7 @@ describe('createRulesEngine', () => {
     analytics.__setResult([{ observed_value: 10, threshold_value: 40 }])
     const hrvViolations = await engine.evaluateOnBatch({
       affectedUserIds: ['u1'],
-      affectedTables: ['hrv'],
+      affectedTables: ['spo2'],
     })
     expect(hrvViolations).toHaveLength(0)
 
@@ -154,7 +154,7 @@ describe('createRulesEngine', () => {
     analytics.__setResult([{ observed_value: 10, threshold_value: 40 }])
     const violations = await engine.evaluateOnBatch({
       affectedUserIds: ['u1'],
-      affectedTables: ['hrv'],
+      affectedTables: ['spo2'],
     })
     expect(violations).toEqual([])
     expect(seen).toEqual([])

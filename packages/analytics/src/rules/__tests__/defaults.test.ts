@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createFakeStorage } from '../__fakes__/fakeStorage'
 import {
   luminxDefaults,
   parseCatalog,
@@ -6,6 +7,7 @@ import {
   yogaringDefaults,
   zivaDefaults,
 } from '../defaults'
+import { createRulesRegistry } from '../registry'
 import { RuleValidationError } from '../schema'
 import { validateRule } from '../validator'
 
@@ -56,12 +58,16 @@ describe('brand default catalogs', () => {
     // `analytics:rule:{ruleId}:{userId}:*` and are cross-referenced by name
     // from the Sprint 5 catalog additions.
     expect(zivaDefaults.map(r => r.id).sort()).toEqual([
+      'ziva.hrv-below-usual',
       'ziva.hrv-drop-30',
       'ziva.low-activity-week',
       'ziva.sleep-deprivation-3',
       'ziva.spo2-desaturation-asleep',
       'ziva.spo2-safe-level',
       'ziva.stress-elevated-day',
+      // sprint6 T-05 — the temperature and HRV verticals.
+      'ziva.temp-flag-level',
+      'ziva.temp-warm-days',
     ])
   })
 
@@ -230,5 +236,49 @@ value = 1
 `
     expect(() => parseCatalog(toml, { name: 'x' }))
       .toThrow(/rule 1/)
+  })
+})
+
+describe('D3 — hrv_ms is relative-only, enforced at registration', () => {
+  const base = {
+    id: 'test.hrv-absolute',
+    name: 'HRV floor',
+    metric: 'hrv_ms',
+    window: '24h',
+    aggregation: 'avg',
+    compare: 'less_than',
+    severity: 'warn',
+  } as const
+
+  it.each([
+    ['absolute', { type: 'absolute', value: 35 }],
+    ['range', { type: 'range', min: 30, max: 90 }],
+    ['user_setting', { type: 'user_setting', key: 'user:hrvDropMs', defaultValue: 35 }],
+  ])('rejects a %s target at registration', async (_label, target) => {
+    const registry = createRulesRegistry({ storage: createFakeStorage() })
+    await expect(registry.register([{ ...base, target } as never]))
+      .rejects
+      .toThrow(/relative-only \(decision D3\)/)
+  })
+
+  it('accepts the relative targets', async () => {
+    const registry = createRulesRegistry({ storage: createFakeStorage() })
+    await expect(registry.register([
+      { ...base, target: { type: 'baseline_offset', windowDays: 30, offset: 10, direction: 'below' } } as never,
+    ])).resolves.toBeUndefined()
+  })
+
+  it('leaves other metrics alone — the guard is scoped, not global', async () => {
+    const registry = createRulesRegistry({ storage: createFakeStorage() })
+    await expect(registry.register([
+      { ...base, id: 'test.spo2-absolute', metric: 'spo2', target: { type: 'absolute', value: 88 } } as never,
+    ])).resolves.toBeUndefined()
+  })
+
+  it('the shipped ziva HRV rule satisfies its own guard', () => {
+    const hrvRules = zivaDefaults.filter(r => r.metric === 'hrv_ms')
+    expect(hrvRules.length).toBeGreaterThan(0)
+    for (const r of hrvRules)
+      expect(['baseline_offset', 'baseline_percent', 'baseline_stddev']).toContain(r.target.type)
   })
 })
