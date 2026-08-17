@@ -1,0 +1,129 @@
+{
+  "$comment": "Whole-degree temperature ring (T-13, feeds the T-08 precision gate). Timestamps are UTC per firmware contract; the scenario reads as local when tz=UTC. EVERY temperature value is an integer, which is what the current hardware emits. This is the fixture that demonstrates why temp_c is DECIMAL(4,1) and not INTEGER: sprint6 specifies a user-settable flag level over 37.2-38.1 C, and against integer readings every value in that range is either 37 or 38 \u2014 thresholds 37.2 and 37.9 select identical rows, so the control has two states rather than a range. Readings run 08:00-19:30 at 30-minute intervals, with an afternoon rise to 38.",
+  "heartrate": [],
+  "hrv_table": [],
+  "spo2": [],
+  "temperature_table": [
+    {
+      "timestamp": "2026.08.12 08:00:00",
+      "temperature": 36
+    },
+    {
+      "timestamp": "2026.08.12 08:30:00",
+      "temperature": 36
+    },
+    {
+      "timestamp": "2026.08.12 09:00:00",
+      "temperature": 36
+    },
+    {
+      "timestamp": "2026.08.12 09:30:00",
+      "temperature": 36
+    },
+    {
+      "timestamp": "2026.08.12 10:00:00",
+      "temperature": 36
+    },
+    {
+      "timestamp": "2026.08.12 10:30:00",
+      "temperature": 36
+    },
+    {
+      "timestamp": "2026.08.12 11:00:00",
+      "temperature": 36
+    },
+    {
+      "timestamp": "2026.08.12 11:30:00",
+      "temperature": 36
+    },
+    {
+      "timestamp": "2026.08.12 12:00:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.08.12 12:30:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.08.12 13:00:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.08.12 13:30:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.08.12 14:00:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.08.12 14:30:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.08.12 15:00:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.08.12 15:30:00",
+      "temperature": 37
+    },
+    {
+      "timestamp": "2026.08.12 16:00:00",
+      "temperature": 38
+    },
+    {
+      "timestamp": "2026.08.12 16:30:00",
+      "temperature": 38
+    },
+    {
+      "timestamp": "2026.08.12 17:00:00",
+      "temperature": 38
+    },
+    {
+      "timestamp": "2026.08.12 17:30:00",
+      "temperature": 38
+    },
+    {
+      "timestamp": "2026.08.12 18:00:00",
+      "temperature": 38
+    },
+    {
+      "timestamp": "2026.08.12 18:30:00",
+      "temperature": 38
+    },
+    {
+      "timestamp": "2026.08.12 19:00:00",
+      "temperature": 38
+    },
+    {
+      "timestamp": "2026.08.12 19:30:00",
+      "temperature": 38
+    }
+  ],
+  "activitydetails": [],
+  "sleep_processed": [],
+  "battery_table": [],
+  "ring": {
+    "automaticMonitoringData": [
+      {
+        "dataType": 3,
+        "intervalTime": 30,
+        "startTime_Hour": 0,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 23,
+        "endTime_Minutes": 59,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      }
+    ]
+  }
+}

@@ -69,7 +69,11 @@ describe('firmwareExportSchema — fixture corpus (principle 60)', () => {
       'firmware-8047-17-06-2026.json',
       'firmware-dst-transition.json',
       'firmware-empty.json',
+      // T-13's three named fixtures.
+      'firmware-hrv-full-day.json',
       'firmware-midnight-session.json',
+      'firmware-stress-tense-day.json',
+      'firmware-whole-degree-temp.json',
     ])
   })
 

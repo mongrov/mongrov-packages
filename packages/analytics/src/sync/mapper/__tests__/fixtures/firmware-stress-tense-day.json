@@ -1,0 +1,159 @@
+{
+  "$comment": "A tense afternoon (T-13, feeds vital.hourPattern's hour-of-day clustering). Timestamps are UTC per firmware contract; the scenario reads as local when tz=UTC. Stress sits in the 20s-30s all morning and crosses 66 only between 15:00 and 17:00, peaking at 16:00 \u2014 so the modal exceeding hour is 16 and the copy that renders it ('your tense hours cluster around 4 PM') has data that actually says so. hrv values move inversely, which is the physiological pairing the HRV pack assumes.",
+  "heartrate": [],
+  "hrv_table": [
+    {
+      "timestamp": "2026.08.12 08:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 09:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 10:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 11:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 12:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 13:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 14:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 15:00:00",
+      "hrv": 45,
+      "stress": 70,
+      "heartRate": 79,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 16:00:00",
+      "hrv": 38,
+      "stress": 82,
+      "heartRate": 88,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 17:00:00",
+      "hrv": 45,
+      "stress": 70,
+      "heartRate": 79,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 18:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 19:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 20:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    },
+    {
+      "timestamp": "2026.08.12 21:00:00",
+      "hrv": 60,
+      "stress": 28,
+      "heartRate": 64,
+      "systolicBP": 118,
+      "diastolicBP": 76,
+      "vascularAging": 30
+    }
+  ],
+  "spo2": [],
+  "temperature_table": [],
+  "activitydetails": [],
+  "sleep_processed": [],
+  "battery_table": [],
+  "ring": {
+    "automaticMonitoringData": [
+      {
+        "dataType": 4,
+        "intervalTime": 30,
+        "startTime_Hour": 0,
+        "startTime_Minutes": 0,
+        "endTime_Hour": 23,
+        "endTime_Minutes": 59,
+        "weeks": {
+          "sunday": true,
+          "monday": true,
+          "Tuesday": true,
+          "Wednesday": true,
+          "Thursday": true,
+          "Friday": true,
+          "Saturday": true
+        },
+        "mode": 1
+      }
+    ]
+  }
+}
