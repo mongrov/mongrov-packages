@@ -130,15 +130,36 @@ INNER JOIN ${viewFor('sleep_session')} s
   AND s.family_id = m.family_id
   AND m.ts BETWEEN s.ts_start AND s.ts_end`
     case 'resting':
-      // Activity rows are 1-minute after unnest, so a sample is "resting"
-      // when its own minute recorded zero steps.
+      /*
+       * "Resting" is the ABSENCE of movement around the sample, not the
+       * presence of a zero-step row at its exact minute.
+       *
+       * The earlier form required an activity row to exist at
+       * date_trunc('minute', m.ts) with steps = 0, and being an INNER JOIN it
+       * dropped every sample that had no activity row at all. Two consequences,
+       * both wrong:
+       *
+       *   1. A device that only reports activity when the user moves — which is
+       *      most of them — produces NO resting samples, so a resting-gated
+       *      rule silently never fires.
+       *   2. It disagreed with the definition of "resting" everywhere else. The
+       *      HR slot table gates the flag rule on "no v_activity steps +/-15
+       *      min", `hr.restingVsUsual` uses exactly that, and the three
+       *      registries define `active` as steps > 0 within +/-15 min. Resting
+       *      has to be the complement of active or a reading can be neither,
+       *      and a rule and a screen would say different things about it.
+       *
+       * ANTI JOIN keeps this in the join position while inverting the meaning:
+       * the sample survives when no movement row matches the window.
+       */
       return `
-INNER JOIN ${viewFor('activity')} a
+ANTI JOIN ${viewFor('activity')} a
    ON a.user_id = m.user_id
   AND a.brand = m.brand
   AND a.family_id = m.family_id
-  AND a.ts = date_trunc('minute', m.ts)
-  AND a.steps = 0`
+  AND a.steps > 0
+  AND a.ts >= m.ts - INTERVAL 15 MINUTE
+  AND a.ts <  m.ts + INTERVAL 15 MINUTE`
   }
 }
 

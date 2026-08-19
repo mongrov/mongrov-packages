@@ -55,11 +55,19 @@ describe('T-17 — emitContextJoin', () => {
     expect(join).toContain('m.ts BETWEEN s.ts_start AND s.ts_end')
   })
 
-  it('resting → INNER JOIN v_activity on a zero-step minute', () => {
+  it('resting → ANTI JOIN v_activity on movement within +/-15 min', () => {
+    // Resting is the ABSENCE of movement, not the presence of a zero-step row.
+    // The old form INNER JOINed a zero-step row at the sample's exact minute,
+    // which dropped every sample from a device that reports activity only when
+    // the user moves — a resting-gated rule would never have fired on one.
     const join = emitContextJoin('resting')
-    expect(join).toContain('INNER JOIN v_activity a')
-    expect(join).toContain(`a.ts = date_trunc('minute', m.ts)`)
-    expect(join).toContain('a.steps = 0')
+    expect(join).toContain('ANTI JOIN v_activity a')
+    expect(join).toContain('a.steps > 0')
+    expect(join).toContain('a.ts >= m.ts - INTERVAL 15 MINUTE')
+    expect(join).toContain('a.ts <  m.ts + INTERVAL 15 MINUTE')
+    // The complement of `active`, which the three registries define the same
+    // way. Resting and active must partition the readings between them.
+    expect(join).not.toContain('a.steps = 0')
   })
 
   it('joins carry the full tenant triple, not just user_id', () => {
