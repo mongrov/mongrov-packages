@@ -540,7 +540,20 @@ function buildConsecutive(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>
 } {
-  const { view, join, ts, interval, column, target, compare, consecutive } = args
+  const { view, join, ts, interval, column, target, compare, consecutive, metricId } = args
+
+  // Cadence in minutes, for slot adjacency below. `sampling_minutes` is the
+  // metric's nominal grid; `per_session` metrics have no reading cadence and
+  // never reach a reading-cadence rule.
+  const meta = (METRIC_METADATA as Record<string, { sampling_minutes?: number | string }>)[metricId]
+  const sampling = meta?.sampling_minutes
+  if (typeof sampling !== 'number') {
+    throw new RuleValidationError(
+      `Rule on ${metricId}: reading-cadence 'consecutive' needs a numeric `
+      + `sampling_minutes to define slot adjacency; got '${String(sampling)}'.`,
+    )
+  }
+  const cadenceMinutes = sampling
   const where = whereClause(ts, interval)
   const from = `FROM ${view} m${join}`
 
@@ -582,8 +595,25 @@ function buildConsecutive(args: BuildArgs): {
 ),
 runs AS (
   SELECT ts, value, breached, threshold_value,
-         ROW_NUMBER() OVER (ORDER BY ts)
-           - ROW_NUMBER() OVER (PARTITION BY breached ORDER BY ts) AS run_key
+         -- Islands keyed on the CADENCE SLOT, not on row position.
+         --
+         -- This was a difference of ROW_NUMBERs over the rows present, so a
+         -- missed reading produced no row and its neighbours became adjacent.
+         -- Measured: breaching readings at 01:00, 02:00 and 05:00 fired a
+         -- consecutive:3 rule exactly as three adjacent readings did. SpO2's
+         -- Rule B has run on that since Sprint 5.
+         --
+         -- Consecutive means adjacent on the metric's cadence grid with no
+         -- missing slot between — stated in cadence, not clock time. The slot
+         -- index comes from the reading's own timestamp, so insertion order
+         -- and batch arrival are irrelevant: readings landing together in one
+         -- sync batch still key on when they were TAKEN.
+         --
+         -- epoch() is absolute, so a DST boundary inside a run does not shift
+         -- slot adjacency — that case holds by construction, not by a special
+         -- case.
+         CAST(epoch(ts) / 60 / ${cadenceMinutes} AS BIGINT)
+           - ROW_NUMBER() OVER (ORDER BY ts) AS run_key
   FROM samples
 )
 SELECT ${extreme}(value) AS observed_value,

@@ -97,10 +97,17 @@ describe('T-18 — consecutive', () => {
     expect(compileRule(rule({})).sql).not.toContain('ROW_NUMBER')
   })
 
-  it('consecutive >= 2 emits gaps-and-islands run detection', () => {
+  it('keys runs on the CADENCE SLOT, not on row position', () => {
     const compiled = compileRule(rule({ consecutive: 3 }))
+    // Was a difference of ROW_NUMBERs over the rows present, so a missed
+    // reading produced no row and its neighbours became adjacent. Measured:
+    // breaching readings at 01:00, 02:00 and 05:00 fired a consecutive:3 rule
+    // exactly as three adjacent readings did.
+    expect(compiled.sql).not.toContain('PARTITION BY breached')
+    // Slot index from the reading's own timestamp — so batch arrival order
+    // cannot affect adjacency — divided by the metric's cadence.
+    expect(compiled.sql).toContain('epoch(ts) / 60 /')
     expect(compiled.sql).toContain('ROW_NUMBER() OVER (ORDER BY ts)')
-    expect(compiled.sql).toContain('PARTITION BY breached')
     expect(compiled.sql).toContain('GROUP BY run_key')
     expect(compiled.sql).toContain('HAVING COUNT(*) >= $consecutive')
     expect(compiled.params.consecutive).toBe(3)
