@@ -96,6 +96,19 @@ async function reading(db: DB, daysAgo: number, hourUtc: number, value: number):
   )
 }
 
+/**
+ * Seed a whole day at one value.
+ *
+ * hrv_ms is hourly, so its min-data floor is 6 readings (25% of 24 slots).
+ * These tests seeded one or three, which is below it — a day that thin is
+ * ABSENT to the rules layer now, so every run test would evaluate against
+ * nothing. The floor is the behaviour under test elsewhere; here it just has
+ * to be cleared.
+ */
+async function seedFullDay(db: DB, daysAgo: number, value: number): Promise<void> {
+  for (const h of [9, 10, 11, 12, 13, 14]) await reading(db, daysAgo, h, value)
+}
+
 async function run(db: DB, rule = dayRule(), tz = TZ) {
   const compiled = compileRule(rule)
   return db.execute<{ observed_value: number, threshold_value: number }>(compiled.sql, {
@@ -111,7 +124,7 @@ async function run(db: DB, rule = dayRule(), tz = TZ) {
 describe('cadence: day counts days, not readings', () => {
   it('fires on three consecutive breaching days', async () => {
     const db = await boot()
-    for (const d of [1, 2, 3]) await reading(db, d, 20, 30) // 30 < 50-10
+    for (const d of [1, 2, 3]) await seedFullDay(db, d, 30) // 30 < 50-10
 
     const rows = await run(db)
     expect(rows).toHaveLength(1)
@@ -123,7 +136,7 @@ describe('cadence: day counts days, not readings', () => {
     const db = await boot()
     // Three low readings, all on the same local day. Under reading cadence
     // this is a 3-run; under day cadence it is one day.
-    for (const h of [18, 19, 20]) await reading(db, 1, h, 30)
+    await seedFullDay(db, 1, 30)
 
     expect(await run(db)).toHaveLength(0)
     await db.close?.()
@@ -131,9 +144,9 @@ describe('cadence: day counts days, not readings', () => {
 
   it('breaks the run when a day recovers', async () => {
     const db = await boot()
-    await reading(db, 1, 20, 30)
-    await reading(db, 2, 20, 55) // above threshold — breaks it
-    await reading(db, 3, 20, 30)
+    await seedFullDay(db, 1, 30)
+    await seedFullDay(db, 2, 55) // above threshold — breaks it
+    await seedFullDay(db, 3, 30)
 
     expect(await run(db)).toHaveLength(0)
     await db.close?.()
@@ -154,9 +167,7 @@ describe('a day with NO DATA breaks the run', () => {
   it('does not fire across an unworn day', async () => {
     const db = await boot()
     // Breaching on day-4 and day-2. Day-3 has no readings whatsoever.
-    for (const d of [4, 2]) {
-      for (const h of [9, 10, 11]) await reading(db, d, h, 30)
-    }
+    for (const d of [4, 2]) await seedFullDay(db, d, 30)
 
     const rows = await run(db, dayRule({ consecutive: 2 }))
     expect(rows).toHaveLength(0)
@@ -167,12 +178,41 @@ describe('a day with NO DATA breaks the run', () => {
     // The control: identical values on adjacent dates must still fire, or the
     // test above would pass for a rule that never fires at all.
     const db = await boot()
-    for (const d of [3, 2]) {
-      for (const h of [9, 10, 11]) await reading(db, d, h, 30)
-    }
+    for (const d of [3, 2]) await seedFullDay(db, d, 30)
 
     const rows = await run(db, dayRule({ consecutive: 2 }))
     expect(rows).toHaveLength(1)
+    await db.close?.()
+  }, 60_000)
+})
+
+describe('a day below the min-data floor is ABSENT', () => {
+  /*
+   * A rule firing on a day the SCREEN renders as missing is a contradiction
+   * the user can see — a notification about a day the app says it has no data
+   * for. So a thin day is neither above nor below the threshold: it is absent,
+   * and the calendar-keyed islands treat it exactly like an unworn day.
+   *
+   * hrv_ms is hourly, so the floor is 6 readings — 25% of 24 slots.
+   */
+  it('does not fire when a breaching day is too thin to count', async () => {
+    const db = await boot()
+    await seedFullDay(db, 3, 30)
+    // Day 2 breaches on ONE reading — below the floor, so it is absent and
+    // the run is broken rather than three days long.
+    await reading(db, 2, 20, 30)
+    await seedFullDay(db, 1, 30)
+
+    expect(await run(db, dayRule({ consecutive: 3 }))).toHaveLength(0)
+    await db.close?.()
+  }, 60_000)
+
+  it('fires once that same day clears the floor', async () => {
+    // The control: identical values, only the reading count differs.
+    const db = await boot()
+    for (const d of [3, 2, 1]) await seedFullDay(db, d, 30)
+
+    expect(await run(db, dayRule({ consecutive: 3 }))).toHaveLength(1)
     await db.close?.()
   }, 60_000)
 })
@@ -217,7 +257,7 @@ describe('day boundaries are the USER\'s, not UTC', () => {
     // date_trunc must still yield one bucket per local day; a naive
     // 24-hour arithmetic bucket would produce a 23-hour day and can
     // split or merge one.
-    for (const d of [1, 2, 3, 4]) await reading(db, d, 20, 30)
+    for (const d of [1, 2, 3, 4]) await seedFullDay(db, d, 30)
 
     const rows = await run(db)
     expect(rows).toHaveLength(1)
@@ -230,8 +270,8 @@ describe('the partial current day is excluded', () => {
     const db = await boot()
     // Two full breaching days, plus a breaching reading today. If today
     // counted, this would be a 3-run and fire.
-    await reading(db, 1, 20, 30)
-    await reading(db, 2, 20, 30)
+    await seedFullDay(db, 1, 30)
+    await seedFullDay(db, 2, 30)
     await reading(db, 0, 20, 30)
 
     expect(await run(db)).toHaveLength(0)
@@ -240,7 +280,7 @@ describe('the partial current day is excluded', () => {
 
   it('a good morning today cannot break a completed run', async () => {
     const db = await boot()
-    for (const d of [1, 2, 3]) await reading(db, d, 20, 30)
+    for (const d of [1, 2, 3]) await seedFullDay(db, d, 30)
     await reading(db, 0, 20, 99) // today looks fine so far
 
     // The run of three completed days still fires — otherwise the same rule

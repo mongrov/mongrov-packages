@@ -434,6 +434,20 @@ HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
  *   3. **Every parameter is CAST**, for the react-native-duckdb prepare path
  *      (zivaone_app#70/#72).
  */
+/**
+ * Min readings before a day counts, as a fraction of the day's slots.
+ *
+ * 25% of `1440 / sampling_minutes`: SpO2 and temp 12 (48 slots), HRV and
+ * stress 6 (24), HR 36 (144). Derived rather than tabulated, so a next-gen
+ * cadence moves every floor at once instead of leaving five constants to
+ * chase.
+ */
+export const MIN_DAY_READINGS_FRACTION = 0.25
+
+export function minDayReadings(samplingMinutes: number): number {
+  return Math.round((1440 / samplingMinutes) * MIN_DAY_READINGS_FRACTION)
+}
+
 function buildDayCadence(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>
@@ -453,6 +467,17 @@ function buildDayCadence(args: BuildArgs): {
   // agree about what a day's value is, not merely about where it starts.
   const dailyAgg = agg
   const localDay = localDayExpr(`m.${ts}`)
+
+  // Same floor the screen uses, from the same derivation — see minDayReadings.
+  const dayMeta = (METRIC_METADATA as Record<string, { sampling_minutes?: number | string }>)[metricId]
+  const daySampling = dayMeta?.sampling_minutes
+  if (typeof daySampling !== 'number') {
+    throw new RuleValidationError(
+      `Rule on ${metricId}: cadence 'day' needs a numeric sampling_minutes to `
+      + `derive its min-data floor; got '${String(daySampling)}'.`,
+    )
+  }
+  const dayFloor = minDayReadings(daySampling)
 
   let thresholdExpr: string
   let baselineCte = ''
@@ -496,7 +521,14 @@ function buildDayCadence(args: BuildArgs): {
   GROUP BY day
   -- Exclude today: it is still accumulating, and a half-finished day would
   -- make the same rule fire or not depending on the hour it ran.
+  --
+  -- And exclude a day below the min-data floor. A rule firing on a day the
+  -- SCREEN renders as missing is a contradiction the user can see — a
+  -- notification about a day the app says it has no data for. A thin day is
+  -- neither above nor below: it is ABSENT, which the calendar-keyed islands
+  -- below then treat as breaking the run, exactly like an unworn day.
   HAVING day < date_trunc('day', timezone(CAST($tz AS VARCHAR), NOW()))
+     AND COUNT(*) >= ${dayFloor}
 ),
 marked AS (
   SELECT day, value,
