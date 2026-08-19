@@ -66,7 +66,6 @@ describe('brand default catalogs', () => {
       'ziva.sleep-deprivation-3',
       'ziva.spo2-desaturation-asleep',
       'ziva.spo2-safe-level',
-      'ziva.stress-elevated-day',
       // D-E — the absolute flag at the Tense rail, and the multi-day drift.
       'ziva.stress-flag-level',
       'ziva.stress-tense-days',
@@ -127,10 +126,11 @@ describe('brand default catalogs', () => {
       windowDays: 7,
       percent: 70,
     })
-    expect(byId['ziva.stress-elevated-day'].target).toEqual({
-      type: 'baseline_stddev',
-      windowDays: 14,
-      stddevs: 1.5,
+    expect(byId['ziva.stress-tense-days'].target).toEqual({
+      type: 'baseline_offset',
+      windowDays: 30,
+      offset: 10,
+      direction: 'above',
     })
     expect(byId['ziva.sleep-deprivation-3'].target).toEqual({
       type: 'absolute',
@@ -148,12 +148,25 @@ describe('brand default catalogs', () => {
       [...zivaDefaults, ...luminxDefaults, ...vivaDefaults, ...yogaringDefaults]
         .map(r => r.target.type),
     )
-    // `range` is still unused by any brand default; every other target
-    // type must stay covered so no compiler path ships unexercised.
     expect(shipped).toContain('absolute')
     expect(shipped).toContain('baseline_percent')
-    expect(shipped).toContain('baseline_stddev')
+    expect(shipped).toContain('baseline_offset')
     expect(shipped).toContain('user_setting')
+
+    /*
+     * `range` and `baseline_stddev` are supported by the compiler and shipped
+     * by no brand.
+     *
+     * `baseline_stddev` joined that list on 2026-08-19: retiring
+     * ziva.stress-elevated-day removed its only consumer anywhere. D-E chose a
+     * p50 offset held for two days over a single-day stddev trigger, so this
+     * is a deliberate consequence rather than an oversight — but it means the
+     * stddev compilation path now ships exercised only by unit tests, not by
+     * any real catalog. Recorded here so that stays visible; if it is still
+     * unused at the next catalog review, it is a candidate for removal.
+     */
+    expect(shipped).not.toContain('baseline_stddev')
+    expect(shipped).not.toContain('range')
   })
 })
 

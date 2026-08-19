@@ -64,25 +64,18 @@ value = 300
 minGapMinutes = 1440
 maxPerDay = 1
 
-[[rule]]
-id = "ziva.stress-elevated-day"
-brand = "ziva"
-name = "Elevated stress today"
-description = "Daily average stress rose 1.5 standard deviations above the 14-day baseline."
-metric = "stress"
-window = "24h"
-aggregation = "avg"
-compare = "greater_than"
-severity = "info"
-
-[rule.target]
-type = "baseline_stddev"
-windowDays = 14
-stddevs = 1.5
-
-[rule.throttle]
-minGapMinutes = 1440
-maxPerDay = 1
+# ziva.stress-elevated-day was RETIRED 2026-08-19.
+#
+# It fired on a single day's average 1.5 stddev above a 14-day baseline. D-E
+# replaced that with ziva.stress-tense-days — +10 over the 30-day p50, held for
+# two consecutive days — choosing persistence over a single-day trigger on
+# purpose. Keeping both meant two near-identical "above your usual" notices on
+# day 2 of a tense stretch, which is the fatigue throttles exist to prevent.
+#
+# Its throttle keys (analytics:rule:ziva.stress-elevated-day:{userId}:*) are
+# left in place. Nothing reads them once the rule is unregistered, so they are
+# inert; a cleanup sweep can ride a future migration rather than being its own
+# risk today.
 
 [[rule]]
 id = "ziva.low-activity-week"
