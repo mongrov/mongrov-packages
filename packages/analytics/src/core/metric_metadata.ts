@@ -31,7 +31,30 @@ export type MetricSamplingMinutes = number | 'per_session'
  * readings lets a single intra-day dip set p10 for the whole window, which
  * is exactly the bug day-first compute exists to prevent.
  */
-export type BaselineDailyAggregate = 'avg' | 'sum' | 'session'
+export type BaselineDailyAggregate
+  = | 'avg'
+    | 'sum'
+    | 'session'
+  /**
+   * D-G: minimum reading inside the night's sleep session(s), attributed to
+   * the local day the sleep ENDED in. The daily value is a minimum; the
+   * baseline's p10/p50/p90 are then the standard quantiles ACROSS those
+   * nightly minima.
+   *
+   * "Usual resting" is p50 of per-night minima — never a minimum across
+   * nights, which would be the best night in 30 rather than a typical one.
+   */
+    | 'nightly_min'
+  /**
+   * Mean of readings taken while still — no activity within ±15 min. This is
+   * the input for the cross-vital factor "a higher resting heart rate" on the
+   * Temperature and HRV screens, which asks a DAYTIME question ("was your
+   * rate higher than usual while you were still today"), not a nightly one.
+   *
+   * Distinct from `nightly_min` and deliberately named apart: `resting_hr`
+   * and `resting_gated_avg` are two metrics that must never be confused.
+   */
+    | 'resting_avg'
 
 export interface MetricMetadataEntry {
   table: TableName

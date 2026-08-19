@@ -107,6 +107,46 @@ export function buildBaselineSql(
 
   let dailySelect: string
   let tsColumn: string
+
+  if (aggregate === 'nightly_min') {
+    // D-G: "resting heart rate" is the NIGHTLY LOW — the minimum reading
+    // inside the night's sleep session(s), attributed to the local day the
+    // sleep ENDED in.
+    //
+    // Two operations that compose, and both matter:
+    //   MIN within a night   — each night contributes its own low
+    //   p50 across nights    — "usual resting" is the median of those lows
+    //
+    // The quantile half is the standard compute below, NOT special-cased
+    // here: resting_hr is an ordinary day-first metric whose daily value
+    // happens to be a minimum. That is the reason to trust it.
+    //
+    // "Usual resting" is therefore p50 of per-night minima, NEVER a minimum
+    // across nights. A min-across-nights would be the best night in 30 — a
+    // floor, not a usual. Every ordinary night would sit above it, the drift
+    // card would show a permanent elevation, and the 4-bpm creep it exists to
+    // catch would be invisible against a reference already below typical.
+    //
+    // Day key is `ts_end`'s local day, not the mapper's `night_of`. The two
+    // differ for a nap or a pre-midnight sleep, and the ruling is explicit
+    // that the day the sleep ended in is the one that owns the value.
+    return `
+      WITH daily_values AS (
+        SELECT date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', s.ts_end))) AS day,
+               MIN(m.${column}) AS daily_value
+        FROM ${view} m
+        JOIN v_sleep_session s
+          ON s.user_id = m.user_id AND s.brand = m.brand AND s.family_id = m.family_id
+         AND m.ts >= s.ts_start AND m.ts < s.ts_end
+        WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId
+          AND m.ts > now() - ${windowBind}
+          AND m.${column} IS NOT NULL
+        GROUP BY 1
+      )
+      ${quantileSelect()}
+    `.trim()
+  }
+
   if (aggregate === 'session') {
     // Sleep is already attributed to a local night by the mapper's 6pm-6pm
     // rule, so `night_of` is a better day key than re-deriving one from a
@@ -141,6 +181,7 @@ export function buildBaselineSql(
   //
   // `session` never reaches here; it returns from the branch above.
   if (aggregate !== 'sum' && aggregate !== 'avg') {
+    // `session` and `nightly_min` returned above.
     throw new AnalyticsError(
       'not_implemented',
       `baselineDailyAggregate '${aggregate}' has no dispatch case. Add one `
