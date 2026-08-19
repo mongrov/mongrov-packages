@@ -306,6 +306,42 @@ direction = "above"
 [rule.throttle]
 minGapMinutes = 1440
 maxPerDay = 1
+
+# ── Heart rate (D-G + HR slot table, 2026-08-19) ────────────────────────────
+#
+# High-only in v1: a low resting rate is usually fitness, and alerting on it
+# would be wrong far more often than right.
+#
+# The rule is RESTING-GATED, which is what makes it safe to state an absolute
+# number. 160 bpm on a run is not a finding; 105 bpm sitting still is. The gate
+# is \`context = "resting"\` — no movement within +/-15 min — corrected in
+# analytics 0.20.0 from an older form that would have dropped every sample on
+# a device that only reports activity while the user moves.
+#
+# \`consecutive = 3\` at the 10-minute HR cadence is about half an hour of
+# sustained elevation at rest, slot-adjacent, so a gap breaks the run.
+
+[[rule]]
+id = "ziva.hr-flag-level"
+brand = "ziva"
+name = "Resting heart rate stayed high"
+description = "Resting heart rate at or above your flag level for three consecutive readings."
+metric = "hr_bpm"
+window = "24h"
+aggregation = "avg"
+compare = "greater_than_or_equal"
+context = "resting"
+consecutive = 3
+severity = "warn"
+
+[rule.target]
+type = "user_setting"
+key = "user:hrFlagLevel"
+defaultValue = 100
+
+[rule.throttle]
+minGapMinutes = 60
+maxPerDay = 3
 `
 
 export const zivaDefaults: Rule[] = parseCatalog(TOML, { name: 'ziva' })

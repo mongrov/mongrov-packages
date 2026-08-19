@@ -58,6 +58,8 @@ describe('brand default catalogs', () => {
     // `analytics:rule:{ruleId}:{userId}:*` and are cross-referenced by name
     // from the Sprint 5 catalog additions.
     expect(zivaDefaults.map(r => r.id).sort()).toEqual([
+      // D-G + the HR slot table — resting-gated, high-only.
+      'ziva.hr-flag-level',
       'ziva.hrv-below-usual',
       'ziva.hrv-drop-30',
       'ziva.low-activity-week',
@@ -323,6 +325,37 @@ describe('the stress pair (D-E)', () => {
     expect(byId['ziva.stress-tense-days'].throttle).toMatchObject({ maxPerDay: 1 })
     expect(byId['ziva.stress-flag-level'].severity).toBe('warn')
     expect(byId['ziva.stress-tense-days'].severity).toBe('info')
+  })
+})
+
+describe('the HR flag rule (D-G)', () => {
+  const rule = zivaDefaults.find(r => r.id === 'ziva.hr-flag-level')!
+
+  it('is resting-gated, which is what makes an absolute number safe', () => {
+    // 160 bpm on a run is not a finding; 105 sitting still is. Without the
+    // gate this rule would alert on every workout, and the slot table's
+    // decision 2 says exercise highs are context, never exceptions.
+    expect(rule.context).toBe('resting')
+  })
+
+  it('is high-only — there is deliberately no low-side counterpart', () => {
+    // A low resting rate is usually fitness. v1 ships no rule for it.
+    expect(rule.compare).toBe('greater_than_or_equal')
+    expect(zivaDefaults.filter(r => r.metric === 'hr_bpm')).toHaveLength(1)
+  })
+
+  it('requires about half an hour of sustained elevation', () => {
+    // 3 slot-adjacent readings at the 10-minute HR cadence. Adjacency matters:
+    // a gap breaks the run rather than closing it.
+    expect(rule.consecutive).toBe(3)
+  })
+
+  it('reads its threshold from the registered KV key', () => {
+    expect(rule.target).toMatchObject({
+      type: 'user_setting',
+      key: 'user:hrFlagLevel',
+      defaultValue: 100,
+    })
   })
 })
 })

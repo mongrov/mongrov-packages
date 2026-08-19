@@ -125,6 +125,39 @@ export const KV_KEY_REGISTRY = {
     defaultValue: true,
   },
 
+  // ── sprint6: heart rate (D-G) ─────────────────────────────────────────
+  /**
+   * The high-side resting flag, in bpm.
+   *
+   * "High-only v1" — there is deliberately no low-side control. A low resting
+   * rate is usually fitness rather than a problem, and an alert on it would be
+   * wrong far more often than right.
+   *
+   * The step is 5, not 1. Resting heart rate is not meaningful at 1-bpm
+   * resolution and a finer control would imply a precision the measurement
+   * does not have.
+   *
+   * The rule behind this is resting-GATED: only readings with no movement
+   * within +/-15 min can fire it, so an exercise peak of 160 never alerts.
+   * That gate is `context: 'resting'`, corrected in analytics 0.20.0.
+   */
+  'user:hrFlagLevel': {
+    kind: 'threshold',
+    valueType: 'number',
+    description: 'Resting heart rate in bpm at or above which the HR flag rule fires',
+    usedBy: ['ziva.hr-flag-level'],
+    defaultValue: 100,
+    range: [80, 120],
+    step: 5,
+  },
+  'user:hrNotify': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'User opted in to heart rate notifications',
+    usedBy: [],
+    defaultValue: true,
+  },
+
   // ── sprint6: HRV (T-06) ───────────────────────────────────────────────
   /**
    * A DROP in milliseconds below the user's own baseline, not an absolute
