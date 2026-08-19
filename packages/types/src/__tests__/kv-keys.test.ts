@@ -28,6 +28,7 @@ describe('KV_KEY_REGISTRY', () => {
       'user:spo2Notify',
       'user:spo2SafeLevel',
       'user:stressFlagLevel',
+      'user:stressNotify',
       'user:tempFlagLevel',
       'user:tempNotify',
     ])

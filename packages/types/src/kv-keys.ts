@@ -103,9 +103,10 @@ export const KV_KEY_REGISTRY = {
    * with `greater_than_or_equal` — at the default, a reading the chart paints
    * Tense must also be a reading the alert counts.
    *
-   * The range stops short of both ends of the scale. Below ~50 the flag would
-   * fire on ordinary Balanced days; above ~90 it would effectively never fire
-   * and the control would read as broken.
+   * The range stops short of both ends of the scale. Below 50 the flag would
+   * fire on ordinary Balanced days; the top stops at 85 rather than at 100
+   * because a flag set in the 90s would effectively never fire and the
+   * control would read as broken.
    */
   'user:stressFlagLevel': {
     kind: 'threshold',
@@ -113,8 +114,15 @@ export const KV_KEY_REGISTRY = {
     description: 'Stress score at or above which the stress flag rule fires',
     usedBy: ['ziva.stress-flag-level'],
     defaultValue: 66,
-    range: [50, 90],
+    range: [50, 85],
     step: 1,
+  },
+  'user:stressNotify': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'User opted in to stress notifications',
+    usedBy: [],
+    defaultValue: true,
   },
 
   // ── sprint6: HRV (T-06) ───────────────────────────────────────────────
