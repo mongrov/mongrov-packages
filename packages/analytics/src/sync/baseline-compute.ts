@@ -25,6 +25,7 @@
 import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine, EventBus } from '../core/types'
 import type { SchedulerLogger } from './scheduler'
+import { AnalyticsError } from '../core/errors'
 import {
   BASELINE_MIN_DAYS,
   BASELINE_WINDOW_DAYS,
@@ -130,6 +131,22 @@ export function buildBaselineSql(
     `.trim()
   }
 
+  // Fail loudly on an aggregate this dispatch does not implement.
+  //
+  // This was `aggregate === 'sum' ? 'sum' : 'avg'`, so ANY unrecognised value
+  // silently became `avg`. Declaring a metric with a new aggregate — say
+  // `nightly_min` — and forgetting the dispatch case would compute a mean of
+  // every reading and store it as the nightly low: wrong, silent, and
+  // indistinguishable from a correct baseline downstream.
+  //
+  // `session` never reaches here; it returns from the branch above.
+  if (aggregate !== 'sum' && aggregate !== 'avg') {
+    throw new AnalyticsError(
+      'not_implemented',
+      `baselineDailyAggregate '${aggregate}' has no dispatch case. Add one `
+      + `rather than letting it fall through to avg.`,
+    )
+  }
   const fn = aggregate === 'sum' ? 'sum' : 'avg'
   tsColumn = 'ts'
   // Two separate defects fixed here (zivaone_app#73); either alone is wrong.
