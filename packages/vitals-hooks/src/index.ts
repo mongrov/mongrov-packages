@@ -16,5 +16,6 @@
  *     Importing them from the root is a compile error rather than a silent
  *     fallback to mock data, which is the point of the split entry.
  */
+export * from './map/marks'
 export * from './status'
 export * from './types'
