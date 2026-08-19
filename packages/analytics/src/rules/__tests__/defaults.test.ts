@@ -65,6 +65,9 @@ describe('brand default catalogs', () => {
       'ziva.spo2-desaturation-asleep',
       'ziva.spo2-safe-level',
       'ziva.stress-elevated-day',
+      // D-E — the absolute flag at the Tense rail, and the multi-day drift.
+      'ziva.stress-flag-level',
+      'ziva.stress-tense-days',
       // sprint6 T-05 — the temperature and HRV verticals.
       'ziva.temp-flag-level',
       'ziva.temp-warm-days',
@@ -281,4 +284,45 @@ describe('D3 — hrv_ms is relative-only, enforced at registration', () => {
     for (const r of hrvRules)
       expect(['baseline_offset', 'baseline_percent', 'baseline_stddev']).toContain(r.target.type)
   })
+
+describe('the stress pair (D-E)', () => {
+  const byId = Object.fromEntries(zivaDefaults.map(r => [r.id, r]))
+
+  it('flags at the Tense rail INCLUSIVELY', () => {
+    const flag = byId['ziva.stress-flag-level']
+    // 66 is the lower rail of the Tense zone and the rail is inclusive, so a
+    // reading of exactly 66 paints Tense on the chart. With `greater_than`
+    // that same reading would not count toward the alert, and the screen and
+    // the rule would disagree at precisely the number the user chose.
+    expect(flag.compare).toBe('greater_than_or_equal')
+    expect(flag.target).toMatchObject({ type: 'user_setting', defaultValue: 66 })
+  })
+
+  it('requires persistence rather than a single spike', () => {
+    // Three consecutive hourly readings. Since 0.16.0 those three must be
+    // ADJACENT on the cadence grid — a missed reading breaks the run instead
+    // of silently closing it, which is what "observed, not inferred across
+    // silence" means in practice.
+    expect(byId['ziva.stress-flag-level'].consecutive).toBe(3)
+    expect(byId['ziva.stress-tense-days'].consecutive).toBe(2)
+  })
+
+  it('separates the absolute flag from the personal drift', () => {
+    // The two rules exist because neither subsumes the other: an absolute
+    // flag cannot say "tenser than YOUR usual", and a relative offset cannot
+    // say "you crossed the level you set".
+    expect(byId['ziva.stress-flag-level'].target.type).toBe('user_setting')
+    expect(byId['ziva.stress-tense-days'].target.type).toBe('baseline_offset')
+    expect(byId['ziva.stress-tense-days'].cadence).toBe('day')
+  })
+
+  it('lets the flag speak more than once a day, and the drift once', () => {
+    // A level the user set is worth hearing about when it is crossed again;
+    // "tenser than usual" is a once-a-day observation by construction.
+    expect(byId['ziva.stress-flag-level'].throttle).toMatchObject({ maxPerDay: 3 })
+    expect(byId['ziva.stress-tense-days'].throttle).toMatchObject({ maxPerDay: 1 })
+    expect(byId['ziva.stress-flag-level'].severity).toBe('warn')
+    expect(byId['ziva.stress-tense-days'].severity).toBe('info')
+  })
+})
 })

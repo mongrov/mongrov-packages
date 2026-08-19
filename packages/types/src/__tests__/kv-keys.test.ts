@@ -27,6 +27,7 @@ describe('KV_KEY_REGISTRY', () => {
       'user:spo2Day30BannerDismissed',
       'user:spo2Notify',
       'user:spo2SafeLevel',
+      'user:stressFlagLevel',
       'user:tempFlagLevel',
       'user:tempNotify',
     ])
@@ -85,6 +86,7 @@ describe('rule readability', () => {
       'user:hrvDropDays',
       'user:hrvDropMs',
       'user:spo2SafeLevel',
+      'user:stressFlagLevel',
       'user:tempFlagLevel',
     ])
     // Notification toggles are ux_state — a rule thresholding on "did they

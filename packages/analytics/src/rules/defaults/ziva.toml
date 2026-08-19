@@ -237,3 +237,60 @@ offsetKey = "user:hrvDropMs"
 [rule.throttle]
 minGapMinutes = 1440
 maxPerDay = 1
+
+# ── Stress (D-E, 2026-08-19) ────────────────────────────────────────────────
+#
+# Stress gets an ABSOLUTE draggable flag where HRV cannot. The difference is
+# not inconsistency: HRV's absolute value means nothing across people, while
+# stress is a vendor-normalised 0-100 score whose rails the user already sees
+# in the ? sheet, so a flag at the Tense rail is truthful.
+#
+# Persistence, not a single spike. `consecutive: 3` at hourly cadence is about
+# three hours above the flag, and since 0.16.0 those three must be ADJACENT on
+# the cadence grid — a missed reading breaks the run rather than closing it.
+
+[[rule]]
+id = "ziva.stress-flag-level"
+brand = "ziva"
+name = "Stress stayed high"
+description = "Stress at or above your flag level for three consecutive readings."
+metric = "stress"
+window = "24h"
+aggregation = "avg"
+compare = "greater_than_or_equal"
+consecutive = 3
+severity = "warn"
+
+[rule.target]
+type = "user_setting"
+key = "user:stressFlagLevel"
+defaultValue = 66
+
+[rule.throttle]
+minGapMinutes = 60
+maxPerDay = 3
+
+# Secondary, same shape as ziva.temp-warm-days: a multi-day drift above the
+# user's OWN usual, which the absolute flag cannot express.
+[[rule]]
+id = "ziva.stress-tense-days"
+brand = "ziva"
+name = "Tenser than your usual"
+description = "Daily average stress above your usual by 10 for two consecutive days."
+metric = "stress"
+window = "30d"
+aggregation = "avg"
+compare = "greater_than"
+cadence = "day"
+consecutive = 2
+severity = "info"
+
+[rule.target]
+type = "baseline_offset"
+windowDays = 30
+offset = 10
+direction = "above"
+
+[rule.throttle]
+minGapMinutes = 1440
+maxPerDay = 1

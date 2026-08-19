@@ -30,6 +30,16 @@ export type Aggregation = (typeof AGGREGATIONS)[number]
 export const COMPARES = [
   'less_than',
   'greater_than',
+  /**
+   * Inclusive, and necessary rather than cosmetic.
+   *
+   * D-E puts the stress flag at 66, which is also the lower rail of the Tense
+   * zone (`tense >= 66`). With `greater_than` a reading of exactly 66 sits in
+   * Tense on the chart and does not count toward the alert — the screen and
+   * the rule would disagree at the boundary the user chose.
+   */
+  'greater_than_or_equal',
+  'less_than_or_equal',
   'equals',
   'not_equals',
   'between',

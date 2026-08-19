@@ -91,6 +91,32 @@ export const KV_KEY_REGISTRY = {
     defaultValue: true,
   },
 
+  // ── sprint6: stress (D-E) ─────────────────────────────────────────────
+  /**
+   * Stress gets an absolute draggable flag where HRV cannot, and the reason
+   * is not arbitrary: stress is a vendor-normalised 0-100 score whose rails
+   * the user already sees on the screen, so 66 means the same thing for
+   * everyone. HRV's absolute value does not.
+   *
+   * The default sits exactly on the Tense rail (`tense >= 66` in
+   * STRESS_CONFIG). That rail is inclusive, which is why the rule compares
+   * with `greater_than_or_equal` — at the default, a reading the chart paints
+   * Tense must also be a reading the alert counts.
+   *
+   * The range stops short of both ends of the scale. Below ~50 the flag would
+   * fire on ordinary Balanced days; above ~90 it would effectively never fire
+   * and the control would read as broken.
+   */
+  'user:stressFlagLevel': {
+    kind: 'threshold',
+    valueType: 'number',
+    description: 'Stress score at or above which the stress flag rule fires',
+    usedBy: ['ziva.stress-flag-level'],
+    defaultValue: 66,
+    range: [50, 90],
+    step: 1,
+  },
+
   // ── sprint6: HRV (T-06) ───────────────────────────────────────────────
   /**
    * A DROP in milliseconds below the user's own baseline, not an absolute

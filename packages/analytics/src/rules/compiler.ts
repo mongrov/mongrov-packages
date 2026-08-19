@@ -100,6 +100,10 @@ function compareClause(compare: Compare, lhs: string, rhs: string): string {
   switch (compare) {
     case 'less_than': return `${lhs} < ${rhs}`
     case 'greater_than': return `${lhs} > ${rhs}`
+    // Inclusive forms: a threshold the user picked is a value they expect to
+    // count, not one to sit just outside.
+    case 'greater_than_or_equal': return `${lhs} >= ${rhs}`
+    case 'less_than_or_equal': return `${lhs} <= ${rhs}`
     case 'equals': return `${lhs} = ${rhs}`
     case 'not_equals': return `${lhs} <> ${rhs}`
     case 'between': throw new Error('between handled per-target')
