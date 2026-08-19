@@ -504,16 +504,30 @@ marked AS (
          ${thresholdExpr} AS threshold_value
   FROM daily
 ),
+breaches AS (
+  SELECT day, value, threshold_value FROM marked WHERE breached
+),
 runs AS (
-  SELECT day, value, breached, threshold_value,
-         ROW_NUMBER() OVER (ORDER BY day)
-           - ROW_NUMBER() OVER (PARTITION BY breached ORDER BY day) AS run_key
-  FROM marked
+  -- Islands keyed on the CALENDAR DATE, not on row position.
+  --
+  -- The previous key was a difference of ROW_NUMBERs over the rows present in
+  -- the daily CTE, and a day with no readings produces no row — so two
+  -- breaching days either side of an unworn day were adjacent and counted as
+  -- consecutive. The rule inferred a run across silence. Measured: breaches
+  -- on day-4 and day-2 with day-3 empty fired a consecutive:2 rule.
+  --
+  -- date-minus-rownum is constant only across consecutive dates, so a gap of
+  -- any length starts a new island. A run must be OBSERVED
+  -- (resync-2026-08-19 §2a).
+  --
+  -- No backticks in this comment: it sits inside a JS template literal.
+  SELECT day, value, threshold_value,
+         CAST(day AS DATE) - CAST(ROW_NUMBER() OVER (ORDER BY day) AS INTEGER) AS run_key
+  FROM breaches
 )
 SELECT ${extreme}(value) AS observed_value,
        ANY_VALUE(threshold_value) AS threshold_value
 FROM runs
-WHERE breached
 GROUP BY run_key
 HAVING COUNT(*) >= CAST($consecutive AS BIGINT)
 ORDER BY observed_value ${direction === 'greater_than' ? 'DESC' : 'ASC'}

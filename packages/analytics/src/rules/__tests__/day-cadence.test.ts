@@ -140,6 +140,43 @@ describe('cadence: day counts days, not readings', () => {
   })
 })
 
+describe('a day with NO DATA breaks the run', () => {
+  /*
+   * The suite already covered a day that RECOVERS — present, not breaching.
+   * It never covered a day that is simply absent, and the two are different:
+   * a recovered day appears in the daily CTE and splits the island, while an
+   * unworn day produces no row at all.
+   *
+   * Until the island key became calendar-based, the gap closed silently and
+   * this fired. A run must be observed, not inferred across silence
+   * (resync-2026-08-19 2a).
+   */
+  it('does not fire across an unworn day', async () => {
+    const db = await boot()
+    // Breaching on day-4 and day-2. Day-3 has no readings whatsoever.
+    for (const d of [4, 2]) {
+      for (const h of [9, 10, 11]) await reading(db, d, h, 30)
+    }
+
+    const rows = await run(db, dayRule({ consecutive: 2 }))
+    expect(rows).toHaveLength(0)
+    await db.close?.()
+  }, 60_000)
+
+  it('still fires when the same days ARE consecutive', async () => {
+    // The control: identical values on adjacent dates must still fire, or the
+    // test above would pass for a rule that never fires at all.
+    const db = await boot()
+    for (const d of [3, 2]) {
+      for (const h of [9, 10, 11]) await reading(db, d, h, 30)
+    }
+
+    const rows = await run(db, dayRule({ consecutive: 2 }))
+    expect(rows).toHaveLength(1)
+    await db.close?.()
+  }, 60_000)
+})
+
 describe('day boundaries are the USER\'s, not UTC', () => {
   it('puts a 04:00 UTC reading on the PREVIOUS local day in Los Angeles', async () => {
     const db = await boot()
