@@ -105,6 +105,18 @@ export const METRIC_METADATA = Object.freeze({
   diastolic_bp: { table: 'hrv', column: 'diastolic_bp', sampling_minutes: 60, exposure: 'collected_only' },
   vascular_aging: { table: 'hrv', column: 'vascular_aging', sampling_minutes: 60, exposure: 'collected_only' },
   hr_bpm: { table: 'heart_rate', column: 'bpm', sampling_minutes: 10, exposure: 'full', baselineDailyAggregate: 'avg', precision: 1 },
+  /**
+   * D-G. Two HR-derived metrics, not one, and the names carry the difference:
+   *
+   *   resting_hr        nightly LOW  — what a doctor, a previous wearable and
+   *                     the creative all mean by "resting heart rate"
+   *   resting_gated_avg still-time MEAN — the daytime input for the
+   *                     cross-vital factor "a higher resting heart rate"
+   *
+   * `hr_bpm` (all readings) is untouched; Vitality consumes it.
+   */
+  resting_hr: { table: 'heart_rate', column: 'bpm', sampling_minutes: 10, exposure: 'full', baselineDailyAggregate: 'nightly_min', precision: 1 },
+  resting_gated_avg: { table: 'heart_rate', column: 'bpm', sampling_minutes: 10, exposure: 'full', baselineDailyAggregate: 'resting_avg', precision: 1 },
   spo2: { table: 'spo2', column: 'spo2', sampling_minutes: 30, exposure: 'full', baselineDailyAggregate: 'avg', precision: 1 },
   temp_c: { table: 'temperature', column: 'temp_c', sampling_minutes: 30, exposure: 'full', baselineDailyAggregate: 'avg', precision: 1 },
   activity_steps: { table: 'activity', column: 'steps', sampling_minutes: 1, exposure: 'full', baselineDailyAggregate: 'sum' },

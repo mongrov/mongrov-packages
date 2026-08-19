@@ -147,6 +147,42 @@ export function buildBaselineSql(
     `.trim()
   }
 
+  if (aggregate === 'resting_avg') {
+    // D-G: the DAYTIME still-time mean — the mean of readings taken while the
+    // user was not moving. This is NOT resting heart rate.
+    //
+    // `resting_hr` (nightly_min) answers "how low does your heart settle
+    // overnight". This answers "was your rate higher than usual while you were
+    // still today", which is the question the cross-vital factor on the
+    // Temperature and HRV screens asks. Two metrics, deliberately named apart
+    // so they can never be confused again.
+    //
+    // "Still" is the same test `hr.restingVsUsual` uses and the same one
+    // `active` uses on every vital screen: no activity with steps > 0 within
+    // +/-15 minutes. Keeping one definition is what makes "active" and
+    // "resting" complementary rather than two independent guesses.
+    return `
+      WITH daily_values AS (
+        SELECT date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', m.ts))) AS day,
+               avg(m.${column}) AS daily_value
+        FROM ${view} m
+        WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId
+          AND m.ts > now() - ${windowBind}
+          AND m.${column} IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM v_activity a
+            WHERE a.user_id = m.user_id AND a.brand = m.brand
+              AND a.family_id = m.family_id
+              AND a.steps > 0
+              AND a.ts >= m.ts - INTERVAL 15 MINUTE
+              AND a.ts <  m.ts + INTERVAL 15 MINUTE
+          )
+        GROUP BY 1
+      )
+      ${quantileSelect()}
+    `.trim()
+  }
+
   if (aggregate === 'session') {
     // Sleep is already attributed to a local night by the mapper's 6pm-6pm
     // rule, so `night_of` is a better day key than re-deriving one from a

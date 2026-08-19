@@ -7,8 +7,8 @@ import { LOCAL_SCHEMAS, TABLE_NAMES } from '../schemas'
 const METRIC_IDS = Object.keys(METRIC_METADATA) as MetricId[]
 
 describe('METRIC_METADATA', () => {
-  it('has the 14 metrics from spec §Metric metadata', () => {
-    expect(METRIC_IDS).toHaveLength(14)
+  it('has the 16 metrics from spec §Metric metadata (14 + D-G's two)', () => {
+    expect(METRIC_IDS).toHaveLength(16)
   })
 
   it('every entry references a valid TableName', () => {
@@ -48,9 +48,9 @@ describe('isMetricExposed', () => {
 })
 
 describe('getExposedMetricIds', () => {
-  it('returns 11 exposed metric ids (14 total minus 3 collected_only)', () => {
+  it('returns 13 exposed metric ids (16 total minus 3 collected_only)', () => {
     const exposed = getExposedMetricIds()
-    expect(exposed).toHaveLength(11)
+    expect(exposed).toHaveLength(13)
     expect(exposed).not.toContain('systolic_bp')
     expect(exposed).not.toContain('diastolic_bp')
     expect(exposed).not.toContain('vascular_aging')

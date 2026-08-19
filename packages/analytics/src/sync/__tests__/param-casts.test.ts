@@ -92,7 +92,7 @@ describe('local-day bucketing converts rather than labels', () => {
       const sql = buildBaselineSql(metric, 30)
       if (!sql.includes('timezone('))
         continue // sleep groups by night_of
-      expect(sql).toMatch(/timezone\(\s*'UTC'\s*,\s*\w+\s*\)/i)
+      expect(sql).toMatch(/timezone\(\s*'UTC'\s*,\s*[\w.]+\s*\)/i)
       expect(sql).not.toMatch(/timezone\(\s*CAST\(\$tz[^)]*\)\s*,\s*ts\s*\)/i)
     }
   })

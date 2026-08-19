@@ -233,13 +233,13 @@ describe('computeAll', () => {
     const result = await computer.computeAll(CTX)
 
     // 7 metrics x 3 windows = the 21 baselines the design calls for.
-    expect(getBaselineMetricIds()).toHaveLength(7)
-    expect(result.computed).toBe(21)
+    expect(getBaselineMetricIds()).toHaveLength(9)
+    expect(result.computed).toBe(27)
     expect(result.skipped).toBe(0)
     expect(result.failed).toBe(0)
   })
 
-  it('isolates a per-metric failure from the other twenty', async () => {
+  it('isolates a per-metric failure from the other twenty-six', async () => {
     let calls = 0
     const engine = {
       async execute(sql: string) {
@@ -269,7 +269,7 @@ describe('computeAll', () => {
 
     const result = await computer.computeAll(CTX)
     expect(result.failed).toBe(1)
-    expect(result.computed).toBe(20)
+    expect(result.computed).toBe(26)
     expect(warn).toHaveBeenCalled()
   })
 
