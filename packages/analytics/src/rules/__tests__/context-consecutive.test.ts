@@ -111,11 +111,15 @@ describe('T-18 — consecutive', () => {
     // reading produced no row and its neighbours became adjacent. Measured:
     // breaching readings at 01:00, 02:00 and 05:00 fired a consecutive:3 rule
     // exactly as three adjacent readings did.
-    expect(compiled.sql).not.toContain('PARTITION BY breached')
     // Slot index from the reading's own timestamp — so batch arrival order
     // cannot affect adjacency — divided by the metric's cadence.
     expect(compiled.sql).toContain('epoch(ts) / 60 /')
-    expect(compiled.sql).toContain('ROW_NUMBER() OVER (ORDER BY ts)')
+    // PARTITION BY breached: the row number counts BREACHING rows only.
+    // Numbering over all samples and filtering afterwards left the key
+    // unchanged across a non-breaching reading, so a reading that proved the
+    // user was fine became part of a run against them. This assertion
+    // previously said `not.toContain`, pinning that bug in place.
+    expect(compiled.sql).toContain('ROW_NUMBER() OVER (PARTITION BY breached ORDER BY ts)')
     expect(compiled.sql).toContain('GROUP BY run_key')
     expect(compiled.sql).toContain('HAVING COUNT(*) >= $consecutive')
     expect(compiled.params.consecutive).toBe(3)

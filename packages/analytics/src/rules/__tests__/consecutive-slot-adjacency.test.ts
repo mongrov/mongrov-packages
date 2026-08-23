@@ -122,7 +122,16 @@ describe('reading-cadence runs are slot-adjacent', () => {
     target: { type: 'absolute', value: 50 },
   })
 
+  /** Breaching value for a `less_than 50` rule; well clear of the threshold. */
+  const LOW = 30;
+  /** Non-breaching: proves the reading was fine, not merely absent. */
+  const FINE = 80;
+
   async function fires(hours: number[]): Promise<boolean> {
+    return firesWith(hours.map(h => [h, LOW] as [number, number]));
+  }
+
+  async function firesWith(readings: [number, number][]): Promise<boolean> {
     const compiled = compileRule(readingRule())
     const all: Record<string, unknown> = {
       userId: USER,
@@ -145,7 +154,7 @@ describe('reading-cadence runs are slot-adjacent', () => {
     // TODAY: a 24h window excludes yesterday, and seeding there made an
     // earlier probe return false for BOTH cases — a silent control failure
     // that would have reported the defect as absent.
-    for (const h of hours) await reading(db, 0, h, 30)
+    for (const [h, v] of readings) await reading(db, 0, h, v)
     const rows = await db.execute(compiled.sql, bound)
     await db.close?.()
     return rows.length > 0
@@ -161,5 +170,27 @@ describe('reading-cadence runs are slot-adjacent', () => {
     // The control. Without it, the case above passes for a rule that never
     // fires at all.
     expect(await fires([1, 2, 3])).toBe(true)
+  }, 60_000)
+
+  it('does NOT fire across a NON-BREACHING reading', async () => {
+    /*
+     * The third case, and the one that was broken until 0.23.0.
+     *
+     * The island key subtracted a ROW_NUMBER computed over ALL samples while
+     * `WHERE breached` ran afterwards, so a healthy reading in the middle left
+     * the key unchanged: slots 1,2 breach, slot 3 is fine, slot 4 breaches ->
+     * keys 0,0,0,0, the middle row is filtered out, and the three survivors
+     * share a key and fire a consecutive:3 rule.
+     *
+     * A reading that PROVED the user was fine became part of a run against
+     * them. The missing-slot half was already fixed; this is the other half.
+     */
+    expect(await firesWith([[1, LOW], [2, LOW], [3, FINE], [4, LOW]])).toBe(false)
+  }, 60_000)
+
+  it('still fires when the healthy reading is OUTSIDE the run', async () => {
+    // The control for the case above: a fine reading before three adjacent
+    // breaches must not suppress a genuine run.
+    expect(await firesWith([[1, FINE], [2, LOW], [3, LOW], [4, LOW]])).toBe(true)
   }, 60_000)
 })

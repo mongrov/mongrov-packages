@@ -669,8 +669,20 @@ runs AS (
          -- epoch() is absolute, so a DST boundary inside a run does not shift
          -- slot adjacency — that case holds by construction, not by a special
          -- case.
+         -- PARTITION BY breached is load-bearing, not tidiness.
+         --
+         -- The row number must count BREACHING rows only. Numbering over all
+         -- samples and filtering afterwards leaves the key unchanged across a
+         -- non-breaching reading: slots 1,2 breach, slot 3 does not, slot 4
+         -- breaches -> keys 0,0,0,0, the middle row is filtered out, and the
+         -- three survivors share a key and fire a consecutive:3 rule. A
+         -- reading that PROVED the user was fine silently became part of a run
+         -- against them.
+         --
+         -- A MISSING slot was already handled by the epoch term; this is the
+         -- other half of the same rule, and it was the half still broken.
          CAST(epoch(ts) / 60 / ${cadenceMinutes} AS BIGINT)
-           - ROW_NUMBER() OVER (ORDER BY ts) AS run_key
+           - ROW_NUMBER() OVER (PARTITION BY breached ORDER BY ts) AS run_key
   FROM samples
 )
 SELECT ${extreme}(value) AS observed_value,
