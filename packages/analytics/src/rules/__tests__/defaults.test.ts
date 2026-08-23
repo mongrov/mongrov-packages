@@ -371,4 +371,28 @@ describe('the HR flag rule (D-G)', () => {
     })
   })
 })
+
+describe('the temperature nights stepper (T-23)', () => {
+  const rule = zivaDefaults.find(r => r.id === 'ziva.temp-flag-level')!
+
+  it('binds its consecutive count to the KV setting, not a constant', () => {
+    // The sheet ships a 1-5 stepper. A compile-time constant would mean the
+    // stepper moved a number the rule never read — the same defect
+    // user:hrvDropDays exists to avoid.
+    expect(rule.consecutiveKey).toBe('user:tempNights')
+    expect(rule.consecutive).toBe(2)
+  })
+
+  it('counts NIGHTS, not readings', () => {
+    // Day cadence. At reading cadence "3 in a row" is ninety minutes, not
+    // three nights, and the sheet's wording promises nights.
+    expect(rule.cadence).toBe('day')
+  })
+
+  it('defaults to two, because one warm night is weather', () => {
+    // A single warm night is a mattress, a room, or a late workout. Flagging
+    // it teaches the user to ignore the flag.
+    expect(rule.consecutive).toBeGreaterThan(1)
+  })
+})
 })

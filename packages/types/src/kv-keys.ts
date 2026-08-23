@@ -91,6 +91,28 @@ export const KV_KEY_REGISTRY = {
     defaultValue: true,
   },
 
+  /**
+   * How many warm nights in a row before the temperature flag fires.
+   *
+   * The ⚙ sheet ships this as a stepper, 1–5, default 2 (alpha review G4).
+   * Two rather than one is the default for the same reason
+   * `ziva.temp-warm-days` uses two: a single warm night is weather, a mattress
+   * or a late workout, and flagging it teaches the user to ignore the flag.
+   *
+   * Threaded into the rule via `consecutiveKey`, so moving the stepper
+   * re-binds the SHIPPED rule on the next batch — no recompile, no per-user
+   * rule rows. Same mechanism as `user:hrvDropDays`.
+   */
+  'user:tempNights': {
+    kind: 'threshold',
+    valueType: 'number',
+    description: 'Consecutive warm nights before the temperature flag fires',
+    usedBy: ['ziva.temp-flag-level'],
+    defaultValue: 2,
+    range: [1, 5],
+    step: 1,
+  },
+
   // ── sprint6: stress (D-E) ─────────────────────────────────────────────
   /**
    * Stress gets an absolute draggable flag where HRV cannot, and the reason

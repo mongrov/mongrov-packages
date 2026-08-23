@@ -153,13 +153,25 @@ maxPerDay = 1
 id = "ziva.temp-flag-level"
 brand = "ziva"
 name = "Running warm"
-description = "Temperature at or above the level you set."
+description = "Temperature at or above the level you set, for the nights you set."
 metric = "temp_c"
 window = "24h"
 aggregation = "max"
 compare = "greater_than"
 context = "any"
 severity = "warn"
+# T-23 — the sheet's consecutive-nights stepper, 1-5, default 2.
+#
+# `consecutiveKey` binds the count to the KV setting at EVAL time, exactly as
+# ziva.hrv-below-usual binds user:hrvDropDays. A compile-time constant would
+# mean the stepper moved a number the rule never read.
+#
+# Day cadence: "nights in a row", not readings in a row. At day cadence a day
+# with no usable data BREAKS the run rather than closing it (min-data floor
+# ruling), so a week away does not silently accumulate toward a flag.
+cadence = "day"
+consecutive = 2
+consecutiveKey = "user:tempNights"
 
 [rule.target]
 type = "user_setting"

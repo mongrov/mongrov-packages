@@ -32,6 +32,7 @@ describe('KV_KEY_REGISTRY', () => {
       'user:stressFlagLevel',
       'user:stressNotify',
       'user:tempFlagLevel',
+      'user:tempNights',
       'user:tempNotify',
     ])
   })
@@ -92,6 +93,7 @@ describe('rule readability', () => {
       'user:spo2SafeLevel',
       'user:stressFlagLevel',
       'user:tempFlagLevel',
+      'user:tempNights',
     ])
     // Notification toggles are ux_state — a rule thresholding on "did they
     // opt in to notifications" is a bug, not a feature.
