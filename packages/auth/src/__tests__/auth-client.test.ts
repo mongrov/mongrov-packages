@@ -210,3 +210,24 @@ describe('createAuthClient', () => {
     client.destroy()
   })
 })
+
+describe('subscribe notifies EVERY listener', () => {
+  // Found by the UX team's app-side patch (patches/@mongrov__auth.patch): only
+  // the first subscriber was told about a transition. getState() replaces the
+  // shared cache, so every later listener compared the new state with itself.
+  // In the app, AnalyticsSuite missed sign-in on first launch and no analytics
+  // bundle was ever built.
+  it('tells both listeners about sign-in', async () => {
+    const client = createAuthClient({ adapter: createMockAdapter() })
+    const first: string[] = []
+    const second: string[] = []
+    client.subscribe(s => first.push(s.status))
+    client.subscribe(s => second.push(s.status))
+
+    await client.signIn({ username: 'test', password: 'pass' })
+
+    expect(first).toContain('authenticated')
+    expect(second).toContain('authenticated')
+    client.destroy()
+  })
+})

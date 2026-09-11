@@ -284,10 +284,15 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
   }
 
   function subscribe(listener: (state: AuthState) => void): () => void {
+    // Each listener tracks the last state IT was given. Comparing against the
+    // shared cache notified only the first listener per transition: its
+    // getState() call replaced the cache, so every later listener saw
+    // prev === next and was never told (e.g. AnalyticsSuite missing sign-in).
+    let last = getState()
     const sub = actor.subscribe(() => {
-      const prev = cachedPublicState
       const next = getState()
-      if (prev !== next) {
+      if (next !== last) {
+        last = next
         listener(next)
       }
     })
