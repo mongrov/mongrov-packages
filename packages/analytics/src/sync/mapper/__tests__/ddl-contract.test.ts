@@ -22,6 +22,7 @@
  */
 
 import type { TableName } from '../../../core/schemas'
+import type { ClassifiedRow } from '../../sleep-correction/classify'
 import type { FirmwareExport, MapperContext, RingConfigTranslator } from '../types'
 
 import { readFileSync } from 'node:fs'
@@ -30,6 +31,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { LOCAL_SCHEMAS } from '../../../core/schemas'
 import { mapFirmwareExport } from '../firmware'
+import { sessionsFromCorrected } from '../sleep'
 
 // -------------------- DDL introspection --------------------
 
@@ -101,6 +103,33 @@ const ctx: MapperContext = {
 const FIXTURE_PATH = join(__dirname, 'fixtures/firmware-8047-17-06-2026.json')
 const NOW = new Date('2026-06-17T12:00:00.000Z')
 
+/**
+ * A corrected night, as the sleep-correction pipeline hands it to
+ * `sessionsFromCorrected` — every firmware quality code and every source.
+ */
+const CORRECTED_NIGHT: ClassifiedRow[] = [
+  [1, 'firmware'],
+  [2, 'bout_consolidated'],
+  [3, 'firmware'],
+  [5, 'firmware'],
+  [2, 'envelope'],
+  [2, 'gap'],
+].map(([quality, source], i) => ({
+  date: `2026.06.18 05:0${i}:00`,
+  quality: quality as number,
+  start: '2026.06.18 05:00:00',
+  unitLength: 1,
+  source: source as string,
+  confidence: 0.9,
+  block_type: 'primary',
+}))
+
+/**
+ * The mapper's batch, with sleep_session / sleep_stage filled from
+ * `sessionsFromCorrected`: since sleep-correction §3 those two tables are
+ * derived after flush, not mapped from firmware, and their rows must meet
+ * the same DDL contract.
+ */
 function fixtureBatch() {
   const fw: FirmwareExport = JSON.parse(readFileSync(FIXTURE_PATH, 'utf-8'))
   const { device_config_closes: _closes, ...batch } = mapFirmwareExport(
@@ -108,7 +137,8 @@ function fixtureBatch() {
     ctx,
     { now: NOW, translator },
   )
-  return batch
+  const derived = sessionsFromCorrected(CORRECTED_NIGHT, ctx, { settleMin: 7 })
+  return { ...batch, sleep_session: derived.sleep_session, sleep_stage: derived.sleep_stage }
 }
 
 /**

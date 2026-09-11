@@ -15,14 +15,19 @@
  *      authored for (empty / DST fall-back / midnight crossing).
  */
 
+import type { ClassifiedRow } from '../../sleep-correction/classify'
 import type { FirmwareExport, MapperContext } from '../types'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
+import { nightsForEpochs } from '../../sleep-correction/orchestrate'
 import { mapFirmwareExport } from '../firmware'
 import { FIRMWARE_EXPORT_KEY_PATHS, firmwareExportSchema } from '../schema'
+import { sessionsFromCorrected } from '../sleep'
+
+const DASH_RE = /-/g
 
 const FIXTURES_DIR = join(__dirname, 'fixtures')
 // mapper/__tests__ → 7 levels up → rn-apps workspace root.
@@ -156,29 +161,47 @@ describe('edge-case fixtures drive the mapper as authored', () => {
     }
   })
 
-  it('firmware-dst-transition.json: one session across the repeated hour', () => {
+  /**
+   * The raw rows read as one corrected primary session, so night attribution
+   * is tested on its own — the pipeline that produces real primary rows is
+   * covered by the sleep-correction suites, and would split these sparse
+   * hand-authored samples into separate blocks.
+   */
+  function asPrimary(raw: ReturnType<typeof mapFixture>['sleep_raw']): ClassifiedRow[] {
+    const fmt = (d: Date) => d.toISOString().slice(0, 19).replace('T', ' ').replace(DASH_RE, '.')
+    return raw.map(r => ({
+      date: fmt(r.ts),
+      quality: r.quality,
+      start: fmt(r.ts_session_start),
+      unitLength: 1,
+      source: 'firmware',
+      confidence: 0.9,
+      block_type: 'primary',
+    }))
+  }
+
+  it('firmware-dst-transition.json: both passes of 01:30 stay distinct, in one night', () => {
     const batch = mapFixture('firmware-dst-transition.json')
-    expect(batch.sleep_session).toHaveLength(1)
-    // 3 stages — the `primary` envelope block yields no sleep_stage row.
-    expect(batch.sleep_stage).toHaveLength(3)
+    // Sessions and stages are derived after flush, never mapped directly.
+    expect(batch.sleep_session).toEqual([])
+    expect(batch.sleep_stage).toEqual([])
+    // Both passes of the 01:30 local wall-clock are distinct instants.
+    const rawTs = batch.sleep_raw.map(r => r.ts.toISOString())
+    expect(rawTs).toContain('2025-11-02T08:30:00.000Z')
+    expect(rawTs).toContain('2025-11-02T09:30:00.000Z')
+    expect(nightsForEpochs(batch.sleep_raw.map(r => r.ts.getTime() / 1000), ctx.userTimezone))
+      .toEqual(['2025-11-02'])
     // Fall-back night: midnight LA 2025-11-01 is PDT (-07).
-    expect(batch.sleep_session[0].night_of.toISOString()).toBe(
-      '2025-11-01T07:00:00.000Z',
-    )
-    // Both passes of the 01:30 local wall-clock are distinct instants in
-    // the same session.
-    const stageTs = batch.sleep_stage.map(s => s.ts.toISOString())
-    expect(stageTs).toContain('2025-11-02T08:30:00.000Z')
-    expect(stageTs).toContain('2025-11-02T09:30:00.000Z')
+    const [session] = sessionsFromCorrected(asPrimary(batch.sleep_raw), ctx).sleep_session
+    expect(session.night_of.toISOString()).toBe('2025-11-01T07:00:00.000Z')
   })
 
-  it('firmware-midnight-session.json: one session, night_of = pre-midnight day', () => {
+  it('firmware-midnight-session.json: one night, night_of = pre-midnight day', () => {
     const batch = mapFixture('firmware-midnight-session.json')
-    expect(batch.sleep_session).toHaveLength(1)
-    // 3 stages — the `primary` envelope block yields no sleep_stage row.
-    expect(batch.sleep_stage).toHaveLength(3)
-    expect(batch.sleep_session[0].night_of.toISOString()).toBe(
-      '2026-06-17T07:00:00.000Z',
-    )
+    expect(nightsForEpochs(batch.sleep_raw.map(r => r.ts.getTime() / 1000), ctx.userTimezone))
+      .toHaveLength(1)
+    const { sleep_session } = sessionsFromCorrected(asPrimary(batch.sleep_raw), ctx)
+    expect(sleep_session).toHaveLength(1)
+    expect(sleep_session[0].night_of.toISOString()).toBe('2026-06-17T07:00:00.000Z')
   })
 })

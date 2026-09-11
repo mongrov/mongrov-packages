@@ -5,34 +5,24 @@
   "spo2": [],
   "temperature_table": [],
   "activitydetails": [],
-  "sleep_processed": [
+  "sleep": [
     {
+      "timestamp": "2026.06.18 06:30:00",
+      "quality": 1,
       "start": "2026.06.18 05:00:00",
-      "end": "2026.06.18 10:30:00",
-      "block_type": "primary",
-      "confidence": 0.9,
-      "timestamp": "2026.06.18 05:00:00"
+      "unitLength": 1
     },
     {
+      "timestamp": "2026.06.18 07:30:00",
+      "quality": 3,
       "start": "2026.06.18 05:00:00",
-      "end": "2026.06.18 10:30:00",
-      "block_type": "deep",
-      "confidence": 0.85,
-      "timestamp": "2026.06.18 06:30:00"
+      "unitLength": 1
     },
     {
+      "timestamp": "2026.06.18 10:30:00",
+      "quality": 2,
       "start": "2026.06.18 05:00:00",
-      "end": "2026.06.18 10:30:00",
-      "block_type": "rem",
-      "confidence": 0.8,
-      "timestamp": "2026.06.18 07:30:00"
-    },
-    {
-      "start": "2026.06.18 05:00:00",
-      "end": "2026.06.18 10:30:00",
-      "block_type": "light",
-      "confidence": 0.75,
-      "timestamp": "2026.06.18 10:30:00"
+      "unitLength": 1
     }
   ],
   "battery_table": [],

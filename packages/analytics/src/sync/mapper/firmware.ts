@@ -26,7 +26,7 @@ import { mapBattery } from './battery'
 import { mapHeartRate } from './heart-rate'
 import { mapHrv } from './hrv'
 import { mapRingConfig } from './ring-config'
-import { reconstructSleepSessions } from './sleep'
+import { mapSleepRaw } from './sleep'
 import { mapSpo2 } from './spo2'
 import { mapTemperature } from './temperature'
 
@@ -49,7 +49,6 @@ export function mapFirmwareExport(
   opts: MapFirmwareOptions = {},
 ): FirmwareMappedBatch {
   const activity = mapActivity(fw.activitydetails ?? [], ctx)
-  const sleep = reconstructSleepSessions(fw.sleep_processed ?? [], ctx)
   const config = mapRingConfigIfPossible(fw, ctx, opts)
 
   return {
@@ -59,9 +58,12 @@ export function mapFirmwareExport(
     temperature: mapTemperature(fw.temperature_table ?? [], ctx),
     activity: activity.activity,
     activity_bucket: activity.activity_bucket,
-    sleep_session: sleep.sleep_session,
-    sleep_stage: sleep.sleep_stage,
-    sleep_raw: sleep.sleep_raw,
+    // Raw firmware minutes only. Sessions and stages are DERIVED — the sync
+    // factory runs the sleep-correction pipeline over `sleep_raw` after the
+    // batch flushes and writes them night by night (sleep-correction §3).
+    sleep_session: [],
+    sleep_stage: [],
+    sleep_raw: mapSleepRaw(fw.sleep ?? [], ctx),
     // Battery moved off the generic event stream in 0.6.0 (fix B2);
     // `device_event` stays in the batch shape for future event types.
     device_event: [],

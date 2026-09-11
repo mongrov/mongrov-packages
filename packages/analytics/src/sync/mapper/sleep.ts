@@ -1,79 +1,40 @@
 /**
- * Sleep reconstruction mapper (T-06).
+ * Sleep mapping (sleep-correction §3).
  *
- * Firmware `sleep_processed` emits per-block rows tagged with a `start`
- * (session start), `end` (session end), `block_type` (primary / light / deep /
- * rem / awake), `confidence` (0..1), and per-block `timestamp` (block instant).
- * Multiple blocks share the same `start` when they belong to the same session.
+ * Two halves that run at different times:
  *
- * Reconstruction rules (spec.md §Firmware mapper + tasks.md T-06):
- *   - Group rows by `start`.
- *   - A session is included if AT LEAST ONE block in the group has
- *     `block_type === 'primary'` AND `confidence >= 0.7`. This filters
- *     day-time naps and low-confidence noise.
- *   - Session boundaries come from the firmware's own envelope fields:
- *     `ts_start = parse(start)`, `ts_end = parse(end)`. `total_minutes` is
- *     their difference. Deriving the envelope from block instants would
- *     under-report any session whose first/last minutes went unclassified.
- *   - `session_id` = `fnv1a32hex(device_id | user_id | ts_session_start |
- *     ts_session_end)` (principle 25, amended 2026-08-14) — fully
- *     deterministic, so the same night mapped twice yields the same id.
- *   - `night_of` = 6pm-6pm rule applied to `ts_start` (see `time.ts`).
- *   - Stages: one row per classified block, carrying `session_id` and the
- *     DDL's integer `stage` code. `primary` is the session envelope marker,
- *     not a stage, so it produces no `sleep_stage` row — the DDL's stage
- *     enum (1=awake, 2=light, 3=deep, 5=rem) has no code for it. Unknown
- *     block types are likewise skipped; nothing is lost, because...
- *   - Raw: every input row is preserved in `sleep_raw` regardless of the
- *     primary/confidence filter, flattened onto the DDL's columns, so
- *     downstream reprocessing can revisit sessions with new heuristics.
+ *   - `mapSleepRaw`, at ingest: every raw firmware sample → `sleep_raw`,
+ *     verbatim. `quality` stays the FIRMWARE code (1 deep / 2 light / 3 rem /
+ *     5 awake, other codes kept). Nothing is classified here — `sleep_raw` is
+ *     the reprocessing source the correction pipeline reads.
+ *   - `sessionsFromCorrected`, after the batch flushes: one night's Phase 3
+ *     output from `../sleep-correction` → `sleep_session` + `sleep_stage`.
  *
- * Principle 20 boundary: firmware `block_type` strings are translated to our
- * integer codes here and never reach the warehouse.
+ * Until 0.24.0 the mapper built sessions straight from app-classified blocks
+ * (`sleep_processed`) — an admission filter on `primary`, a per-block `end`
+ * read as the session end, and a guessed stage map. All three were wrong on
+ * device (zivaone_app#77, and the stage swap found 2026-09-10). Sessions now
+ * come only from the validated correction pipeline.
+ *
+ * Principle 20: the firmware `quality` code is translated to the DDL's
+ * `stage` code here, and nowhere else. The two enums share integers and mean
+ * different things — `FIRMWARE_QUALITY_TO_STAGE` is the one crossing point.
  */
 
+import type { ClassifiedRow } from '../sleep-correction/classify'
 import type {
-  FirmwareSleepRow,
+  FirmwareSleepRawRow,
   MapperContext,
   SleepRawRow,
   SleepSessionRow,
   SleepStageRow,
 } from './types'
+import { parseDateStr } from '../sleep-correction/classify'
 import { computeNightOf, parseTimestamp } from './time'
 
-const MINUTE_MS = 60_000
-const CONFIDENCE_FLOOR = 0.7
-
 /**
- * Block types that mean the wearer was asleep — the admission test
- * (zivaone_app#77).
- *
- * The filter used to require a `primary` block. `primary` is the session
- * envelope marker, not a stage (see `SLEEP_STAGE_CODES`), and a correctly
- * decoded export carries none — so every session was dropped, `sleep_raw`
- * filled while `sleep_session` stayed empty, and every `context='asleep'`
- * join saw nothing. An explicit asleep set rather than `!== 'awake'`, so an
- * all-awake group is still rejected: the nap/noise intent survives.
- *
- * Interim: the sleep-correction port replaces this input with corrected rows
- * whose `block_type` IS primary/secondary/microsleep, and the filter changes
- * with it (techspec `.specifica/features/sleep-correction`).
- */
-const ASLEEP_BLOCK_TYPES: ReadonlySet<string> = new Set(['light', 'deep', 'rem'])
-
-/**
- * Block width in minutes when the firmware revision omits `unit_length`.
- * Firmware doc §Sleep processing: blocks are 1-min wide by convention.
- */
-export const DEFAULT_BLOCK_MINUTES = 1
-
-/**
- * Firmware `block_type` → `sleep_stage.stage` code (spec §Table schema:
- * `stage SMALLINT NOT NULL -- 1=awake, 2=light, 3=deep, 5=rem`).
- *
- * `primary` is deliberately absent: it marks the session envelope, not a
- * sleep stage. The enum is intentionally sparse (no 4) to match the DDL
- * comment verbatim.
+ * `sleep_stage.stage` codes (DDL: `1=awake, 2=light, 3=deep, 5=rem`). Sparse
+ * on purpose (no 4) to match the DDL comment verbatim.
  */
 export const SLEEP_STAGE_CODES: Readonly<Record<string, number>> = Object.freeze({
   awake: 1,
@@ -90,114 +51,103 @@ export const SLEEP_STAGE_NAMES: Readonly<Record<number, string>> = Object.freeze
   5: 'rem',
 })
 
-export interface ReconstructSleepResult {
+/**
+ * Firmware `quality` → DDL `stage`. The firmware says 1 deep / 2 light /
+ * 3 rem / 5 awake (ziva_app v3.1; the vendor header is silent); the DDL says
+ * 1 awake / 2 light / 3 deep / 5 rem. Copying a predicate across the two
+ * computes deep from awake with no error — this map is the only translation.
+ */
+export const FIRMWARE_QUALITY_TO_STAGE: Readonly<Record<number, number>> = Object.freeze({
+  1: SLEEP_STAGE_CODES.deep,
+  2: SLEEP_STAGE_CODES.light,
+  3: SLEEP_STAGE_CODES.rem,
+  5: SLEEP_STAGE_CODES.awake,
+})
+
+/** Raw firmware samples → `sleep_raw`, verbatim. */
+export function mapSleepRaw(rows: readonly FirmwareSleepRawRow[], ctx: MapperContext): SleepRawRow[] {
+  return rows.map(r => ({
+    ts: parseTimestamp(r.timestamp),
+    ts_session_start: parseTimestamp(r.start),
+    brand: ctx.brand,
+    family_id: ctx.familyId,
+    user_id: ctx.userId,
+    device_id: ctx.deviceId,
+    quality: r.quality,
+    unit_length: typeof r.unitLength === 'number' ? r.unitLength : null,
+  }))
+}
+
+export interface SessionsFromCorrectedResult {
   sleep_session: SleepSessionRow[]
   sleep_stage: SleepStageRow[]
-  sleep_raw: SleepRawRow[]
 }
 
-/** Per-block width, honouring a firmware-supplied `unit_length`. */
-function blockMinutes(row: FirmwareSleepRow): number {
-  return typeof row.unit_length === 'number' && row.unit_length > 0
-    ? row.unit_length
-    : DEFAULT_BLOCK_MINUTES
-}
+/** Width of one Phase 2/3 row. v3.1 emits every row at `unitLength` 1. */
+const ROW_SECONDS = 60
 
 /**
- * `sleep_raw.quality` is NOT NULL. Firmware revisions that carry a native
- * `quality` pass it through verbatim; older revisions derive it from the
- * block confidence (0..1 → 0..100) so the column is always populated.
+ * One night's corrected rows → sessions + stages.
+ *
+ * - Only `block_type === 'primary'` rows count (R-A: every primary minute,
+ *   whatever its confidence — confidence is provenance, never a gate).
+ * - Sessions are Phase 2's stitched sessions, identified by `start`. A night
+ *   is normally one; a gap between 20 and 30 minutes inside the primary
+ *   block leaves two.
+ * - `ts_end` is the last primary minute plus its width; `total_minutes` is
+ *   the primary minutes actually present (awake minutes included).
+ * - `settle_min` belongs to the night, measured from bed, so it goes on the
+ *   session that starts at bed — the first. `recovered_min` is per session.
+ * - `session_id` is principle 25's deterministic hash; the caller replaces
+ *   the whole night before writing (principle 66 as amended), because a
+ *   corrected END moves as later data arrives and the id moves with it.
  */
-function rawQuality(row: FirmwareSleepRow): number {
-  return typeof row.quality === 'number'
-    ? row.quality
-    : Math.round(row.confidence * 100)
-}
-
-export function reconstructSleepSessions(
-  rows: readonly FirmwareSleepRow[],
+export function sessionsFromCorrected(
+  rows: readonly ClassifiedRow[],
   ctx: MapperContext,
-): ReconstructSleepResult {
+  night: { settleMin?: number | null } = {},
+): SessionsFromCorrectedResult {
+  const bySession = new Map<string, ClassifiedRow[]>()
+  for (const r of rows) {
+    if (r.block_type !== 'primary')
+      continue
+    const bucket = bySession.get(r.start)
+    if (bucket)
+      bucket.push(r)
+    else bySession.set(r.start, [r])
+  }
+
+  const groups = Array.from(bySession.values(), g => g.map(r => ({ r, e: parseDateStr(r.date) })).sort((a, b) => a.e - b.e))
+    .sort((a, b) => a[0].e - b[0].e)
+
   const sleep_session: SleepSessionRow[] = []
   const sleep_stage: SleepStageRow[] = []
-  const sleep_raw: SleepRawRow[] = []
-
-  // Raw pass — every input row preserved for reprocessing, including rows
-  // from sessions the primary/confidence filter drops.
-  for (const row of rows) {
-    sleep_raw.push({
-      ts: parseTimestamp(row.timestamp),
-      ts_session_start: parseTimestamp(row.start),
-      brand: ctx.brand,
-      family_id: ctx.familyId,
-      user_id: ctx.userId,
-      device_id: ctx.deviceId,
-      quality: rawQuality(row),
-      unit_length: typeof row.unit_length === 'number' ? row.unit_length : null,
-    })
-  }
-
-  // Group by `start`.
-  const bySession = new Map<string, FirmwareSleepRow[]>()
-  for (const row of rows) {
-    const bucket = bySession.get(row.start)
-    if (bucket)
-      bucket.push(row)
-    else bySession.set(row.start, [row])
-  }
-
-  for (const [startKey, blocks] of bySession) {
-    // A session needs at least one asleep block above the confidence floor
-    // (as opposed to an all-awake nap or noise). See ASLEEP_BLOCK_TYPES.
-    const hasQualifyingSleep = blocks.some(
-      b => ASLEEP_BLOCK_TYPES.has(b.block_type) && b.confidence >= CONFIDENCE_FLOOR,
-    )
-    if (!hasQualifyingSleep)
-      continue
-
-    // End = the LATEST block `end`, not the first block's. Firmware that
-    // stamps the session end on every block gives the same answer; a producer
-    // that stamps each block's own end (zivaone_app's firmware-sync) made
-    // `blocks[0].end` the end of the first minute, so sessions came out one
-    // unit long and tripped `total_minutes: 1` alerts (zivaone_app#77).
-    const tsStart = parseTimestamp(startKey)
-    const tsEnd = blocks
-      .map(b => parseTimestamp(b.end))
-      .reduce((latest, t) => (t.getTime() > latest.getTime() ? t : latest))
-    const totalMinutes = Math.max(
-      0,
-      Math.round((tsEnd.getTime() - tsStart.getTime()) / MINUTE_MS),
-    )
-
-    const nightOf = computeNightOf(tsStart, ctx.userTimezone)
+  groups.forEach((group, index) => {
+    const tsStart = new Date(group[0].e * 1000)
+    const tsEnd = new Date((group[group.length - 1].e + ROW_SECONDS) * 1000)
     const sessionId = makeSessionId(ctx, tsStart, tsEnd)
 
-    // Stage rows + per-stage minute accumulation in one pass.
-    const stageMinutes: Record<string, number> = {
-      awake: 0,
-      light: 0,
-      deep: 0,
-      rem: 0,
-    }
+    const minutes: Record<string, number> = { awake: 0, light: 0, deep: 0, rem: 0 }
     let confidenceSum = 0
-    for (const b of blocks) {
-      confidenceSum += b.confidence
-      const code = SLEEP_STAGE_CODES[b.block_type]
-      if (code === undefined) {
-        // `primary` (envelope marker) and any unrecognised firmware block
-        // type. Not a stage — preserved in sleep_raw, skipped here.
-        continue
-      }
-      stageMinutes[SLEEP_STAGE_NAMES[code]] += blockMinutes(b)
+    let recovered = 0
+    for (const { r, e } of group) {
+      confidenceSum += r.confidence
+      if (r.source === 'envelope' || r.source === 'gap')
+        recovered++
+      const stage = FIRMWARE_QUALITY_TO_STAGE[r.quality]
+      if (stage === undefined)
+        continue // a code the pipeline passed but the DDL has no stage for
+      minutes[SLEEP_STAGE_NAMES[stage]]++
       sleep_stage.push({
-        ts: parseTimestamp(b.timestamp),
+        ts: new Date(e * 1000),
         brand: ctx.brand,
         family_id: ctx.familyId,
         user_id: ctx.userId,
         device_id: ctx.deviceId,
         session_id: sessionId,
-        stage: code,
-        confidence: b.confidence,
+        stage,
+        confidence: r.confidence,
+        source: r.source,
       })
     }
 
@@ -209,17 +159,19 @@ export function reconstructSleepSessions(
       session_id: sessionId,
       ts_start: tsStart,
       ts_end: tsEnd,
-      total_minutes: totalMinutes,
-      deep_minutes: stageMinutes.deep,
-      rem_minutes: stageMinutes.rem,
-      light_minutes: stageMinutes.light,
-      awake_minutes: stageMinutes.awake,
-      avg_confidence: blocks.length > 0 ? confidenceSum / blocks.length : null,
-      night_of: nightOf,
+      total_minutes: group.length,
+      deep_minutes: minutes.deep,
+      rem_minutes: minutes.rem,
+      light_minutes: minutes.light,
+      awake_minutes: minutes.awake,
+      avg_confidence: confidenceSum / group.length,
+      night_of: computeNightOf(tsStart, ctx.userTimezone),
+      settle_min: index === 0 ? (night.settleMin ?? null) : null,
+      recovered_min: recovered,
     })
-  }
+  })
 
-  return { sleep_session, sleep_stage, sleep_raw }
+  return { sleep_session, sleep_stage }
 }
 
 /**

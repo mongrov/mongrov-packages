@@ -18,7 +18,7 @@ export type {
   FirmwareHRVRow,
   FirmwareMonitoringWindow,
   FirmwareRingConfig,
-  FirmwareSleepRow,
+  FirmwareSleepRawRow,
   FirmwareSpO2Row,
   FirmwareTempRow,
   FirmwareTimestamp,

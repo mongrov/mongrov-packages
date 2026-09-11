@@ -47,13 +47,12 @@ describe('mapFirmwareExport', () => {
     // 2 activity rows × 10 unnested minutes.
     expect(batch.activity).toHaveLength(20)
     expect(batch.activity_bucket).toHaveLength(2)
-    // Only one qualifying primary session; the 14:00 nap is dropped.
-    expect(batch.sleep_session).toHaveLength(1)
-    // 1 stage block under the qualifying session — the `primary` block is
-    // the session envelope, not a stage (DDL stage enum has no code for it).
-    expect(batch.sleep_stage).toHaveLength(1)
-    // Every input sleep row lives in raw.
-    expect(batch.sleep_raw).toHaveLength(3)
+    // Sessions and stages are DERIVED after flush by the sleep-correction
+    // pipeline (sleep-correction §3) — the mapper never builds them.
+    expect(batch.sleep_session).toHaveLength(0)
+    expect(batch.sleep_stage).toHaveLength(0)
+    // The raw firmware sample lands in sleep_raw verbatim.
+    expect(batch.sleep_raw).toHaveLength(1)
     // 2 battery samples → device_battery (0.6.0 fix B2); the generic
     // event stream stays empty until another event type populates it.
     expect(batch.device_battery).toHaveLength(2)
@@ -72,16 +71,13 @@ describe('mapFirmwareExport', () => {
     expect(batch.hrv[1].vascular_aging).toBeNull()
     expect(batch.hrv[1].hrv_ms).toBe(45)
 
-    // Sleep session id shape (principle 25: nanoid(24) + '_' + fnv1a32hex)
-    // + night_of correctness.
-    expect(batch.sleep_session[0].session_id).toMatch(
-      // 8 hex chars, no random prefix (principle 25, amended 2026-08-14).
-      /^[0-9a-f]{8}$/,
-    )
-    // 2026-06-18 05:00 UTC = 2026-06-17 22:00 LA → night_of = 2026-06-17.
-    expect(batch.sleep_session[0].night_of.toISOString()).toBe(
-      '2026-06-17T07:00:00.000Z',
-    )
+    // The raw sample keeps the firmware's own stage code and real instants.
+    // Session ids and night_of are derived after flush — covered by
+    // mapper/__tests__/sleep.test.ts and sync/__tests__/sleep-derive.test.ts.
+    const [raw] = batch.sleep_raw
+    expect([1, 2, 3, 5]).toContain(raw.quality)
+    expect(raw.ts).toBeInstanceOf(Date)
+    expect(raw.ts_session_start).toBeInstanceOf(Date)
   })
 
   it('tolerates a fully empty firmware payload', () => {

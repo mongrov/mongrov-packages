@@ -33,6 +33,7 @@ import type {
   RingConfigTranslator,
 } from './mapper/types'
 import type { BackgroundTaskPort, ConstraintPort, SchedulerLogger, SchedulerState } from './scheduler'
+import type { SleepDeriver } from './sleep-derive'
 import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
 import { z } from 'zod'
 import { createBaselineComputer } from './baseline-compute'
@@ -48,6 +49,7 @@ import {
 
   SyncScheduler,
 } from './scheduler'
+import { createSleepDeriver } from './sleep-derive'
 
 import { FlushTriggers } from './triggers'
 import { WatermarkStore } from './watermark'
@@ -137,6 +139,13 @@ export interface CreateSyncManagerConfig {
   userTimezoneProvider?: (userId: string) => Promise<string | undefined>
   /** Disable the per-cycle baseline recompute (Sprint 5 T-15). */
   computeBaselines?: boolean
+  /**
+   * Derive sleep_session / sleep_stage from sleep_raw with the correction
+   * pipeline inside each batch cycle (sleep-correction §3). Default true;
+   * active only when sleep_raw, sleep_session and sleep_stage are all in
+   * `tables`.
+   */
+  correctSleep?: boolean
   logger?: SchedulerLogger
   /**
    * @deprecated Ignored since Sprint 5 T-09/T-10. The mapper reads the
@@ -278,6 +287,20 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     maxAgeMs: config.flush?.maxAgeMs,
   })
 
+  // Sleep sessions and stages are derived from sleep_raw by the correction
+  // pipeline, inside each batch cycle (sleep-correction §3). Needs all three
+  // tables subscribed; `correctSleep: false` opts out.
+  const sleepDeriver = config.correctSleep !== false
+    && ['sleep_raw', 'sleep_session', 'sleep_stage'].every(t => config.tables.includes(t))
+    ? createSleepDeriver({
+        engine: config.analytics as unknown as HybridDuckDB,
+        buffer,
+        flusher,
+        resolveTimezone,
+        logger: config.logger,
+      })
+    : undefined
+
   const watermark = new WatermarkStore({ kv: config.storage })
 
   const busPushEmit = config.eventBus ? bindPushEvents(config.eventBus) : undefined
@@ -346,6 +369,9 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
           await Promise.all(
             config.tables.map(t => flusher.flush(t, 'scheduled', batchId)),
           )
+          // After the raw tables land, before endBatch: corrected nights
+          // are written into this batch so rules see them (never throws).
+          await sleepDeriver?.derive(batchId, 'scheduled')
         }
         finally {
           // `finally` so a partial failure still closes the batch — the
@@ -456,6 +482,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     engine: engineAsHybrid,
     attachCtx: config.ctx,
     pendingClosesStore,
+    sleepDeriver,
   })
 
   return {
@@ -498,6 +525,7 @@ interface CreateSinkDeps {
   engine: HybridDuckDB
   attachCtx: AttachContext
   pendingClosesStore: PendingClosesStore
+  sleepDeriver?: SleepDeriver
 }
 
 /**
@@ -566,7 +594,7 @@ async function fetchActivePriorConfigs(
 }
 
 function createSensorSink(deps: CreateSinkDeps): SensorSink {
-  const { buffer, flusher, triggers, tables, engine, attachCtx, pendingClosesStore } = deps
+  const { buffer, flusher, triggers, tables, engine, attachCtx, pendingClosesStore, sleepDeriver } = deps
   // Gated on subscription alone now — the mapper owns the translation, so
   // there is no consumer wiring left that could be missing.
   const handlesConfig = tables.includes('device_config')
@@ -575,6 +603,8 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
     push: async (batch: SensorBatch) => {
       await buffer.push(batch)
       triggers.noteEnqueue(batch.table, Date.now())
+      if (batch.table === 'sleep_raw')
+        sleepDeriver?.noteRaw(batch)
     },
     pushFirmware: async (fw: FirmwareExport, ctx: MapperContext) => {
       // 1) Pre-fetch open configs for this device so the mapper can decide
@@ -587,6 +617,15 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       // 2) Map firmware → mapped batch. The mapper owns the
       //    dataType → metric translation; no consumer translator needed.
       const mapped = mapFirmwareExport(fw, ctx, { activePriorConfigs })
+      if (mapped.sleep_raw.length > 0) {
+        sleepDeriver?.noteRaw({
+          brand: ctx.brand,
+          familyId: ctx.familyId,
+          userId: ctx.userId,
+          deviceId: ctx.deviceId,
+          rows: mapped.sleep_raw as unknown as Record<string, unknown>[],
+        })
+      }
 
       // 3) SCD-2 close handling. Enqueue-before-UPDATE keeps the local
       //    UPDATE + remote UPDATE replay-safe under crash: both are
@@ -654,6 +693,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
           results.push(await flusher.flush(table, 'manual', batchId))
           triggers.noteDrain(table)
         }
+        await sleepDeriver?.derive(batchId, 'manual')
       }
       finally {
         flusher.endBatch(batchId)

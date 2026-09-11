@@ -78,8 +78,11 @@ export {
 } from './mapper/ring-config'
 
 export {
-  type ReconstructSleepResult,
-  reconstructSleepSessions,
+  FIRMWARE_QUALITY_TO_STAGE,
+  mapSleepRaw,
+  sessionsFromCorrected,
+  type SessionsFromCorrectedResult,
+  SLEEP_STAGE_CODES,
 } from './mapper/sleep'
 export { mapSpo2 } from './mapper/spo2'
 export { mapTemperature } from './mapper/temperature'
@@ -97,7 +100,7 @@ export type {
   FirmwareHRVRow,
   FirmwareMonitoringWindow,
   FirmwareRingConfig,
-  FirmwareSleepRow,
+  FirmwareSleepRawRow,
   FirmwareSpO2Row,
   FirmwareTempRow,
   HeartRateRow,

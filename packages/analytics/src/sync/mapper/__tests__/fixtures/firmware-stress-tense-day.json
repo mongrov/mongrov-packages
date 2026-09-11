@@ -132,7 +132,7 @@
   "spo2": [],
   "temperature_table": [],
   "activitydetails": [],
-  "sleep_processed": [],
+  "sleep": [],
   "battery_table": [],
   "ring": {
     "automaticMonitoringData": [

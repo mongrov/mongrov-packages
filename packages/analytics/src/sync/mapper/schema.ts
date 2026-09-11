@@ -57,12 +57,12 @@ export const firmwareActivityRowSchema = z.object({
   arraySteps: z.array(z.number()).length(10),
 }).strict()
 
-export const firmwareSleepRowSchema = z.object({
-  start: firmwareTimestamp,
-  end: firmwareTimestamp,
-  block_type: z.string(),
-  confidence: z.number(),
+/** Raw firmware sleep sample (types 0.10.0); `quality` is the firmware code. */
+export const firmwareSleepRawRowSchema = z.object({
   timestamp: firmwareTimestamp,
+  quality: z.number().int(),
+  start: firmwareTimestamp,
+  unitLength: z.number().int().positive(),
 }).strict()
 
 export const firmwareBatteryRowSchema = z.object({
@@ -109,7 +109,7 @@ export const firmwareExportSchema = z.object({
   spo2: z.array(firmwareSpO2RowSchema),
   temperature_table: z.array(firmwareTempRowSchema),
   activitydetails: z.array(firmwareActivityRowSchema),
-  sleep_processed: z.array(firmwareSleepRowSchema),
+  sleep: z.array(firmwareSleepRawRowSchema),
   battery_table: z.array(firmwareBatteryRowSchema),
   ring: firmwareRingConfigSchema,
 }).strict()
@@ -152,12 +152,11 @@ export const FIRMWARE_EXPORT_KEY_PATHS: ReadonlySet<string> = new Set([
   'activitydetails[].calories',
   'activitydetails[].distance',
   'activitydetails[].arraySteps',
-  'sleep_processed',
-  'sleep_processed[].start',
-  'sleep_processed[].end',
-  'sleep_processed[].block_type',
-  'sleep_processed[].confidence',
-  'sleep_processed[].timestamp',
+  'sleep',
+  'sleep[].timestamp',
+  'sleep[].quality',
+  'sleep[].start',
+  'sleep[].unitLength',
   'battery_table',
   'battery_table[].timestamp',
   'battery_table[].battery',

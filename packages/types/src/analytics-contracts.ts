@@ -39,7 +39,12 @@ export interface FirmwareExport {
   spo2: FirmwareSpO2Row[]
   temperature_table: FirmwareTempRow[]
   activitydetails: FirmwareActivityRow[]
-  sleep_processed: FirmwareSleepRow[]
+  /**
+   * Raw firmware sleep minutes (0.10.0). Replaces `sleep_processed`: the app
+   * no longer pre-classifies sleep — `@mongrov/analytics` runs the validated
+   * correction pipeline itself after sync (sleep-correction feature).
+   */
+  sleep: FirmwareSleepRawRow[]
   battery_table: FirmwareBatteryRow[]
   ring: FirmwareRingConfig
 }
@@ -83,15 +88,22 @@ export interface FirmwareActivityRow {
   arraySteps: number[]
 }
 
-export interface FirmwareSleepRow {
-  start: FirmwareTimestamp
-  end: FirmwareTimestamp
-  /** `'primary' | 'light' | 'deep' | 'rem' | 'awake'` — open string set. */
-  block_type: string
-  confidence: number
+/**
+ * One raw firmware sleep sample, exactly as the ring scored it.
+ *
+ * `quality` is the FIRMWARE code — 1 deep, 2 light, 3 rem, 5 awake — and
+ * other codes (10, 11, 12, 19, 21 seen) are passed through untouched: the
+ * correction pipeline filters them, `sleep_raw` keeps them. Not the DDL's
+ * `sleep_stage.stage` enum, which reuses the same integers for different
+ * stages; translation happens in the mapper (principle 20).
+ */
+export interface FirmwareSleepRawRow {
   timestamp: FirmwareTimestamp
-  quality?: number
-  unit_length?: number
+  quality: number
+  /** Start of the firmware session this sample belongs to. */
+  start: FirmwareTimestamp
+  /** Sample width in minutes. */
+  unitLength: number
 }
 
 export interface FirmwareBatteryRow {

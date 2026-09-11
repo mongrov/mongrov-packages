@@ -153,7 +153,9 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   light_minutes INTEGER,
   awake_minutes INTEGER,
   avg_confidence DOUBLE,
-  night_of DATE
+  night_of DATE,
+  settle_min INTEGER,
+  recovered_min INTEGER
 ) PARTITIONED BY (day(ts_start), user_id);`,
 
   sleep_stage: `CREATE TABLE sleep_stage (
@@ -164,7 +166,8 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   user_id VARCHAR NOT NULL,
   device_id VARCHAR NOT NULL,
   stage INTEGER NOT NULL,
-  confidence DOUBLE
+  confidence DOUBLE,
+  source VARCHAR
 ) PARTITIONED BY (day(ts), user_id);`,
 
   sleep_raw: `CREATE TABLE sleep_raw (

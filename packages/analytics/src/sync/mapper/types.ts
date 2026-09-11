@@ -59,24 +59,17 @@ export interface FirmwareActivityRow {
   arraySteps: number[] // length 10, 1-min buckets
 }
 
-export interface FirmwareSleepRow {
-  start: string // session start
-  end: string
-  block_type: string // 'primary' | 'light' | 'deep' | 'rem' | 'awake'
-  confidence: number
-  timestamp: string // block instant
-  /**
-   * Raw per-block quality score, when the firmware revision carries one.
-   * Passed through verbatim to `sleep_raw.quality`. Revisions that omit it
-   * fall back to `round(confidence * 100)` — see `mapper/sleep.ts`.
-   */
-  quality?: number
-  /**
-   * Block width in minutes, when the firmware revision carries one.
-   * Passed through verbatim to `sleep_raw.unit_length`; drives stage-minute
-   * accumulation. Defaults to `DEFAULT_BLOCK_MINUTES` (1) when absent.
-   */
-  unit_length?: number
+/**
+ * One raw firmware sleep sample (types 0.10.0). `quality` is the FIRMWARE
+ * code (1 deep / 2 light / 3 rem / 5 awake; other codes pass through to
+ * `sleep_raw` and are filtered by the correction pipeline). Sessions and
+ * stages are no longer mapped from these directly — see `sleep-correction`.
+ */
+export interface FirmwareSleepRawRow {
+  timestamp: string // sample instant
+  quality: number
+  start: string // firmware session start
+  unitLength: number // minutes
 }
 
 export interface FirmwareBatteryRow {
@@ -137,7 +130,7 @@ export interface FirmwareExport {
   spo2: FirmwareSpO2Row[]
   temperature_table: FirmwareTempRow[]
   activitydetails: FirmwareActivityRow[]
-  sleep_processed: FirmwareSleepRow[]
+  sleep: FirmwareSleepRawRow[]
   battery_table: FirmwareBatteryRow[]
   ring: FirmwareRingConfig
 }
@@ -213,6 +206,10 @@ export interface SleepSessionRow extends TenantRow {
   awake_minutes: number | null
   avg_confidence: number | null
   night_of: Date
+  /** Minutes from bed until HR settled; null when unknown or on the 30-min HR tier (R-C). */
+  settle_min: number | null
+  /** Primary minutes recovered from HR (envelope/gap) rather than firmware-scored. */
+  recovered_min: number | null
 }
 
 /**
@@ -224,6 +221,8 @@ export interface SleepStageRow extends BaseRow {
   session_id: string
   stage: number
   confidence: number | null
+  /** Provenance from correction: firmware / envelope / gap / bout_consolidated. */
+  source: string | null
 }
 
 /**

@@ -341,6 +341,46 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       await db.execute(`ALTER TABLE ${local}.temperature_v2 RENAME TO temperature;`)
     },
   },
+  {
+    version: 8,
+    name: 'sleep_session += settle_min, recovered_min; sleep_stage += source (sleep-correction §3)',
+    // The correction pipeline's per-night scalars and per-minute provenance.
+    // All three are nullable and appended last, so every existing row copies
+    // across unchanged and reads NULL for the new columns.
+    //
+    // Rebuild, not ALTER, for the same reason as 6 and 7: both tables carry a
+    // primary key, and a copy-and-swap is the path this file already trusts.
+    // Idempotent: a table that already has the new column is skipped.
+    //
+    // Local only, per the rule above. A remote catalog created before this has
+    // the old shapes; the `v_*` union reads `SELECT *` on both sides, so cloud
+    // sync needs the remote tables evolved server-side before it is switched
+    // on (sleep-correction §3 note). Cloud sync is off today.
+    async up(db, catalogs) {
+      const local = quoteQualifier(catalogs.local)
+      const additions: Array<[TableName, string]> = [
+        ['sleep_session', 'settle_min'],
+        ['sleep_stage', 'source'],
+      ]
+      for (const [table, marker] of additions) {
+        const cols = await listColumns(db, catalogs.local, table)
+        if (cols.length === 0 || cols.includes(marker))
+          continue // absent (migration 1 creates it new) or already migrated
+
+        const columnList = cols.join(', ')
+        await db.execute(`DROP TABLE IF EXISTS ${local}.${table}_v2;`)
+        await db.execute(
+          LOCAL_SCHEMAS[table].replace(`CREATE TABLE ${table}`, `CREATE TABLE ${local}.${table}_v2`),
+        )
+        await db.execute(
+          `INSERT INTO ${local}.${table}_v2 (${columnList}) `
+          + `SELECT ${columnList} FROM ${local}.${table} ON CONFLICT DO NOTHING;`,
+        )
+        await db.execute(`DROP TABLE ${local}.${table};`)
+        await db.execute(`ALTER TABLE ${local}.${table}_v2 RENAME TO ${table};`)
+      }
+    },
+  },
 ])
 
 /** Version of the latest known migration — target for every attach. */
