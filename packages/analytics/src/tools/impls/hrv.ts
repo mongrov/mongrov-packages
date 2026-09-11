@@ -17,7 +17,7 @@ interface Row {
 export const getHRV: ToolImpl<GetHRVInput> = async (input, ctx) => {
   const rows = await ctx.analytics.execute<Row>(
     `SELECT date_trunc('day', ts)::VARCHAR AS day, AVG(hrv_ms)::DOUBLE AS avg_hrv
-     FROM v_hrv
+     FROM v_hrv_clean
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
        AND hrv_ms IS NOT NULL

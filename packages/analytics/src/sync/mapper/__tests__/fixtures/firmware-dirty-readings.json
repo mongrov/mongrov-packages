@@ -1,0 +1,67 @@
+{
+  "$comment": "Signal-quality gates (sprint6 spec §13d, T-25). One UTC morning, tz = UTC. 06:00-07:00 the ring sits on the nightstand (temps 23-24 C = ambient; HR logged then is not worn). 07:30 it goes back on: the first on-wrist temp is the warm-up onset, so readings in 07:30-07:39 are warm_up. 08:50-08:59 the user walks (activity burst): SpO2 88 at 09:00 and the 09:00 HRV/stress row (stress 72, the active-context hour) are not still. 09:10 HR 190 between 60 and 62 is a single-slot spike; 10:10-10:20 (110, 120) is a real rise, not a spike. 09:30 temp 365 is a 10x decode (scale_suspect). 10:00 HRV 0 is below the 5 ms clamp; its stress 35 stays clean. 10:30 SpO2 65 and 10:40 HR 250 are outside the clamps. Clean survivors: temp 6 (max 37), HR 19 (max 120), SpO2 5 (min 96), HRV rows 3 (hrv 45/-/48, stress max 35).",
+  "heartrate": [
+    { "timestamp": "2026.08.20 07:00:00", "singleHR": 52 },
+    { "timestamp": "2026.08.20 07:10:00", "singleHR": 50 },
+    { "timestamp": "2026.08.20 07:20:00", "singleHR": 51 },
+    { "timestamp": "2026.08.20 07:30:00", "singleHR": 88 },
+    { "timestamp": "2026.08.20 07:40:00", "singleHR": 70 },
+    { "timestamp": "2026.08.20 07:50:00", "singleHR": 66 },
+    { "timestamp": "2026.08.20 08:00:00", "singleHR": 64 },
+    { "timestamp": "2026.08.20 08:10:00", "singleHR": 63 },
+    { "timestamp": "2026.08.20 08:20:00", "singleHR": 62 },
+    { "timestamp": "2026.08.20 08:30:00", "singleHR": 62 },
+    { "timestamp": "2026.08.20 08:40:00", "singleHR": 64 },
+    { "timestamp": "2026.08.20 08:50:00", "singleHR": 70 },
+    { "timestamp": "2026.08.20 09:00:00", "singleHR": 60 },
+    { "timestamp": "2026.08.20 09:10:00", "singleHR": 190 },
+    { "timestamp": "2026.08.20 09:20:00", "singleHR": 62 },
+    { "timestamp": "2026.08.20 09:30:00", "singleHR": 61 },
+    { "timestamp": "2026.08.20 09:40:00", "singleHR": 60 },
+    { "timestamp": "2026.08.20 09:50:00", "singleHR": 60 },
+    { "timestamp": "2026.08.20 10:00:00", "singleHR": 60 },
+    { "timestamp": "2026.08.20 10:10:00", "singleHR": 110 },
+    { "timestamp": "2026.08.20 10:20:00", "singleHR": 120 },
+    { "timestamp": "2026.08.20 10:30:00", "singleHR": 118 },
+    { "timestamp": "2026.08.20 10:40:00", "singleHR": 250 },
+    { "timestamp": "2026.08.20 10:50:00", "singleHR": 90 },
+    { "timestamp": "2026.08.20 11:00:00", "singleHR": 75 }
+  ],
+  "hrv_table": [
+    { "timestamp": "2026.08.20 08:00:00", "hrv": 45, "stress": 30 },
+    { "timestamp": "2026.08.20 09:00:00", "hrv": 80, "stress": 72 },
+    { "timestamp": "2026.08.20 10:00:00", "hrv": 0, "stress": 35 },
+    { "timestamp": "2026.08.20 11:00:00", "hrv": 48, "stress": 32 }
+  ],
+  "spo2": [
+    { "timestamp": "2026.08.20 07:30:00", "automaticSpo2Data": 94 },
+    { "timestamp": "2026.08.20 08:00:00", "automaticSpo2Data": 97 },
+    { "timestamp": "2026.08.20 08:30:00", "automaticSpo2Data": 97 },
+    { "timestamp": "2026.08.20 09:00:00", "automaticSpo2Data": 88 },
+    { "timestamp": "2026.08.20 09:30:00", "automaticSpo2Data": 96 },
+    { "timestamp": "2026.08.20 10:00:00", "automaticSpo2Data": 97 },
+    { "timestamp": "2026.08.20 10:30:00", "automaticSpo2Data": 65 },
+    { "timestamp": "2026.08.20 11:00:00", "automaticSpo2Data": 97 }
+  ],
+  "temperature_table": [
+    { "timestamp": "2026.08.20 06:00:00", "temperature": 24 },
+    { "timestamp": "2026.08.20 06:30:00", "temperature": 23 },
+    { "timestamp": "2026.08.20 07:00:00", "temperature": 24 },
+    { "timestamp": "2026.08.20 07:30:00", "temperature": 35 },
+    { "timestamp": "2026.08.20 08:00:00", "temperature": 36 },
+    { "timestamp": "2026.08.20 08:30:00", "temperature": 36 },
+    { "timestamp": "2026.08.20 09:00:00", "temperature": 37 },
+    { "timestamp": "2026.08.20 09:30:00", "temperature": 365 },
+    { "timestamp": "2026.08.20 10:00:00", "temperature": 36 },
+    { "timestamp": "2026.08.20 10:30:00", "temperature": 36 },
+    { "timestamp": "2026.08.20 11:00:00", "temperature": 37 }
+  ],
+  "activitydetails": [
+    { "timestamp": "2026.08.20 08:50:00", "step": 400, "calories": 20, "distance": 0.3, "arraySteps": [40, 40, 40, 40, 40, 40, 40, 40, 40, 40] }
+  ],
+  "sleep": [],
+  "battery_table": [],
+  "ring": {
+    "automaticMonitoringData": []
+  }
+}

@@ -45,7 +45,7 @@ export const getTemperature: ToolImpl<GetTemperatureInput> = async (input, ctx) 
             AVG(temp_c)::DOUBLE AS avg_temp,
             MAX(temp_c)::DOUBLE AS hi_temp,
             MIN(temp_c)::DOUBLE AS lo_temp
-     FROM v_temperature
+     FROM v_temperature_clean
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
        AND temp_c IS NOT NULL

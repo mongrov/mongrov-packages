@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
 import { BASELINE_OFFSET_PARAM, compileRule } from '../compiler'
@@ -42,6 +43,8 @@ async function boot(): Promise<DB> {
   await db.execute(
     generateViewDdl('hrv', { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' }),
   )
+  // T-25: rules/baselines/tools read the clean views.
+  await createQualityViews(db, { brand: BRAND, familyId: FAMILY })
   return db
 }
 

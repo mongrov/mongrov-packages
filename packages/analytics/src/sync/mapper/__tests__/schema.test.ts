@@ -72,6 +72,7 @@ describe('firmwareExportSchema — fixture corpus (principle 60)', () => {
   it('found the expected fixture corpus', () => {
     expect(fixtureNames).toEqual([
       'firmware-8047-17-06-2026.json',
+      'firmware-dirty-readings.json',
       'firmware-dst-transition.json',
       'firmware-empty.json',
       // T-13's three named fixtures.

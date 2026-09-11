@@ -16,6 +16,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
 import { compileRule, USER_SETTING_PARAM } from '../compiler'
@@ -48,6 +49,8 @@ async function boot(): Promise<DB> {
   const db = await createRealDuckDB(['icu'])
   await db.execute(LOCAL_SCHEMAS.hrv.replace('CREATE TABLE hrv', 'CREATE TABLE memory.hrv'))
   await db.execute(generateViewDdl('hrv', { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' }))
+  // T-25: rules/baselines/tools read the clean views.
+  await createQualityViews(db, { brand: BRAND, familyId: FAMILY })
   return db
 }
 

@@ -42,6 +42,7 @@ import type {
   TokenVendor,
 } from './types'
 import { AnalyticsError } from './errors'
+import { qualityViewDdls, qualityViewNames } from './reading-quality'
 import { dropViewDdl, generateViewDdl, VIEWED_TABLES } from './schemas'
 
 /**
@@ -386,6 +387,21 @@ export async function createViews(
       )
     }
   }
+  // Signal-quality views (T-25) read the union views above, so they come
+  // after them. A missing clean view would fail every rule and baseline, so
+  // it fails the attach just as loudly.
+  for (const view of qualityViewDdls()) {
+    try {
+      await db.execute(view.sql)
+    }
+    catch (cause) {
+      throw new AnalyticsError(
+        'attach_failed',
+        `CREATE VIEW ${view.name} failed`,
+        rootCause(cause),
+      )
+    }
+  }
 }
 
 /**
@@ -395,6 +411,15 @@ export async function createViews(
  * in `detaching`.
  */
 export async function dropViews(db: HybridDuckDB): Promise<void> {
+  // Dependents first: the quality views read the union views.
+  for (const name of qualityViewNames()) {
+    try {
+      await db.execute(`DROP VIEW IF EXISTS ${name};`)
+    }
+    catch {
+      // Best-effort, as below.
+    }
+  }
   for (const table of VIEWED_TABLES) {
     try {
       await db.execute(dropViewDdl(table))

@@ -27,7 +27,7 @@ function rule(overrides: Record<string, unknown>) {
 describe('T-20 — generated SQL targets union views', () => {
   it('reads v_{table}, never the raw catalogs', () => {
     const sql = compileRule(rule({})).sql
-    expect(sql).toContain('FROM v_spo2 m')
+    expect(sql).toContain('FROM v_spo2_clean m')
     expect(sql).not.toContain('r2.default')
     expect(sql).not.toContain('local.spo2')
   })
@@ -40,7 +40,7 @@ describe('T-20 — generated SQL targets union views', () => {
     })).sql
     // Both the observation and the baseline must see the same rows, or a
     // just-flushed reading is compared against a baseline that excludes it.
-    expect(sql.match(/FROM v_hrv m/g)).toHaveLength(2)
+    expect(sql.match(/FROM v_hrv_clean m/g)).toHaveLength(2)
   })
 })
 
@@ -84,7 +84,7 @@ describe('T-17 — emitContextJoin', () => {
   it('context is a JOIN, not a post-filter', () => {
     // "SpO₂ during sleep" must aggregate over sleep samples only.
     const sql = compileRule(rule({ context: 'asleep' })).sql
-    const fromIdx = sql.indexOf('FROM v_spo2 m')
+    const fromIdx = sql.indexOf('FROM v_spo2_clean m')
     const joinIdx = sql.indexOf('INNER JOIN v_sleep_session')
     const whereIdx = sql.indexOf('WHERE m.user_id')
     expect(fromIdx).toBeLessThan(joinIdx)

@@ -18,6 +18,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { BASELINE_MIN_DAYS } from '../../core/metric_metadata'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
@@ -56,6 +57,8 @@ async function boot(): Promise<DB> {
   await db.execute(
     generateViewDdl('temperature', { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' }),
   )
+  // T-25: rules/baselines/tools read the clean views.
+  await createQualityViews(db, { brand: BRAND, familyId: FAMILY })
   return db
 }
 

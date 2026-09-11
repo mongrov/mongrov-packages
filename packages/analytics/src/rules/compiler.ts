@@ -38,6 +38,7 @@ import type { TableName } from '../core/schemas'
 import type { Aggregation, Compare, Rule, RuleContext, Target, Window } from './schema'
 import type { CompiledRule } from './types'
 import { METRIC_METADATA } from '../core/metric_metadata'
+import { readViewFor } from '../core/reading-quality'
 import {
 
   RuleValidationError,
@@ -205,7 +206,9 @@ export function compileRule(rule: Rule): CompiledRule {
   const meta = METRIC_METADATA[rule.metric]
   const rawTable = meta.table
   const column = sanitizeIdent(meta.column)
-  const view = viewFor(rawTable)
+  // A rule is a claim, so it reads the vital's clean view (T-25 consume
+  // rule): a clamped, spiked or off-wrist reading can never fire an alert.
+  const view = readViewFor(sanitizeIdent(rawTable))
 
   if (rule.rawSql) {
     return compileRawSql(rule, rule.rawSql)

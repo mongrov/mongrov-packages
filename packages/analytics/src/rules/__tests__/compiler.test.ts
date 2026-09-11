@@ -32,7 +32,7 @@ describe('compileRule — absolute target', () => {
     expect(compiled.sql).toContain('$brand')
     expect(compiled.sql).toContain('$familyId')
     expect(compiled.sql).toContain('AVG(m.hrv_ms)')
-    expect(compiled.sql).toContain('FROM v_hrv m')
+    expect(compiled.sql).toContain('FROM v_hrv_clean m')
     expect(compiled.sql).toContain(`INTERVAL '24 hours'`)
     expect(compiled.params.threshold_absolute).toBe(40)
   })

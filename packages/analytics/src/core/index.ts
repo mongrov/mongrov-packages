@@ -57,6 +57,21 @@ export type {
   BaselineWindowDays,
 } from './metric_metadata'
 
+// Signal-quality views (T-25, sprint6 §13). Claims read `v_{vital}_clean`;
+// `v_{vital}_q` carries the per-reading flags for diagnostics and muted charts.
+export {
+  cleanViewFor,
+  isQualityTable,
+  PLAUSIBLE_RANGES,
+  QUALITY_FLAG_COLUMNS,
+  QUALITY_TABLES,
+  qualityViewDdls,
+  qualityViewFor,
+  READING_QUALITY_COUNTS_SQL,
+  readViewFor,
+} from './reading-quality'
+export type { QualityTable, QualityView } from './reading-quality'
+
 // Effective sampling cadence (Sprint 5 T-41, principle 22). Chart data
 // providers and gap detection should resolve cadence through this rather
 // than reading metric_metadata directly.

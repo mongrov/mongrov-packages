@@ -25,7 +25,7 @@ const METRIC_SPECS: Record<CompareTrendInput['metric'], MetricSpec> = {
   hrv_ms: {
     sql: (windowDays, offsetDays) =>
       `SELECT AVG(hrv_ms)::DOUBLE AS value
-       FROM v_hrv
+       FROM v_hrv_clean
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND hrv_ms IS NOT NULL
          AND ts >= now() - INTERVAL (${windowDays + offsetDays}) DAY

@@ -64,7 +64,7 @@ export const getSpO2: ToolImpl<GetSpO2Input> = async (input, ctx) => {
             AVG(m.spo2)::DOUBLE AS avg_spo2,
             MIN(m.spo2)::DOUBLE AS min_spo2,
             COUNT(*) FILTER (WHERE m.spo2 < ${LOW_MOMENT_THRESHOLD})::INTEGER AS low_moment_count
-     FROM v_spo2 m
+     FROM v_spo2_clean m
      INNER JOIN v_sleep_session s
         ON s.user_id = m.user_id
        AND s.brand = m.brand

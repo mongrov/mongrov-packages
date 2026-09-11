@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
 import { compileRule } from '../compiler'
@@ -36,6 +37,8 @@ async function boot(): Promise<DB> {
      VALUES ($b, $f, $u, 'hrv_ms', 30, 50, 50, 50, 50, 50, 50, 2, 25, now())`,
     { b: BRAND, f: FAMILY, u: USER },
   )
+  // T-25: rules/baselines/tools read the clean views.
+  await createQualityViews(db, { brand: BRAND, familyId: FAMILY })
   return db
 }
 

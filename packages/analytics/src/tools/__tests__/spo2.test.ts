@@ -19,7 +19,7 @@ describe('getSpO2 query shape', () => {
     await getSpO2({ userId: 'alice', days: 1 }, { analytics: engine, ...CTX } as never)
 
     const sql = engine.calls[0].sql
-    expect(sql).toContain('FROM v_spo2 m')
+    expect(sql).toContain('FROM v_spo2_clean m')
     expect(sql).toContain('INNER JOIN v_sleep_session s')
     expect(sql).toContain('m.ts BETWEEN s.ts_start AND s.ts_end')
   })

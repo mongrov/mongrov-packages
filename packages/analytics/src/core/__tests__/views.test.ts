@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { HybridDuckDB } from '../engine'
+import { qualityViewDdls } from '../reading-quality'
 import {
   dropViewDdl,
   generateViewDdl,
@@ -139,21 +140,25 @@ describe('dropViewDdl', () => {
 })
 
 describe('view lifecycle', () => {
-  it('createViews issues one CREATE per viewed table', async () => {
+  it('createViews issues one CREATE per viewed table, then the quality views', async () => {
     const { fake, db } = await newOpenDb()
     await createViews(db, CTX)
 
     const creates = fake.calls.filter(c => c.sql.includes('CREATE OR REPLACE VIEW'))
-    expect(creates).toHaveLength(VIEWED_TABLES.length)
+    expect(creates).toHaveLength(VIEWED_TABLES.length + qualityViewDdls().length)
     expect(creates[0].sql).toContain('v_hrv')
+    // Quality views read the union views, so every union view comes first.
+    const firstQuality = creates.findIndex(c => c.sql.includes('VIEW v_wear'))
+    expect(firstQuality).toBe(VIEWED_TABLES.length)
   })
 
-  it('dropViews issues one DROP per viewed table', async () => {
+  it('dropViews drops the quality views first, then one per viewed table', async () => {
     const { fake, db } = await newOpenDb()
     await dropViews(db)
 
     const drops = fake.calls.filter(c => c.sql.includes('DROP VIEW IF EXISTS'))
-    expect(drops).toHaveLength(VIEWED_TABLES.length)
+    expect(drops).toHaveLength(VIEWED_TABLES.length + qualityViewDdls().length)
+    expect(drops[0].sql).toContain('_clean')
   })
 
   it('createViews surfaces a failure as attach_failed with the view name', async () => {

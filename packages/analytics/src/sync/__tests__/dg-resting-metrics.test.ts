@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
 import { buildBaselineSql } from '../baseline-compute'
@@ -33,6 +34,8 @@ async function boot() {
     await db.execute(LOCAL_SCHEMAS[t].replace(`CREATE TABLE ${t}`, `CREATE TABLE memory.${t}`))
     await db.execute(generateViewDdl(t, { brand: B, familyId: F, localCatalog: 'memory' }))
   }
+  // T-25: rules/baselines/tools read the clean views.
+  await createQualityViews(db, { brand: B, familyId: F })
   return db
 }
 

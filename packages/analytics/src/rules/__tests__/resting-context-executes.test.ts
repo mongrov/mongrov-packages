@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
 import { compileRule, USER_SETTING_PARAM } from '../compiler'
@@ -40,6 +41,8 @@ async function boot(): Promise<DB> {
     await db.execute(LOCAL_SCHEMAS[t].replace(`CREATE TABLE ${t}`, `CREATE TABLE memory.${t}`))
   for (const t of ['heart_rate', 'activity'] as const)
     await db.execute(generateViewDdl(t, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' }))
+  // T-25: rules/baselines/tools read the clean views.
+  await createQualityViews(db, { brand: BRAND, familyId: FAMILY })
   return db
 }
 

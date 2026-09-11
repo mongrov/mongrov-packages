@@ -35,6 +35,7 @@ import {
   METRIC_METADATA,
 
 } from '../core/metric_metadata'
+import { readViewFor } from '../core/reading-quality'
 
 /** One computed baseline row, as read back from the aggregate query. */
 interface BaselineRow {
@@ -86,7 +87,9 @@ export function buildBaselineSql(
   const meta = METRIC_METADATA[metric]
   const aggregate = baselineAggregateFor(metric)
   const column = meta.column
-  const view = `v_${meta.table}`
+  // Baselines read clean readings only (T-25): a spike or an off-wrist
+  // temperature must not move "your usual".
+  const view = readViewFor(meta.table)
 
   // DuckDB cannot bind a parameter inside an INTERVAL literal, but it can
   // multiply a static unit interval by a bound integer. Same trick the

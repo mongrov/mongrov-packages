@@ -54,8 +54,8 @@ describe('buildBaselineSql — day-first shape', () => {
 
   it('reads the union view, not a raw catalog table', () => {
     // principle 19 — freshness comes from v_{table}.
-    expect(buildBaselineSql('spo2', 30)).toContain('FROM v_spo2')
-    expect(buildBaselineSql('hrv_ms', 7)).toContain('FROM v_hrv')
+    expect(buildBaselineSql('spo2', 30)).toContain('FROM v_spo2_clean')
+    expect(buildBaselineSql('hrv_ms', 7)).toContain('FROM v_hrv_clean')
     expect(buildBaselineSql('spo2', 30)).not.toContain('r2.default')
   })
 
