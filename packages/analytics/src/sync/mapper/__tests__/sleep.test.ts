@@ -2,11 +2,12 @@
  * T-06 — Sleep session reconstruction.
  *
  * Coverage:
- *   1. Groups blocks by `start`; a session with a primary block above the
- *      confidence floor is emitted; sessions without a qualifying primary
- *      are dropped (nap / noise).
- *   2. Session `start_ts` / `end_ts` correctly derived from block instants;
- *      stages share the session_id FK.
+ *   1. Groups blocks by `start`; a session with an asleep block (light /
+ *      deep / rem) above the confidence floor is emitted; all-awake,
+ *      low-confidence and envelope-only groups are dropped (nap / noise).
+ *      `primary` is NOT required — a decoded export has none (zivaone_app#77).
+ *   2. Session `start_ts` / `end_ts` correctly derived — end from the LATEST
+ *      block end; stages share the session_id FK.
  *   3. Midnight-crossing session: `night_of` derived from `start_ts` via
  *      the 6pm-6pm rule; both pre- and post-midnight blocks belong to the
  *      same session.
@@ -169,11 +170,12 @@ describe('reconstructSleepSessions', () => {
   })
 
   it('builds deterministic session ids per principle 25 (amended 2026-08-14)', () => {
+    // `light`, not `primary`: an envelope-only group is not a session (#77).
     const fw: FirmwareSleepRow[] = [
       {
         start: '2026.06.18 05:00:00',
         end: '2026.06.18 12:00:00',
-        block_type: 'primary',
+        block_type: 'light',
         confidence: 0.9,
         timestamp: '2026.06.18 05:00:00',
       },
@@ -199,7 +201,7 @@ describe('reconstructSleepSessions', () => {
       {
         start: '2026.06.18 05:00:00',
         end: '2026.06.18 12:00:00',
-        block_type: 'primary',
+        block_type: 'light',
         confidence: 0.9,
         timestamp: '2026.06.18 05:00:00',
       },
@@ -214,7 +216,7 @@ describe('reconstructSleepSessions', () => {
     // random prefix used to provide, without sacrificing determinism.
     const base = {
       start: '2026.06.18 05:00:00',
-      block_type: 'primary' as const,
+      block_type: 'light' as const,
       confidence: 0.9,
       timestamp: '2026.06.18 05:00:00',
     }
@@ -230,23 +232,31 @@ describe('reconstructSleepSessions', () => {
     expect(short).not.toBe(long)
   })
 
-  it('drops sessions whose primary block confidence is below the floor', () => {
+  it('drops groups with no asleep block above the floor', () => {
     const fw: FirmwareSleepRow[] = [
-      // Low-confidence primary → dropped session.
+      // All awake → not sleep. The original filter's nap/noise intent.
       {
-        start: '2026.06.18 14:00:00', // afternoon nap
+        start: '2026.06.18 14:00:00',
         end: '2026.06.18 14:30:00',
-        block_type: 'primary',
-        confidence: 0.5,
+        block_type: 'awake',
+        confidence: 0.9,
         timestamp: '2026.06.18 14:00:00',
       },
-      // No primary at all → dropped session.
+      // Asleep, but below the confidence floor → dropped.
       {
         start: '2026.06.18 16:00:00',
         end: '2026.06.18 16:30:00',
         block_type: 'light',
-        confidence: 0.9,
+        confidence: 0.5,
         timestamp: '2026.06.18 16:00:00',
+      },
+      // Envelope marker only → dropped. `primary` is not a stage.
+      {
+        start: '2026.06.18 18:00:00',
+        end: '2026.06.18 18:30:00',
+        block_type: 'primary',
+        confidence: 0.9,
+        timestamp: '2026.06.18 18:00:00',
       },
     ]
     const { sleep_session, sleep_stage, sleep_raw } = reconstructSleepSessions(
@@ -255,8 +265,38 @@ describe('reconstructSleepSessions', () => {
     )
     expect(sleep_session).toHaveLength(0)
     expect(sleep_stage).toHaveLength(0)
-    // Raw pass still preserves both rows for reprocessing.
-    expect(sleep_raw).toHaveLength(2)
+    // Raw pass still preserves every row for reprocessing.
+    expect(sleep_raw).toHaveLength(3)
+  })
+
+  // What the ring actually sends once decoded: stage blocks only, each
+  // stamped with its OWN end (zivaone_app's firmware-sync shape).
+  const decodedNight: FirmwareSleepRow[] = [
+    { start: '2026.06.18 23:00:00', end: '2026.06.18 23:01:00', block_type: 'light', confidence: 1, timestamp: '2026.06.18 23:00:00' },
+    { start: '2026.06.18 23:00:00', end: '2026.06.19 02:01:00', block_type: 'deep', confidence: 1, timestamp: '2026.06.19 02:00:00' },
+    { start: '2026.06.18 23:00:00', end: '2026.06.19 04:01:00', block_type: 'rem', confidence: 1, timestamp: '2026.06.19 04:00:00' },
+    { start: '2026.06.18 23:00:00', end: '2026.06.19 06:00:00', block_type: 'awake', confidence: 1, timestamp: '2026.06.19 05:59:00' },
+  ]
+
+  it('admits a decoded export with no primary block at all (zivaone_app#77)', () => {
+    // Before the fix this yielded ZERO sessions: the filter required a
+    // `primary` block, which decoded firmware never carries.
+    const { sleep_session, sleep_stage } = reconstructSleepSessions(decodedNight, ctx)
+    expect(sleep_session).toHaveLength(1)
+    expect(sleep_stage.map(s => s.stage)).toEqual([
+      SLEEP_STAGE_CODES.light,
+      SLEEP_STAGE_CODES.deep,
+      SLEEP_STAGE_CODES.rem,
+      SLEEP_STAGE_CODES.awake,
+    ])
+  })
+
+  it('takes the session end from the LATEST block end, not the first (zivaone_app#77)', () => {
+    // `blocks[0].end` here is 23:01 — reading it as the session end made a
+    // seven-hour night one minute long and tripped `total_minutes: 1` alerts.
+    const [session] = reconstructSleepSessions(decodedNight, ctx).sleep_session
+    expect(session.ts_end.toISOString()).toBe('2026-06-19T06:00:00.000Z')
+    expect(session.total_minutes).toBe(420)
   })
 
   it('assigns midnight-crossing session to a single night via 6pm-6pm rule', () => {

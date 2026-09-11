@@ -39,7 +39,7 @@ describe('compileRule — absolute target', () => {
 
   it('greater_than emits > operator', () => {
     const compiled = compileRule(make({ compare: 'greater_than' }))
-    expect(compiled.sql).toMatch(/observed_value > \$threshold_absolute/)
+    expect(compiled.sql).toMatch(/observed_value > CAST\(\$threshold_absolute AS DOUBLE\)/)
   })
 })
 
@@ -50,8 +50,8 @@ describe('compileRule — baseline_percent', () => {
     )
     expect(compiled.sql).toContain('WITH baseline AS')
     expect(compiled.sql).toContain('AVG(m.hrv_ms)')
-    expect(compiled.sql).toContain('$pct / 100.0')
-    expect(compiled.sql).toContain('(INTERVAL 1 DAY) * $baselineDays')
+    expect(compiled.sql).toContain('CAST($pct AS DOUBLE) / 100.0')
+    expect(compiled.sql).toContain('(INTERVAL 1 DAY) * CAST($baselineDays AS BIGINT)')
     expect(compiled.params.baselineDays).toBe(7)
     expect(compiled.params.pct).toBe(70)
   })
@@ -63,7 +63,7 @@ describe('compileRule — baseline_stddev', () => {
       make({ target: { type: 'baseline_stddev', windowDays: 14, stddevs: 1.5 } }),
     )
     expect(compiled.sql).toContain('stddev_pop')
-    expect(compiled.sql).toContain('mean + $stddevs * sd')
+    expect(compiled.sql).toContain('mean + CAST($stddevs AS DOUBLE) * sd')
     expect(compiled.params.stddevs).toBe(1.5)
   })
 })
@@ -73,7 +73,7 @@ describe('compileRule — range', () => {
     const compiled = compileRule(
       make({ compare: 'between', target: { type: 'range', min: 40, max: 90 } }),
     )
-    expect(compiled.sql).toContain('NOT (observed_value BETWEEN $range_min AND $range_max)')
+    expect(compiled.sql).toContain('NOT (observed_value BETWEEN CAST($range_min AS DOUBLE) AND CAST($range_max AS DOUBLE))')
     expect(compiled.params.range_min).toBe(40)
     expect(compiled.params.range_max).toBe(90)
   })

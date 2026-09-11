@@ -42,8 +42,24 @@ import type {
 import { computeNightOf, parseTimestamp } from './time'
 
 const MINUTE_MS = 60_000
-const PRIMARY = 'primary'
 const CONFIDENCE_FLOOR = 0.7
+
+/**
+ * Block types that mean the wearer was asleep — the admission test
+ * (zivaone_app#77).
+ *
+ * The filter used to require a `primary` block. `primary` is the session
+ * envelope marker, not a stage (see `SLEEP_STAGE_CODES`), and a correctly
+ * decoded export carries none — so every session was dropped, `sleep_raw`
+ * filled while `sleep_session` stayed empty, and every `context='asleep'`
+ * join saw nothing. An explicit asleep set rather than `!== 'awake'`, so an
+ * all-awake group is still rejected: the nap/noise intent survives.
+ *
+ * Interim: the sleep-correction port replaces this input with corrected rows
+ * whose `block_type` IS primary/secondary/microsleep, and the filter changes
+ * with it (techspec `.specifica/features/sleep-correction`).
+ */
+const ASLEEP_BLOCK_TYPES: ReadonlySet<string> = new Set(['light', 'deep', 'rem'])
 
 /**
  * Block width in minutes when the firmware revision omits `unit_length`.
@@ -131,18 +147,23 @@ export function reconstructSleepSessions(
   }
 
   for (const [startKey, blocks] of bySession) {
-    // Session must contain a primary block above the confidence floor to be
-    // counted as a real sleep session (as opposed to a nap or noise).
-    const hasQualifyingPrimary = blocks.some(
-      b => b.block_type === PRIMARY && b.confidence >= CONFIDENCE_FLOOR,
+    // A session needs at least one asleep block above the confidence floor
+    // (as opposed to an all-awake nap or noise). See ASLEEP_BLOCK_TYPES.
+    const hasQualifyingSleep = blocks.some(
+      b => ASLEEP_BLOCK_TYPES.has(b.block_type) && b.confidence >= CONFIDENCE_FLOOR,
     )
-    if (!hasQualifyingPrimary)
+    if (!hasQualifyingSleep)
       continue
 
-    // Envelope from the firmware's own session fields. `end` is exclusive of
-    // nothing — it is the session end instant, so total is a plain delta.
+    // End = the LATEST block `end`, not the first block's. Firmware that
+    // stamps the session end on every block gives the same answer; a producer
+    // that stamps each block's own end (zivaone_app's firmware-sync) made
+    // `blocks[0].end` the end of the first minute, so sessions came out one
+    // unit long and tripped `total_minutes: 1` alerts (zivaone_app#77).
     const tsStart = parseTimestamp(startKey)
-    const tsEnd = parseTimestamp(blocks[0].end)
+    const tsEnd = blocks
+      .map(b => parseTimestamp(b.end))
+      .reduce((latest, t) => (t.getTime() > latest.getTime() ? t : latest))
     const totalMinutes = Math.max(
       0,
       Math.round((tsEnd.getTime() - tsStart.getTime()) / MINUTE_MS),

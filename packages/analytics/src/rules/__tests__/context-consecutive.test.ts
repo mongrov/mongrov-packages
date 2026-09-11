@@ -121,7 +121,7 @@ describe('T-18 — consecutive', () => {
     // previously said `not.toContain`, pinning that bug in place.
     expect(compiled.sql).toContain('ROW_NUMBER() OVER (PARTITION BY breached ORDER BY ts)')
     expect(compiled.sql).toContain('GROUP BY run_key')
-    expect(compiled.sql).toContain('HAVING COUNT(*) >= $consecutive')
+    expect(compiled.sql).toContain('HAVING COUNT(*) >= CAST($consecutive AS BIGINT)')
     expect(compiled.params.consecutive).toBe(3)
   })
 

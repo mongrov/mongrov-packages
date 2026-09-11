@@ -293,6 +293,27 @@ function whereClause(ts: string, interval: string): string {
   )
 }
 
+/*
+ * Every bound threshold is CAST where it is used (zivaone_app#70).
+ *
+ * react-native-duckdb prepares with NO values and binds afterwards, so a
+ * param's type must resolve from SQL context at prepare time. A bare param
+ * alone in a projection (`$threshold_absolute AS threshold_value`), compared
+ * with a select-list alias, or multiplied into an INTERVAL has no context,
+ * stays UNKNOWN, and throws ParameterNotResolvedException — which is not
+ * transaction-exempt, so it also invalidates the shared connection and the
+ * NEXT unrelated query fails. Stock DuckDB supplies values to the binder and
+ * does not reproduce it; `param-casts.test.ts` is the guard.
+ *
+ * DOUBLE for thresholds (compared with AVG/MIN/MAX). BIGINT, not INTEGER, for
+ * interval arithmetic and counts: `CAST($p AS INTEGER)` still fails on device.
+ * The tenant triple compares to VARCHAR columns, resolves, and stays bare.
+ */
+const THRESHOLD_ABSOLUTE = 'CAST($threshold_absolute AS DOUBLE)'
+const RANGE_MIN = 'CAST($range_min AS DOUBLE)'
+const RANGE_MAX = 'CAST($range_max AS DOUBLE)'
+const USER_SETTING_VALUE = `CAST($${USER_SETTING_PARAM} AS DOUBLE)`
+
 function buildForTarget(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>
@@ -303,10 +324,10 @@ function buildForTarget(args: BuildArgs): {
 
   if (target.type === 'absolute') {
     const params = { threshold_absolute: target.value }
-    const sql = `SELECT ${agg} AS observed_value, $threshold_absolute AS threshold_value
+    const sql = `SELECT ${agg} AS observed_value, ${THRESHOLD_ABSOLUTE} AS threshold_value
 ${from}
 ${where}
-HAVING ${compareClause(compare, 'observed_value', '$threshold_absolute')};`
+HAVING ${compareClause(compare, 'observed_value', THRESHOLD_ABSOLUTE)};`
     return { sql, params }
   }
 
@@ -314,10 +335,10 @@ HAVING ${compareClause(compare, 'observed_value', '$threshold_absolute')};`
     // T-19: threshold is a bound param resolved at eval time, so the same
     // compiled SQL serves every user in the family and survives the user
     // changing their setting — no cache invalidation needed.
-    const sql = `SELECT ${agg} AS observed_value, $${USER_SETTING_PARAM} AS threshold_value
+    const sql = `SELECT ${agg} AS observed_value, ${USER_SETTING_VALUE} AS threshold_value
 ${from}
 ${where}
-HAVING ${compareClause(compare, 'observed_value', `$${USER_SETTING_PARAM}`)};`
+HAVING ${compareClause(compare, 'observed_value', USER_SETTING_VALUE)};`
     return { sql, params: {} }
   }
 
@@ -328,9 +349,9 @@ HAVING ${compareClause(compare, 'observed_value', `$${USER_SETTING_PARAM}`)};`
     // bound as threshold_value for reporting.
     const outside
       = compare === 'between'
-        ? `NOT (observed_value BETWEEN $range_min AND $range_max)`
-        : compareClause(compare, 'observed_value', '$range_min')
-    const sql = `SELECT ${agg} AS observed_value, $range_min AS threshold_value
+        ? `NOT (observed_value BETWEEN ${RANGE_MIN} AND ${RANGE_MAX})`
+        : compareClause(compare, 'observed_value', RANGE_MIN)
+    const sql = `SELECT ${agg} AS observed_value, ${RANGE_MIN} AS threshold_value
 ${from}
 ${where}
 HAVING ${outside};`
@@ -379,8 +400,9 @@ HAVING ${compareClause(operator, 'observed_value', 'threshold_value')};`
 
   // Baselines use a CTE for the user's historical mean over windowDays.
   // DuckDB can't parametrize inside an INTERVAL literal, but it can
-  // multiply a static unit interval by a bound integer.
-  const baselineDaysBind = `(INTERVAL 1 DAY) * $baselineDays`
+  // multiply a static unit interval by a bound integer — BIGINT, because an
+  // INTEGER operand widens ambiguously and fails to bind on device (#70).
+  const baselineDaysBind = `(INTERVAL 1 DAY) * CAST($baselineDays AS BIGINT)`
   const baselineFrom = `FROM ${view} m${join}`
   const baselineWhere
     = `WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId\n`
@@ -394,7 +416,7 @@ HAVING ${compareClause(operator, 'observed_value', 'threshold_value')};`
   ${baselineWhere}
 )
 SELECT ${agg} AS observed_value,
-       (SELECT mean FROM baseline) * ($pct / 100.0) AS threshold_value
+       (SELECT mean FROM baseline) * (CAST($pct AS DOUBLE) / 100.0) AS threshold_value
 ${from}
 ${where}
 HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
@@ -409,7 +431,7 @@ HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
   ${baselineWhere}
 )
 SELECT ${agg} AS observed_value,
-       (SELECT mean + $stddevs * sd FROM baseline) AS threshold_value
+       (SELECT mean + CAST($stddevs AS DOUBLE) * sd FROM baseline) AS threshold_value
 ${from}
 ${where}
 HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
@@ -617,14 +639,14 @@ function buildConsecutive(args: BuildArgs): {
   let thresholdExpr: string
   let params: Record<string, string | number> = {}
   if (target.type === 'absolute') {
-    thresholdExpr = '$threshold_absolute'
+    thresholdExpr = THRESHOLD_ABSOLUTE
     params = { threshold_absolute: target.value }
   }
   else if (target.type === 'user_setting') {
-    thresholdExpr = `$${USER_SETTING_PARAM}`
+    thresholdExpr = USER_SETTING_VALUE
   }
   else if (target.type === 'range') {
-    thresholdExpr = '$range_min'
+    thresholdExpr = RANGE_MIN
     params = { range_min: target.min, range_max: target.max }
   }
   else {
@@ -639,7 +661,7 @@ function buildConsecutive(args: BuildArgs): {
   const extreme = compare === 'greater_than' ? 'MAX' : 'MIN'
   const breach
     = compare === 'between'
-      ? `NOT (m.${column} BETWEEN $range_min AND $range_max)`
+      ? `NOT (m.${column} BETWEEN ${RANGE_MIN} AND ${RANGE_MAX})`
       : compareClause(compare, `m.${column}`, thresholdExpr)
 
   const sql = `WITH samples AS (
@@ -690,7 +712,7 @@ SELECT ${extreme}(value) AS observed_value,
 FROM runs
 WHERE breached
 GROUP BY run_key
-HAVING COUNT(*) >= $consecutive
+HAVING COUNT(*) >= CAST($consecutive AS BIGINT)
 ORDER BY observed_value ${compare === 'greater_than' ? 'DESC' : 'ASC'}
 LIMIT 1;`
 
