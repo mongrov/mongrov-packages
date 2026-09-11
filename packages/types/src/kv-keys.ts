@@ -112,6 +112,13 @@ export const KV_KEY_REGISTRY = {
     range: [1, 5],
     step: 1,
   },
+  /** One-time banner dismissal. Deliberately NOT an insight row. */
+  'user:tempDay30BannerDismissed': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'User dismissed the day-30 baseline-ready banner',
+    usedBy: [],
+  },
 
   // ── sprint6: stress (D-E) ─────────────────────────────────────────────
   /**
@@ -179,6 +186,25 @@ export const KV_KEY_REGISTRY = {
     usedBy: [],
     defaultValue: true,
   },
+  /**
+   * Heart Rate's ONE alert control (ruling D-H, T-26).
+   *
+   * HR has no flag line and cannot have one: a threshold that means one thing
+   * asleep and another mid-walk cannot exist. Its reference is three
+   * per-phase bands (asleep / awake / active), so a single sensitivity widens
+   * or narrows all three about their own midpoints: gentle 1.35x, normal 1x,
+   * watchful 0.7x.
+   *
+   * `ux_state`, NOT `threshold`: it scales a band, it does not arm a rule.
+   * `user:hrFlagLevel` is the v3 model this replaces (retired with T-26).
+   */
+  'user:hrSensitivity': {
+    kind: 'ux_state',
+    valueType: 'string',
+    description: 'How wide the HR phase bands sit: gentle | normal | watchful',
+    usedBy: [],
+    defaultValue: 'normal',
+  },
 
   // ── sprint6: HRV (T-06) ───────────────────────────────────────────────
   /**
@@ -205,6 +231,43 @@ export const KV_KEY_REGISTRY = {
     defaultValue: 3,
     range: [2, 7],
     step: 1,
+  },
+
+  // ── activity / steps (CREATIVE-RULES §7g) ─────────────────────────────
+  /**
+   * A daily step GOAL, not a flag. A flag is a level watched continuously and
+   * draggable on the plot; a goal is a daily total, and a daily total has
+   * nothing to hang a line on when the chart's axis is steps per hour. It
+   * renders as a stepper in the goal sheet, a tick on Compare and a bar under
+   * each raster column that reached it.
+   *
+   * `ux_state`, NOT `threshold`: it marks a chart, it does not arm a rule.
+   * There is no `ziva.activity-*` rule to read it; promote it if one is added.
+   */
+  'user:activityStepGoal': {
+    kind: 'ux_state',
+    valueType: 'number',
+    description: 'Daily step goal',
+    usedBy: [],
+    defaultValue: 8000,
+    range: [2000, 20000],
+    step: 500,
+  },
+  /** The goal sheet's "Nudge me" toggle. A reminder, never an alarm. */
+  'user:activityNotify': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'Nudge when well behind the step goal late in the day',
+    usedBy: [],
+    defaultValue: true,
+  },
+  /** The "we've learned your usual" banner — dismissed once, stays dismissed. */
+  'user:activityDay30BannerDismissed': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'Activity Day-30 banner dismissed',
+    usedBy: [],
+    defaultValue: false,
   },
 } as const satisfies Record<string, KvKeyEntry>
 

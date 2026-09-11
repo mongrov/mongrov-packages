@@ -22,8 +22,12 @@ describe('KV_KEY_REGISTRY', () => {
     // adding a key: the registry is the rules validator's allow-list, not
     // documentation, so growth should require a decision rather than happen.
     expect(Object.keys(KV_KEY_REGISTRY).sort()).toEqual([
+      'user:activityDay30BannerDismissed',
+      'user:activityNotify',
+      'user:activityStepGoal',
       'user:hrFlagLevel',
       'user:hrNotify',
+      'user:hrSensitivity',
       'user:hrvDropDays',
       'user:hrvDropMs',
       'user:spo2Day30BannerDismissed',
@@ -31,6 +35,7 @@ describe('KV_KEY_REGISTRY', () => {
       'user:spo2SafeLevel',
       'user:stressFlagLevel',
       'user:stressNotify',
+      'user:tempDay30BannerDismissed',
       'user:tempFlagLevel',
       'user:tempNights',
       'user:tempNotify',
