@@ -21,7 +21,6 @@
     "prebuild": "pnpm run clean",
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist",
-    "prebuild": "pnpm run clean",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
@@ -31,6 +30,7 @@
     "react": ">=19"
   },
   "devDependencies": {
+    "@types/react": "^18.3.12",
     "typescript": "^5.6.3",
     "vitest": "^2.1.9"
   },

@@ -38,8 +38,10 @@ jobs:
       matrix:
         # data-access + device were absent until 2026-08-04; their only
         # automated check was inside publish.yml at tag time, so a break
-        # would not surface until someone cut a release.
-        package: [types, core, auth, ui, ai, db, theme, collab, analytics, data-access, device]
+        # would not surface until someone cut a release. vitals-hooks was
+        # absent until 2026-09-11 for the same reason — its missing
+        # @types/react only ever showed up as a red publish-safety job.
+        package: [types, core, auth, ui, ai, db, theme, collab, analytics, data-access, device, vitals-hooks]
     steps:
       - uses: actions/checkout@v4
 
