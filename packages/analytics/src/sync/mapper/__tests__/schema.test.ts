@@ -194,7 +194,7 @@ describe('edge-case fixtures drive the mapper as authored', () => {
       .toEqual(['2025-11-02'])
     // Fall-back night: midnight LA 2025-11-01 is PDT (-07).
     const [session] = sessionsFromCorrected(asPrimary(batch.sleep_raw), ctx).sleep_session
-    expect(session.night_of.toISOString()).toBe('2025-11-01T07:00:00.000Z')
+    expect(session.night_of.toISOString()).toBe('2025-11-01T00:00:00.000Z')
   })
 
   it('firmware-midnight-session.json: one night, night_of = pre-midnight day', () => {
@@ -203,6 +203,6 @@ describe('edge-case fixtures drive the mapper as authored', () => {
       .toHaveLength(1)
     const { sleep_session } = sessionsFromCorrected(asPrimary(batch.sleep_raw), ctx)
     expect(sleep_session).toHaveLength(1)
-    expect(sleep_session[0].night_of.toISOString()).toBe('2026-06-17T07:00:00.000Z')
+    expect(sleep_session[0].night_of.toISOString()).toBe('2026-06-17T00:00:00.000Z')
   })
 })

@@ -43,16 +43,16 @@ describe('computeNightOf — 6pm-6pm local rule', () => {
     // 2026-06-17 17:59 America/Los_Angeles = 2026-06-18 00:59 UTC.
     const local1759 = parseTimestamp('2026.06.18 00:59:00')
     const night = computeNightOf(local1759, 'America/Los_Angeles')
-    // Night-of = 2026-06-16 midnight LA time = 2026-06-16 07:00 UTC (PDT: -07).
-    expect(night.toISOString()).toBe('2026-06-16T07:00:00.000Z')
+    // night_of = 2026-06-16, as a calendar date (UTC midnight — a DATE has no zone).
+    expect(night.toISOString()).toBe('2026-06-16T00:00:00.000Z')
   })
 
   it('18:00 local starts a new night bucket', () => {
     // 2026-06-17 18:00 LA (PDT -07) = 2026-06-18 01:00 UTC.
     const local1800 = parseTimestamp('2026.06.18 01:00:00')
     const night = computeNightOf(local1800, 'America/Los_Angeles')
-    // Night-of = 2026-06-17 midnight LA = 2026-06-17 07:00 UTC.
-    expect(night.toISOString()).toBe('2026-06-17T07:00:00.000Z')
+    // night_of = 2026-06-17.
+    expect(night.toISOString()).toBe('2026-06-17T00:00:00.000Z')
   })
 })
 
@@ -78,8 +78,8 @@ describe('computeNightOf — DST transitions', () => {
     const nightA = computeNightOf(firstOccurrence, 'America/Los_Angeles')
     const nightB = computeNightOf(secondOccurrence, 'America/Los_Angeles')
     expect(nightA.toISOString()).toBe(nightB.toISOString())
-    // And the night is 2026-10-31 midnight LA (PDT -07) = 2026-10-31 07:00 UTC.
-    expect(nightA.toISOString()).toBe('2026-10-31T07:00:00.000Z')
+    // And the night is 2026-10-31.
+    expect(nightA.toISOString()).toBe('2026-10-31T00:00:00.000Z')
   })
 })
 
@@ -94,7 +94,17 @@ describe('computeNightOf — midnight-crossing session', () => {
     const nightA = computeNightOf(before, 'America/Los_Angeles')
     const nightB = computeNightOf(after, 'America/Los_Angeles')
     expect(nightA.toISOString()).toBe(nightB.toISOString())
-    expect(nightA.toISOString()).toBe('2026-06-17T07:00:00.000Z')
+    expect(nightA.toISOString()).toBe('2026-06-17T00:00:00.000Z')
+  })
+})
+
+describe('computeNightOf — zones east of UTC', () => {
+  it('stores the evening date for IST, not the day before', () => {
+    // 01:30 IST on 2026-06-18 = 20:00 UTC on 2026-06-17 → night of the 17th.
+    // Local midnight of the 17th is 18:30 UTC on the 16th; returning that
+    // instant stored every IST night a day early.
+    const night = computeNightOf(parseTimestamp('2026.06.17 20:00:00'), 'Asia/Kolkata')
+    expect(night.toISOString()).toBe('2026-06-17T00:00:00.000Z')
   })
 })
 

@@ -18,7 +18,7 @@
  * shape.
  */
 
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { formatInTimeZone } from 'date-fns-tz'
 
 /**
  * Match `"YYYY.MM.DD HH:MM:SS"` exactly. Firmware writes UTC into this shape.
@@ -67,9 +67,9 @@ export function parseTimestamp(fwStr: string): Date {
  *     `[D 18:00, D+1 18:00)`
  *   are attributed to `night_of = D`.
  *
- * Returned as a UTC `Date` at midnight of `D` in the user's timezone. This
- * matches the `DATE` column shape in `sleep_session.night_of` and lets
- * `date_trunc`/`GROUP BY` queries stay timezone-honest.
+ * Returned as a `Date` at UTC midnight of `D` — a calendar date, not an
+ * instant. That is what the `DATE` column in `sleep_session.night_of` stores,
+ * in every zone.
  *
  * DST handling:
  *   - Spring-forward gap (02:00 becomes 03:00): a reading in the vanished hour
@@ -107,13 +107,15 @@ export function computeNightOf(ts: Date, tz: string): Date {
     nightD = rolled.getUTCDate()
   }
 
-  // Build the local-midnight ISO string for the night's day, then convert to
-  // the equivalent UTC instant via `fromZonedTime`.
-  const isoLocalMidnight = `${nightY.toString().padStart(4, '0')}-${nightM
-    .toString()
-    .padStart(2, '0')}-${nightD.toString().padStart(2, '0')}T00:00:00.000`
-
-  return fromZonedTime(isoLocalMidnight, tz)
+  // UTC midnight of the night's calendar date. A DATE has no zone, and every
+  // writer (the Appender, `toISOString().slice(0, 10)`) reads a JS Date's UTC
+  // fields — so UTC midnight is the only instant whose date IS the night.
+  //
+  // This used to return LOCAL midnight as an instant (`fromZonedTime`). West
+  // of UTC that instant still falls on the same UTC date, so PDT looked fine;
+  // east of UTC it falls on the previous one, and every IST night was stored
+  // a day early (`flusher-self-keyed.test.ts`, "night_of survives the write").
+  return new Date(Date.UTC(nightY, nightM - 1, nightD))
 }
 
 function pad(n: string): string {

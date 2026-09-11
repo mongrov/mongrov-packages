@@ -72,6 +72,7 @@ export interface SleepDeriver {
 }
 
 const SIX_HOURS = 6 * 3600
+const QUOTE_RE = /'/g
 
 function epochOf(ts: unknown): number | null {
   if (ts instanceof Date)
@@ -133,6 +134,46 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
     await deps.engine.execute(DELETE_SESSIONS_SQL(catalog), params)
   }
 
+  /**
+   * Re-key stored `night_of` to what `computeNightOf` says today.
+   *
+   * Rows written before 0.25.1 carry the old value — a day early east of UTC
+   * — and nights outside this sync's range are never re-derived, so without
+   * this they would stay wrong, and a replace keyed on the corrected night
+   * would miss them. Idempotent: once keys agree it only reads. Computed in
+   * JS through the one `computeNightOf`, not in SQL, so it needs no ICU.
+   */
+  async function rekeyNights(ctx: MapperContext): Promise<void> {
+    const rows = await deps.engine.execute<{ session_id: string, e: number | bigint, night: string }>(
+      `SELECT session_id, CAST(epoch(ts_start) AS BIGINT) AS e, CAST(night_of AS VARCHAR) AS night
+       FROM ${catalog}.main.sleep_session
+       WHERE brand = $brand AND family_id = $family_id AND user_id = $user_id AND device_id = $device_id`,
+      { brand: ctx.brand, family_id: ctx.familyId, user_id: ctx.userId, device_id: ctx.deviceId },
+    )
+    for (const r of rows) {
+      const want = computeNightOf(new Date(Number(r.e) * 1000), ctx.userTimezone).toISOString().slice(0, 10)
+      if (want === r.night)
+        continue
+      await deps.engine.execute(
+        `UPDATE ${catalog}.main.sleep_session SET night_of = CAST($night AS DATE) WHERE session_id = $id`,
+        { night: want, id: r.session_id },
+      )
+    }
+  }
+
+  /**
+   * Drop any stored session sharing an id with a row about to be written.
+   * Keyed flushes are ON CONFLICT DO NOTHING, so a stale row with the same id
+   * would otherwise silently win over the corrected one.
+   */
+  async function deleteByIds(ids: readonly string[]): Promise<void> {
+    if (ids.length === 0)
+      return
+    const list = ids.map(id => `'${id.replace(QUOTE_RE, '\'\'')}'`).join(', ')
+    await deps.engine.execute(`DELETE FROM ${catalog}.main.sleep_stage WHERE session_id IN (${list})`)
+    await deps.engine.execute(`DELETE FROM ${catalog}.main.sleep_session WHERE session_id IN (${list})`)
+  }
+
   async function deriveRange(p: PendingRange): Promise<{ sessions: SleepSessionRow[], stages: SleepStageRow[] }> {
     const timeZone = await deps.resolveTimezone(p.userId)
     const ctx: MapperContext = {
@@ -142,6 +183,7 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       deviceId: p.deviceId,
       userTimezone: timeZone,
     }
+    await rekeyNights(ctx)
     for (const sql of stagingViewsSql({ ...ctx, localCatalog: catalog }))
       await deps.engine.execute(sql)
 
@@ -172,6 +214,7 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       ])
       for (const night of nights)
         await replaceNight(ctx, night)
+      await deleteByIds(out.sleep_session.map(s => s.session_id))
       sessions.push(...out.sleep_session)
       stages.push(...out.sleep_stage)
     }

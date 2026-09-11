@@ -112,7 +112,7 @@ describe('sessionsFromCorrected', () => {
     expect(s.session_id).toMatch(SESSION_ID_RE)
     expect(sleep_stage.every(st => st.session_id === s.session_id)).toBe(true)
     // night_of: 05:00 UTC = 22:00 PDT on the 17th → night of the 17th (6pm–6pm).
-    expect(s.night_of.toISOString()).toBe('2026-06-17T07:00:00.000Z')
+    expect(s.night_of.toISOString()).toBe('2026-06-17T00:00:00.000Z')
   })
 
   it('keeps provenance on every stage and counts recovered minutes per session', () => {

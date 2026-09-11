@@ -24,12 +24,13 @@
  */
 
 import type { HybridDuckDB } from '../core/engine'
+import type { TableName } from '../core/schemas'
 import type { SensorBuffer } from './buffer'
-import type { BufferEntry, FlushResult } from './types'
 
+import type { BufferEntry, FlushResult } from './types'
 import { nanoid } from 'nanoid'
 import PQueue from 'p-queue'
-import { IDENTITY_COLUMNS } from '../core/schemas'
+import { LOCAL_SCHEMAS } from '../core/schemas'
 import { SyncError } from './errors'
 
 export type FlushReason
@@ -144,6 +145,15 @@ interface TableRuntimeState {
   failureCount: number
   state: FlusherState
   lastError?: SyncError
+}
+
+/**
+ * Whether the local table carries a PRIMARY KEY — its own (`sleep_session`,
+ * `device_config`) or one injected from IDENTITY_COLUMNS. Keyed tables must
+ * go through the staging + ON CONFLICT path; see `#write`.
+ */
+function isKeyed(table: string): boolean {
+  return LOCAL_SCHEMAS[table as TableName]?.includes('PRIMARY KEY') ?? false
 }
 
 export class BatchFlusher {
@@ -402,8 +412,14 @@ export class BatchFlusher {
    * whole batch is duplicates. The cost is one extra pass, not the ~19x that
    * row-wise `INSERT ... VALUES` would have cost.
    *
-   * Tables without a declared identity tuple (`tool_call_audit` is
-   * append-only by design) keep the direct path.
+   * The test is "does the table declare ANY primary key", not "is it in
+   * IDENTITY_COLUMNS". `sleep_session` and `device_config` spell their own
+   * key in the base DDL and are deliberately absent from IDENTITY_COLUMNS,
+   * so an IDENTITY_COLUMNS test sent both down the Appender path: a re-synced
+   * night threw `Duplicate key` and jammed every later row behind it (found
+   * by the UX team's app-side patch; `flusher-self-keyed.test.ts`). Only
+   * keyless tables (`tool_call_audit` is append-only by design) take the
+   * direct path.
    *
    * Returns rows APPENDED, not rows inserted. The count feeds buffer
    * accounting and the batch record, both of which are about what was
@@ -418,7 +434,7 @@ export class BatchFlusher {
       )
     }
 
-    if (!(table in IDENTITY_COLUMNS))
+    if (!isKeyed(table))
       return this.#appendInto(table, table, entries)
 
     const staging = `${table}__stg`
