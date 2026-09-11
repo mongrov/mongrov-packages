@@ -7,7 +7,7 @@ import { LOCAL_SCHEMAS, TABLE_NAMES } from '../schemas'
 const METRIC_IDS = Object.keys(METRIC_METADATA) as MetricId[]
 
 describe('METRIC_METADATA', () => {
-  it('has the 16 metrics from spec §Metric metadata (14 + D-G's two)', () => {
+  it('has the 16 metrics from spec §Metric metadata (14 + D-G\'s two)', () => {
     expect(METRIC_IDS).toHaveLength(16)
   })
 

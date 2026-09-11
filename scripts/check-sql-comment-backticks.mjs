@@ -27,32 +27,32 @@
  * after trimming, so they do not match.
  */
 
-import { globSync, readFileSync } from 'node:fs';
-import process from 'node:process';
+import { globSync, readFileSync } from 'node:fs'
+import process from 'node:process'
 
-const PATTERN = /^\s*--.*`/;
+const PATTERN = /^\s*--.*`/
 
-const files = globSync('packages/*/src/**/*.ts', { cwd: process.cwd() });
+const files = globSync('packages/*/src/**/*.ts', { cwd: process.cwd() })
 
-const failures = [];
+const failures = []
 for (const file of files) {
-  const lines = readFileSync(file, 'utf8').split('\n');
+  const lines = readFileSync(file, 'utf8').split('\n')
   lines.forEach((line, i) => {
     if (PATTERN.test(line))
-      failures.push({ file, line: i + 1, text: line.trim() });
-  });
+      failures.push({ file, line: i + 1, text: line.trim() })
+  })
 }
 
 if (failures.length === 0) {
-  process.exit(0);
+  process.exit(0)
 }
 
 console.error(
   '\nBacktick inside a SQL comment — this terminates the template literal.\n'
   + 'The parser will report an unrelated "Unexpected token" further down.\n'
   + 'Write the identifier without backticks.\n',
-);
+)
 for (const f of failures)
-  console.error(`  ${f.file}:${f.line}\n    ${f.text}\n`);
+  console.error(`  ${f.file}:${f.line}\n    ${f.text}\n`)
 
-process.exit(1);
+process.exit(1)

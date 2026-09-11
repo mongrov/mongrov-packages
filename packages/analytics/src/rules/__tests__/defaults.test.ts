@@ -300,99 +300,99 @@ describe('D3 — hrv_ms is relative-only, enforced at registration', () => {
       expect(['baseline_offset', 'baseline_percent', 'baseline_stddev']).toContain(r.target.type)
   })
 
-describe('the stress pair (D-E)', () => {
-  const byId = Object.fromEntries(zivaDefaults.map(r => [r.id, r]))
+  describe('the stress pair (D-E)', () => {
+    const byId = Object.fromEntries(zivaDefaults.map(r => [r.id, r]))
 
-  it('flags at the Tense rail INCLUSIVELY', () => {
-    const flag = byId['ziva.stress-flag-level']
-    // 66 is the lower rail of the Tense zone and the rail is inclusive, so a
-    // reading of exactly 66 paints Tense on the chart. With `greater_than`
-    // that same reading would not count toward the alert, and the screen and
-    // the rule would disagree at precisely the number the user chose.
-    expect(flag.compare).toBe('greater_than_or_equal')
-    expect(flag.target).toMatchObject({ type: 'user_setting', defaultValue: 66 })
-  })
+    it('flags at the Tense rail INCLUSIVELY', () => {
+      const flag = byId['ziva.stress-flag-level']
+      // 66 is the lower rail of the Tense zone and the rail is inclusive, so a
+      // reading of exactly 66 paints Tense on the chart. With `greater_than`
+      // that same reading would not count toward the alert, and the screen and
+      // the rule would disagree at precisely the number the user chose.
+      expect(flag.compare).toBe('greater_than_or_equal')
+      expect(flag.target).toMatchObject({ type: 'user_setting', defaultValue: 66 })
+    })
 
-  it('requires persistence rather than a single spike', () => {
+    it('requires persistence rather than a single spike', () => {
     // Three consecutive hourly readings. Since 0.16.0 those three must be
     // ADJACENT on the cadence grid — a missed reading breaks the run instead
     // of silently closing it, which is what "observed, not inferred across
     // silence" means in practice.
-    expect(byId['ziva.stress-flag-level'].consecutive).toBe(3)
-    expect(byId['ziva.stress-tense-days'].consecutive).toBe(2)
-  })
+      expect(byId['ziva.stress-flag-level'].consecutive).toBe(3)
+      expect(byId['ziva.stress-tense-days'].consecutive).toBe(2)
+    })
 
-  it('separates the absolute flag from the personal drift', () => {
+    it('separates the absolute flag from the personal drift', () => {
     // The two rules exist because neither subsumes the other: an absolute
     // flag cannot say "tenser than YOUR usual", and a relative offset cannot
     // say "you crossed the level you set".
-    expect(byId['ziva.stress-flag-level'].target.type).toBe('user_setting')
-    expect(byId['ziva.stress-tense-days'].target.type).toBe('baseline_offset')
-    expect(byId['ziva.stress-tense-days'].cadence).toBe('day')
-  })
+      expect(byId['ziva.stress-flag-level'].target.type).toBe('user_setting')
+      expect(byId['ziva.stress-tense-days'].target.type).toBe('baseline_offset')
+      expect(byId['ziva.stress-tense-days'].cadence).toBe('day')
+    })
 
-  it('lets the flag speak more than once a day, and the drift once', () => {
+    it('lets the flag speak more than once a day, and the drift once', () => {
     // A level the user set is worth hearing about when it is crossed again;
     // "tenser than usual" is a once-a-day observation by construction.
-    expect(byId['ziva.stress-flag-level'].throttle).toMatchObject({ maxPerDay: 3 })
-    expect(byId['ziva.stress-tense-days'].throttle).toMatchObject({ maxPerDay: 1 })
-    expect(byId['ziva.stress-flag-level'].severity).toBe('warn')
-    expect(byId['ziva.stress-tense-days'].severity).toBe('info')
+      expect(byId['ziva.stress-flag-level'].throttle).toMatchObject({ maxPerDay: 3 })
+      expect(byId['ziva.stress-tense-days'].throttle).toMatchObject({ maxPerDay: 1 })
+      expect(byId['ziva.stress-flag-level'].severity).toBe('warn')
+      expect(byId['ziva.stress-tense-days'].severity).toBe('info')
+    })
   })
-})
 
-describe('the HR flag rule (D-G)', () => {
-  const rule = zivaDefaults.find(r => r.id === 'ziva.hr-flag-level')!
+  describe('the HR flag rule (D-G)', () => {
+    const rule = zivaDefaults.find(r => r.id === 'ziva.hr-flag-level')!
 
-  it('is resting-gated, which is what makes an absolute number safe', () => {
+    it('is resting-gated, which is what makes an absolute number safe', () => {
     // 160 bpm on a run is not a finding; 105 sitting still is. Without the
     // gate this rule would alert on every workout, and the slot table's
     // decision 2 says exercise highs are context, never exceptions.
-    expect(rule.context).toBe('resting')
-  })
+      expect(rule.context).toBe('resting')
+    })
 
-  it('is high-only — there is deliberately no low-side counterpart', () => {
+    it('is high-only — there is deliberately no low-side counterpart', () => {
     // A low resting rate is usually fitness. v1 ships no rule for it.
-    expect(rule.compare).toBe('greater_than_or_equal')
-    expect(zivaDefaults.filter(r => r.metric === 'hr_bpm')).toHaveLength(1)
-  })
+      expect(rule.compare).toBe('greater_than_or_equal')
+      expect(zivaDefaults.filter(r => r.metric === 'hr_bpm')).toHaveLength(1)
+    })
 
-  it('requires about half an hour of sustained elevation', () => {
+    it('requires about half an hour of sustained elevation', () => {
     // 3 slot-adjacent readings at the 10-minute HR cadence. Adjacency matters:
     // a gap breaks the run rather than closing it.
-    expect(rule.consecutive).toBe(3)
-  })
+      expect(rule.consecutive).toBe(3)
+    })
 
-  it('reads its threshold from the registered KV key', () => {
-    expect(rule.target).toMatchObject({
-      type: 'user_setting',
-      key: 'user:hrFlagLevel',
-      defaultValue: 100,
+    it('reads its threshold from the registered KV key', () => {
+      expect(rule.target).toMatchObject({
+        type: 'user_setting',
+        key: 'user:hrFlagLevel',
+        defaultValue: 100,
+      })
     })
   })
-})
 
-describe('the temperature nights stepper (T-23)', () => {
-  const rule = zivaDefaults.find(r => r.id === 'ziva.temp-flag-level')!
+  describe('the temperature nights stepper (T-23)', () => {
+    const rule = zivaDefaults.find(r => r.id === 'ziva.temp-flag-level')!
 
-  it('binds its consecutive count to the KV setting, not a constant', () => {
+    it('binds its consecutive count to the KV setting, not a constant', () => {
     // The sheet ships a 1-5 stepper. A compile-time constant would mean the
     // stepper moved a number the rule never read — the same defect
     // user:hrvDropDays exists to avoid.
-    expect(rule.consecutiveKey).toBe('user:tempNights')
-    expect(rule.consecutive).toBe(2)
-  })
+      expect(rule.consecutiveKey).toBe('user:tempNights')
+      expect(rule.consecutive).toBe(2)
+    })
 
-  it('counts NIGHTS, not readings', () => {
+    it('counts NIGHTS, not readings', () => {
     // Day cadence. At reading cadence "3 in a row" is ninety minutes, not
     // three nights, and the sheet's wording promises nights.
-    expect(rule.cadence).toBe('day')
-  })
+      expect(rule.cadence).toBe('day')
+    })
 
-  it('defaults to two, because one warm night is weather', () => {
+    it('defaults to two, because one warm night is weather', () => {
     // A single warm night is a mattress, a room, or a late workout. Flagging
     // it teaches the user to ignore the flag.
-    expect(rule.consecutive).toBeGreaterThan(1)
+      expect(rule.consecutive).toBeGreaterThan(1)
+    })
   })
-})
 })

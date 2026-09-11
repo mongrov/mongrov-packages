@@ -24,22 +24,6 @@ const TZ = 'America/Los_Angeles'
 
 type DB = Awaited<ReturnType<typeof createRealDuckDB>>
 
-function dayRule(overrides: Record<string, unknown> = {}) {
-  return RuleSchema.parse({
-    id: 'test.hrv-below-usual',
-    name: 'HRV below usual',
-    metric: 'hrv_ms',
-    window: '30d',
-    aggregation: 'avg',
-    compare: 'less_than',
-    severity: 'info',
-    cadence: 'day',
-    consecutive: 3,
-    target: { type: 'baseline_offset', windowDays: 30, offset: 10, direction: 'below' },
-    ...overrides,
-  })
-}
-
 async function boot(): Promise<DB> {
   const db = await createRealDuckDB(['icu'])
   for (const t of ['hrv', 'user_baseline'] as const)
@@ -97,18 +81,6 @@ async function reading(db: DB, daysAgo: number, hourUtc: number, value: number):
   )
 }
 
-async function run(db: DB, rule = dayRule(), tz = TZ) {
-  const compiled = compileRule(rule)
-  return db.execute<{ observed_value: number, threshold_value: number }>(compiled.sql, {
-    userId: USER,
-    brand: BRAND,
-    familyId: FAMILY,
-    tz,
-    ...compiled.params,
-    baselineOffset: 10,
-  })
-}
-
 describe('reading-cadence runs are slot-adjacent', () => {
   const readingRule = () => RuleSchema.parse({
     id: 'test.flag',
@@ -123,12 +95,12 @@ describe('reading-cadence runs are slot-adjacent', () => {
   })
 
   /** Breaching value for a `less_than 50` rule; well clear of the threshold. */
-  const LOW = 30;
+  const LOW = 30
   /** Non-breaching: proves the reading was fine, not merely absent. */
-  const FINE = 80;
+  const FINE = 80
 
   async function fires(hours: number[]): Promise<boolean> {
-    return firesWith(hours.map(h => [h, LOW] as [number, number]));
+    return firesWith(hours.map(h => [h, LOW] as [number, number]))
   }
 
   async function firesWith(readings: [number, number][]): Promise<boolean> {
