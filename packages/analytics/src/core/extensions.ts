@@ -52,6 +52,9 @@ export type RequiredExtension = (typeof REQUIRED_EXTENSIONS)[number]
  */
 const bootedByDb = new WeakMap<HybridDuckDB, Set<string>>()
 
+/** Engines whose session has already been pinned to UTC. */
+const tzPinned = new WeakSet<HybridDuckDB>()
+
 /**
  * Issue `INSTALL <ext>; LOAD <ext>;` for each mode-appropriate extension
  * in order.
@@ -113,6 +116,25 @@ export async function bootstrapExtensions(
       }
     }
     booted.add(ext)
+  }
+
+  // Pin the session to UTC, now that icu is loaded (both modes load it).
+  //
+  // Every stored timestamp is naive UTC, and every window compares one to
+  // `NOW()`: `m.ts > NOW() - INTERVAL '24 hours'`. With icu loaded, DuckDB
+  // reads a naive TIMESTAMP in the SESSION zone to compare it with a
+  // TIMESTAMPTZ — and the session zone defaults to the device's. So in IST a
+  // reading was treated as 5.5h older than it was and a 24h window held
+  // 18.5h of data; in LA it held 31h. ~30 sites across the rule compiler,
+  // the AI tools, baseline compute and app queries all had it.
+  //
+  // Pinning here fixes the class, not the sites. It moves nothing that was
+  // already right: the correct local-day forms are session-independent by
+  // construction — `timezone($tz, timezone('UTC', ts))` on a column,
+  // `timezone($tz, NOW())` on now.
+  if (!tzPinned.has(db)) {
+    await db.execute(`SET TimeZone='UTC';`)
+    tzPinned.add(db)
   }
 }
 

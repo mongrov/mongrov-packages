@@ -40,44 +40,27 @@ async function boot(): Promise<DB> {
 }
 
 /**
- * Today's date in `tz`, as YYYY-MM-DD.
+ * Slot 0 of the fixture: the top of the UTC hour 12 hours ago.
  *
- * The fixture has to reason in LOCAL days because the query does. Deriving
- * offsets from `new Date().setUTCDate(...)` looks equivalent and is not: run
- * this after 5pm Pacific and "yesterday UTC" is today in Los Angeles, so a
- * reading intended for a completed day lands on the partial current one and
- * is correctly excluded — which reads as the feature being broken.
+ * Seeded relative to NOW, not to a calendar date. The earlier fixture wrote
+ * hours 01–03 UTC on today's Los Angeles date, which lies more than 24h in
+ * the past whenever the LA date trails the UTC date — the window emptied and
+ * both "fires" cases failed on CI at 05:47 UTC while passing on a PDT laptop.
+ * Twelve hours back keeps every slot (0–5) well inside a 24h window whatever
+ * the wall clock says, and hour-aligned keeps them on the hourly slot grid.
  */
-function localToday(tz: string): Date {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-  return new Date(`${parts}T00:00:00Z`)
+function slotZero(): number {
+  const HOUR = 3_600_000
+  return Math.floor(Date.now() / HOUR) * HOUR - 12 * HOUR
 }
 
-/**
- * One reading at `value`, `daysAgo` LOCAL days back.
- *
- * Stored at 20:00 UTC, which is midday in Los Angeles on the same calendar
- * date — comfortably inside the intended local day rather than near either
- * boundary, so the test is about run-counting rather than about edge rounding.
- */
-async function reading(db: DB, daysAgo: number, hourUtc: number, value: number): Promise<void> {
-  const d = localToday(TZ)
-  d.setUTCDate(d.getUTCDate() - daysAgo)
+/** One reading at `value` in hourly slot `slot`, stored as naive UTC. */
+async function reading(db: DB, slot: number, value: number): Promise<void> {
+  const ts = new Date(slotZero() + slot * 3_600_000).toISOString().slice(0, 19).replace('T', ' ')
   await db.execute(
     `INSERT INTO memory.hrv (ts, brand, family_id, user_id, device_id, hrv_ms)
      VALUES (CAST($ts AS TIMESTAMP), $b, $f, $u, 'ring_1', $v)`,
-    {
-      ts: `${d.toISOString().slice(0, 10)} ${String(hourUtc).padStart(2, '0')}:00:00`,
-      b: BRAND,
-      f: FAMILY,
-      u: USER,
-      v: value,
-    },
+    { ts, b: BRAND, f: FAMILY, u: USER, v: value },
   )
 }
 
@@ -123,10 +106,10 @@ describe('reading-cadence runs are slot-adjacent', () => {
     }
 
     const db = await boot()
-    // TODAY: a 24h window excludes yesterday, and seeding there made an
-    // earlier probe return false for BOTH cases — a silent control failure
-    // that would have reported the defect as absent.
-    for (const [h, v] of readings) await reading(db, 0, h, v)
+    // Inside the 24h window by construction (see slotZero): seeding outside
+    // it made an earlier probe return false for BOTH cases — a silent control
+    // failure that would have reported the defect as absent.
+    for (const [h, v] of readings) await reading(db, h, v)
     const rows = await db.execute(compiled.sql, bound)
     await db.close?.()
     return rows.length > 0

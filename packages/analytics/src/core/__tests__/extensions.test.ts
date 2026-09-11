@@ -31,6 +31,7 @@ describe('bootstrapExtensions', () => {
       'LOAD icu;',
       'LOAD iceberg;',
       'LOAD parquet;',
+      'SET TimeZone=\'UTC\';',
     ])
   })
 
@@ -57,6 +58,7 @@ describe('bootstrapExtensions', () => {
       'INSTALL icu;', // fallback, after LOAD threw
       'LOAD icu;', // retry succeeds
       'LOAD parquet;',
+      'SET TimeZone=\'UTC\';',
     ])
     expect(failedOnce).toBe(true)
   })
@@ -72,8 +74,21 @@ describe('bootstrapExtensions', () => {
     expect(fake.calls.map(c => c.sql)).toEqual([
       'LOAD icu;',
       'LOAD parquet;',
+      'SET TimeZone=\'UTC\';',
     ])
     expect(LOCAL_EXTENSIONS).toContain('icu')
+  })
+
+  it('pins the session to UTC after icu loads, once per engine', async () => {
+    const { fake, db } = await newOpenDb()
+
+    await bootstrapExtensions(db, 'local')
+    await bootstrapExtensions(db, 'local')
+
+    // After icu, never before: TimeZone is an icu setting. Once, not per call.
+    const sqls = fake.calls.map(c => c.sql)
+    expect(sqls.filter(s => s.startsWith('SET TimeZone'))).toEqual(['SET TimeZone=\'UTC\';'])
+    expect(sqls.indexOf('SET TimeZone=\'UTC\';')).toBeGreaterThan(sqls.indexOf('LOAD icu;'))
   })
 
   it('maps native failure to AnalyticsError(extension_load_failed) with extension name', async () => {

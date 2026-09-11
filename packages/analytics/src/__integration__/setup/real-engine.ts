@@ -65,6 +65,11 @@ export async function createRealDuckDB(
     await conn.run(`INSTALL ${ext}`)
     await conn.run(`LOAD ${ext}`)
   }
+  // Mirror production: `bootstrapExtensions` pins the session to UTC once icu
+  // is loaded. Without this, suites that boot here and run compiled SQL
+  // directly inherit the MACHINE's zone and pass or fail by laptop location.
+  if (extensions.includes('icu'))
+    await conn.run(`SET TimeZone='UTC'`)
   return adapt(inst, conn)
 }
 
