@@ -205,6 +205,14 @@ export const RuleSchema = z.object({
   allowSingleDay: z.boolean().optional(),
   /** KVStore key overriding `consecutive` at eval time (sprint6 §4). */
   consecutiveKey: z.string().min(1).optional(),
+  /**
+   * Minimum distinct LOCAL days with data in the window before the rule may
+   * fire (QA #108). A window aggregate over a ring worn one day of seven
+   * measures the wear, not the user: `ziva.low-activity-week` summed a week of
+   * steps and fired on a ring paired that morning. Days are the user's local
+   * days, so the evaluator binds `$tz`. Window aggregates only (validator).
+   */
+  minDays: z.number().int().min(1).optional(),
   target: TargetSchema,
   severity: z.enum(SEVERITIES),
   throttle: ThrottleSchema,

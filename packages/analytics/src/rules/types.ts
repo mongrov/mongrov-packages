@@ -74,6 +74,8 @@ export interface CompiledRule {
   cadence?: RuleCadence
   /** KVStore key overriding the run length at eval time. */
   consecutiveKey?: string
+  /** QA #108 — distinct local days required; the evaluator binds `$tz` when set. */
+  minDays?: number
 }
 
 /** Structured violation delivered to `on('violation', handler)` subscribers. */

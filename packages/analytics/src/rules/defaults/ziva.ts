@@ -87,6 +87,9 @@ window = "7d"
 aggregation = "sum"
 compare = "less_than"
 severity = "info"
+# QA #108: a week's sum over a ring worn one day is the wear, not the user.
+# 6 of 7 local days allows one charging day; a newly paired ring stays quiet.
+minDays = 6
 
 [rule.target]
 type = "absolute"

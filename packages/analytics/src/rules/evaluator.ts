@@ -263,7 +263,8 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       // rule and `user_baseline` agree about what a day is. No zone means
       // the boundary is unknowable: skip the rule and say so, rather than
       // bucketing on UTC and firing a day early for anyone west of it.
-      if (compiled.cadence === 'day') {
+      // QA #108 — a `minDays` floor counts local days the same way.
+      if (compiled.cadence === 'day' || compiled.minDays !== undefined) {
         const tz = await resolveTimezone(ctx.userId)
         if (tz === undefined) {
           logger?.warn('rules.evaluator: skipping day-cadence rule, no user timezone', {
@@ -273,7 +274,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
           return null
         }
         params.tz = tz
-        if (compiled.consecutiveKey !== undefined) {
+        if (compiled.cadence === 'day' && compiled.consecutiveKey !== undefined) {
           params.consecutive = await resolveUserSetting(
             ctx.userId,
             compiled.consecutiveKey,

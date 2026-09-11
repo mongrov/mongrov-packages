@@ -222,7 +222,8 @@ export function compileRule(rule: Rule): CompiledRule {
     = `${rule.metric} ${rule.aggregation} over ${rule.window} ${rule.compare} `
       + `${describeTarget(rule.target)}${
         rule.context === 'any' ? '' : ` [${rule.context}]`
-      }${rule.consecutive && rule.consecutive > 1 ? ` x${rule.consecutive} consecutive` : ''}`
+      }${rule.consecutive && rule.consecutive > 1 ? ` x${rule.consecutive} consecutive` : ''}${
+        rule.minDays !== undefined ? ` [>=${rule.minDays} days of data]` : ''}`
 
   const args: BuildArgs = {
     view,
@@ -235,6 +236,7 @@ export function compileRule(rule: Rule): CompiledRule {
     compare: rule.compare,
     consecutive: rule.consecutive,
     metricId: rule.metric,
+    minDays: rule.minDays,
   }
 
   const { sql, params } = rule.cadence === 'day'
@@ -247,7 +249,7 @@ export function compileRule(rule: Rule): CompiledRule {
     ruleId: rule.id,
     metric: rule.metric,
     sql,
-    params,
+    params: rule.minDays !== undefined ? { ...params, minDays: rule.minDays } : params,
     description,
     /** Evaluator binds `$userSettingValue` from this key when present. */
     userSettingKey: rule.target.type === 'user_setting' ? rule.target.key : undefined,
@@ -257,6 +259,7 @@ export function compileRule(rule: Rule): CompiledRule {
     offsetDefault: rule.target.type === 'baseline_offset' ? rule.target.offset : undefined,
     cadence: rule.cadence,
     consecutiveKey: rule.consecutiveKey,
+    minDays: rule.minDays,
   }
 }
 
@@ -286,6 +289,8 @@ interface BuildArgs {
   consecutive?: number
   /** Rule metric id — the `user_baseline.metric` key for baseline_offset. */
   metricId: string
+  /** QA #108 — distinct local days with data required in the window. */
+  minDays?: number
 }
 
 /** Tenant + window predicate, shared by both paths. */
@@ -324,13 +329,18 @@ function buildForTarget(args: BuildArgs): {
   const { view, join, ts, interval, column, agg, target, compare, metricId } = args
   const where = whereClause(ts, interval)
   const from = `FROM ${view} m${join}`
+  // QA #108 — a window aggregate over too few days of wear measures the wear,
+  // not the user. Local days, so a late-evening reading counts for its day.
+  const floor = args.minDays !== undefined
+    ? `\n   AND COUNT(DISTINCT ${localDayExpr(`m.${ts}`)}) >= CAST($minDays AS BIGINT)`
+    : ''
 
   if (target.type === 'absolute') {
     const params = { threshold_absolute: target.value }
     const sql = `SELECT ${agg} AS observed_value, ${THRESHOLD_ABSOLUTE} AS threshold_value
 ${from}
 ${where}
-HAVING ${compareClause(compare, 'observed_value', THRESHOLD_ABSOLUTE)};`
+HAVING ${compareClause(compare, 'observed_value', THRESHOLD_ABSOLUTE)}${floor};`
     return { sql, params }
   }
 
@@ -341,7 +351,7 @@ HAVING ${compareClause(compare, 'observed_value', THRESHOLD_ABSOLUTE)};`
     const sql = `SELECT ${agg} AS observed_value, ${USER_SETTING_VALUE} AS threshold_value
 ${from}
 ${where}
-HAVING ${compareClause(compare, 'observed_value', USER_SETTING_VALUE)};`
+HAVING ${compareClause(compare, 'observed_value', USER_SETTING_VALUE)}${floor};`
     return { sql, params: {} }
   }
 
@@ -357,7 +367,7 @@ HAVING ${compareClause(compare, 'observed_value', USER_SETTING_VALUE)};`
     const sql = `SELECT ${agg} AS observed_value, ${RANGE_MIN} AS threshold_value
 ${from}
 ${where}
-HAVING ${outside};`
+HAVING ${outside}${floor};`
     return { sql, params }
   }
 
@@ -397,7 +407,7 @@ SELECT ${agg} AS observed_value,
        (SELECT p50 FROM baseline) ${sign} CAST($baselineOffset AS DOUBLE) AS threshold_value
 ${from}
 ${where}
-HAVING ${compareClause(operator, 'observed_value', 'threshold_value')};`
+HAVING ${compareClause(operator, 'observed_value', 'threshold_value')}${floor};`
     return { sql, params }
   }
 
@@ -422,7 +432,7 @@ SELECT ${agg} AS observed_value,
        (SELECT mean FROM baseline) * (CAST($pct AS DOUBLE) / 100.0) AS threshold_value
 ${from}
 ${where}
-HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
+HAVING ${compareClause(compare, 'observed_value', 'threshold_value')}${floor};`
     return { sql, params }
   }
 
@@ -437,7 +447,7 @@ SELECT ${agg} AS observed_value,
        (SELECT mean + CAST($stddevs AS DOUBLE) * sd FROM baseline) AS threshold_value
 ${from}
 ${where}
-HAVING ${compareClause(compare, 'observed_value', 'threshold_value')};`
+HAVING ${compareClause(compare, 'observed_value', 'threshold_value')}${floor};`
   return { sql, params }
 }
 

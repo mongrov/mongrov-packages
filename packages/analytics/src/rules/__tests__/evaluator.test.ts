@@ -458,3 +458,50 @@ describe('createEvaluator', () => {
     })
   })
 })
+
+describe('minDays rules count LOCAL days, so they bind the user zone (QA #108)', () => {
+  const floored = {
+    id: 'test.steps.low',
+    name: 'Low steps all week',
+    metric: 'activity_steps',
+    window: '7d',
+    aggregation: 'sum',
+    compare: 'less_than',
+    severity: 'info',
+    target: { type: 'absolute', value: 20000 },
+    minDays: 6,
+  } as const satisfies Partial<Rule> as Rule
+
+  async function withZone(zone: string | undefined) {
+    const storage = createFakeStorage()
+    const clock = createFakeClock('2025-01-01T00:00:00Z')
+    const analytics = createFakeEngine()
+    const registry = createRulesRegistry({ storage })
+    const evaluator = createEvaluator({
+      registry,
+      cache: createCompilerCache(),
+      throttle: createThrottleStore({ storage, clock }),
+      emitter: createEmitter(),
+      analytics,
+      brand: 'ziva',
+      familyId: 'fam1',
+      familyMembersProvider: vi.fn(async () => ['u1']),
+      clock,
+      userTimezoneProvider: async () => zone,
+    })
+    await registry.register([floored])
+    analytics.__setResult([])
+    await evaluator.evaluateOnBatch({ affectedUserIds: ['u1'], affectedTables: ['activity'] })
+    return analytics.__calls.filter(c => c.sql.includes('$minDays'))
+  }
+
+  it('binds $tz and $minDays', async () => {
+    const calls = await withZone('Asia/Kolkata')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].params).toMatchObject({ tz: 'Asia/Kolkata', minDays: 6 })
+  })
+
+  it('skips the rule when the user has no zone, rather than counting UTC days', async () => {
+    expect(await withZone(undefined)).toHaveLength(0)
+  })
+})

@@ -86,6 +86,7 @@ function samplingLabel(metric: MetricId): string {
 export function validateRule(rule: Rule, logger?: RulesLogger): void {
   validateConsecutive(rule)
   validateCadence(rule)
+  validateMinDays(rule)
   validateContext(rule)
   validateUserSettingKey(rule)
 
@@ -176,6 +177,37 @@ function validateRelativeOnly(rule: Rule): void {
     + `the user's own baseline instead (baseline_offset, baseline_percent or `
     + `baseline_stddev). See .specifica/hrv/spec.md D3.`,
   )
+}
+
+/** Days in each day-sized window; hour windows cannot hold a day count. */
+const WINDOW_DAYS: Readonly<Record<string, number>> = { '3d': 3, '7d': 7, '30d': 30 }
+
+/**
+ * QA #108 — `minDays` counts distinct local days inside the window, so it
+ * needs a window measured in days, cannot exceed it, and is compiled only on
+ * the window-aggregate path.
+ */
+function validateMinDays(rule: Rule): void {
+  const n = rule.minDays
+  if (n === undefined)
+    return
+  const days = WINDOW_DAYS[rule.window]
+  if (days === undefined) {
+    throw new RuleValidationError(
+      `Rule ${rule.id}: minDays needs a window measured in days (got ${rule.window}).`,
+    )
+  }
+  if (n > days) {
+    throw new RuleValidationError(
+      `Rule ${rule.id}: minDays ${n} exceeds the ${rule.window} window — the rule could never fire.`,
+    )
+  }
+  if (rule.cadence === 'day' || (rule.consecutive ?? 1) > 1 || rule.rawSql) {
+    throw new RuleValidationError(
+      `Rule ${rule.id}: minDays applies to window aggregates only — not with cadence 'day', `
+      + `consecutive runs, or rawSql.`,
+    )
+  }
 }
 
 function validateCadence(rule: Rule): void {
