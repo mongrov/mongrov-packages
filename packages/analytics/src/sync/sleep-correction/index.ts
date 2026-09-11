@@ -14,6 +14,15 @@ export {
   globalBaselines,
   type SqlRunner,
 } from './correct'
+export { nightOffsetHours, nightWindow } from './night'
+export {
+  type CorrectSleepInput,
+  correctSleepNights,
+  type CorrectSleepResult,
+  type NightOutcome,
+  nightsForEpochs,
+} from './orchestrate'
+export { computeSettleMin, recoveredMinutes } from './settle'
 export {
   correctNightSql,
   DEFAULT_RELATIONS,
@@ -23,3 +32,4 @@ export {
   morningVitalsSql,
   type SleepRelations,
 } from './sql'
+export { type StagingScope, stagingViewsSql } from './staging'

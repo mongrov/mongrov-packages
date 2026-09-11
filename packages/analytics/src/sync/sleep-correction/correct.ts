@@ -73,7 +73,7 @@ export interface CorrectNightInput {
 export type CorrectNightResult
   = | { status: 'no_firmware_sleep' }
     | { status: 'no_phase2_rows' }
-    | { status: 'ok', rows: ClassifiedRow[] }
+    | { status: 'ok', rows: ClassifiedRow[], vitals: VitalSample[] }
 
 /** One night: guard → Phase 2 (SQL) → morning vitals → Phase 3 (JS). */
 export async function correctNight(db: SqlRunner, input: CorrectNightInput): Promise<CorrectNightResult> {
@@ -103,5 +103,5 @@ export async function correctNight(db: SqlRunner, input: CorrectNightInput): Pro
   const vitals: VitalSample[] = ((await db.execute(morningVitalsSql(windowStart, windowEnd, r))) as Row[])
     .map(v => ({ kind: String(v.kind), epoch: toNum(v.epoch) ?? 0, value: toNum(v.value) ?? Number.NaN }))
 
-  return { status: 'ok', rows: classifyBlocks(rows, input.tzOffsetHours, vitals) }
+  return { status: 'ok', rows: classifyBlocks(rows, input.tzOffsetHours, vitals), vitals }
 }
