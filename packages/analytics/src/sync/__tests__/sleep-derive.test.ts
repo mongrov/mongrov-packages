@@ -41,7 +41,11 @@ function rawNight(from: string, minutes: number, sessionStart = from): FirmwareS
   }))
 }
 
-async function rig(opts: { resolveTimezone?: () => Promise<string> } = {}) {
+async function rig(opts: {
+  resolveTimezone?: () => Promise<string>
+  hrWindows?: readonly (readonly [string, string])[]
+  now?: number
+} = {}) {
   const db = new HybridDuckDB(() => createRealDuckDB([]))
   await db.open()
   for (const t of TABLES) await db.execute(LOCAL_SCHEMAS[t])
@@ -56,10 +60,10 @@ async function rig(opts: { resolveTimezone?: () => Promise<string> } = {}) {
     columnOrder[t] = cols.map(c => c.column_name)
   }
 
-  // Sleeping-level HR through both nights, so the pipeline has a tier,
-  // percentiles and envelope samples.
+  // Sleeping-level HR through the nights under test, so the pipeline has a
+  // tier, percentiles and envelope samples.
   const hr: string[] = []
-  for (const [from, to] of [['2026-06-17T22:00:00', '2026-06-18T07:00:00'], ['2026-06-18T22:00:00', '2026-06-19T07:00:00']]) {
+  for (const [from, to] of opts.hrWindows ?? [['2026-06-17T22:00:00', '2026-06-18T07:00:00'], ['2026-06-18T22:00:00', '2026-06-19T07:00:00']]) {
     for (let t = at(from); t <= at(to); t += 300_000)
       hr.push(`('${ts(t)}', 'ziva', 'fam_1', 'u1', 'ring_1', 60)`)
   }
@@ -72,7 +76,7 @@ async function rig(opts: { resolveTimezone?: () => Promise<string> } = {}) {
     buffer,
     flusher,
     resolveTimezone: opts.resolveTimezone ?? (async () => 'UTC'),
-    now: () => at('2026-06-20T00:00:00'),
+    now: () => opts.now ?? at('2026-06-20T00:00:00'),
   })
 
   /** One sync: raw rows in, flush, derive, close the batch. */
@@ -155,4 +159,53 @@ describe('sleep derive inside the batch', () => {
     expect(await r.sessions()).toEqual([])
     await r.db.close()
   }, 60_000)
+})
+
+describe('a capture split across syncs', () => {
+  it('two delta syncs land the same night as one sync of the whole capture', async () => {
+    // The acceptance case for staging + night replace (§3): a ring that syncs
+    // twice mid-night must not end up with two half nights, or with a night
+    // that differs from the one a single sync would have produced.
+    const whole = rawNight('2026-06-17T23:00:00', 300)
+
+    const single = await rig()
+    await single.sync(whole)
+    const once = await single.sessions()
+    await single.db.close()
+
+    const split = await rig()
+    await split.sync(whole.slice(0, 150))
+    await split.sync(whole.slice(150))
+    const twice = await split.sessions()
+    const stages = await split.stageCount()
+    await split.db.close()
+
+    expect(twice).toHaveLength(1)
+    expect(twice).toEqual(once)
+    expect(stages).toBe(twice[0].total_minutes)
+  }, 120_000)
+})
+
+describe('DST — the night window comes from the IANA offset', () => {
+  it('keeps the fall-back night whole, and names it by its evening', async () => {
+    // Los Angeles falls back 2025-11-02 02:00 → 01:00, so that local night is
+    // 25 hours long and 01:30 happens twice. A fixed offset would either split
+    // the night or drop the repeated hour; the offset is read at 18:00 local
+    // on the night's own evening.
+    const r = await rig({
+      resolveTimezone: async () => 'America/Los_Angeles',
+      hrWindows: [['2025-11-02T04:00:00', '2025-11-02T15:00:00']],
+      now: at('2025-11-04T00:00:00'),
+    })
+    // 23:00 PDT on the 1st = 06:00 UTC on the 2nd; 300 minutes of it spans
+    // both passes of 01:00-01:59 local.
+    await r.sync(rawNight('2025-11-02T06:00:00', 300))
+
+    const s = await r.sessions()
+    expect(s).toHaveLength(1)
+    expect(s[0].night).toBe('2025-11-01') // the evening the night began
+    expect(s[0].total_minutes).toBeGreaterThanOrEqual(300)
+    expect(await r.stageCount()).toBe(s[0].total_minutes)
+    await r.db.close()
+  }, 120_000)
 })
