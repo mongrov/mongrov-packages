@@ -25,6 +25,7 @@ describe('KV_KEY_REGISTRY', () => {
       'user:activityDay30BannerDismissed',
       'user:activityNotify',
       'user:activityStepGoal',
+      'user:birthYear',
       'user:hrFlagLevel',
       'user:hrNotify',
       'user:hrSensitivity',

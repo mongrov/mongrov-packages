@@ -233,6 +233,29 @@ export const KV_KEY_REGISTRY = {
     step: 1,
   },
 
+  // ── profile facts ─────────────────────────────────────────────────────
+  /**
+   * Birth YEAR, not age — age changes every year and a stored age silently
+   * rots. The sleep-quality feeder bands optimal sleep duration by age
+   * (65+ / 50+ / under 50, sleep-correction §4.1), and our audience sits
+   * exactly where those bands differ, so scoring everyone on the under-50
+   * band would be wrong for the people the product is for.
+   *
+   * `ux_state`: a profile fact the app collects and reads. No rule targets
+   * it — a rule thresholding on someone's birth year is a bug.
+   *
+   * Absent is normal and must stay usable: a feeder reports which band it
+   * used, so "we do not know your age yet" never reads as a real score.
+   */
+  'user:birthYear': {
+    kind: 'ux_state',
+    valueType: 'number',
+    description: 'Birth year, used to band age-dependent sleep targets',
+    usedBy: [],
+    range: [1900, 2025],
+    step: 1,
+  },
+
   // ── activity / steps (CREATIVE-RULES §7g) ─────────────────────────────
   /**
    * A daily step GOAL, not a flag. A flag is a level watched continuously and
