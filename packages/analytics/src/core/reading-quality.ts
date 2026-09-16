@@ -35,6 +35,16 @@
  * temperature at or before it, and only if that temperature is recent — with
  * no recent evidence the reading is assumed worn, because absence of a
  * temperature is not evidence the ring was off.
+ *
+ * Two helper views feed the flags, both built before the `_q` views:
+ *   v_wear    per temperature reading: is the ring on, and is this the
+ *             warm-up onset?
+ *   v_motion  the minutes the user was moving, which `still` looks up.
+ *
+ * Both exist so the flags are computed by LOOKUP rather than by scan. `still`
+ * was once a correlated subquery over minute-resolution activity and cost
+ * ~33 s on a 180-day clean scan on its own (zivaone_app#126); as an ASOF
+ * lookup it costs single-digit milliseconds for identical rows.
  */
 
 import type { ViewedTable } from './schemas'
@@ -92,6 +102,7 @@ export function readViewFor(table: string): string {
 }
 
 const WEAR_VIEW = 'v_wear'
+const MOTION_VIEW = 'v_motion'
 
 const [TEMP_MIN, TEMP_MAX] = PLAUSIBLE_RANGES.temp_c
 const [SPO2_MIN, SPO2_MAX] = PLAUSIBLE_RANGES.spo2
@@ -125,13 +136,56 @@ const WORN = `CASE WHEN w.ts IS NULL OR w.ts < m.ts - INTERVAL ${WEAR_EVIDENCE_M
 
 const WARM_UP = `COALESCE(w.onset AND m.ts < w.ts + INTERVAL ${WARM_UP_MINUTES} MINUTE, FALSE)`
 
-/** Tenant-scoped like the rules' `resting` join, not device-scoped. */
-const STILL = `NOT EXISTS (
-         SELECT 1 FROM v_activity a
-         WHERE a.user_id = m.user_id AND a.brand = m.brand AND a.family_id = m.family_id
-           AND a.steps > 0
-           AND a.ts >= m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
-           AND a.ts <  m.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE)`
+/**
+ * The minutes the user was moving — the set `still` is really asking about.
+ *
+ * Tenant-scoped, not device-scoped: a step recorded by one ring silences a
+ * reading taken by another on the same family, which is what the rules'
+ * `resting` join does and what `still` has always meant here.
+ */
+function motionViewDdl(): string {
+  return `CREATE OR REPLACE VIEW ${MOTION_VIEW} AS
+SELECT user_id, brand, family_id, ts FROM v_activity WHERE steps > 0;`
+}
+
+/**
+ * Nearest motion either side of a reading.
+ *
+ * `still` used to be a correlated `NOT EXISTS` against `v_activity`, re-run
+ * per reading over a +/-15 minute window. That single predicate dominated
+ * every clean-view scan: `v_heart_rate_clean` measured 1 ms without it and
+ * 32,958 ms with it at 180 days, and the HR day grid 36,172 ms
+ * (zivaone_app#126). Activity is minute-resolution, so the subquery scanned
+ * ~1,440 rows per day per reading.
+ *
+ * Two ASOF joins answer the same question by lookup instead of by scan:
+ * `mp` = latest motion at-or-before the reading, `mn` = earliest motion
+ * strictly after it. Aliases avoid `n`, which `heartRateQDdl` already uses as
+ * a WINDOW name.
+ */
+const MOTION_JOIN = `ASOF LEFT JOIN ${MOTION_VIEW} mp
+    ON mp.user_id = m.user_id AND mp.brand = m.brand AND mp.family_id = m.family_id
+   AND m.ts >= mp.ts
+  ASOF LEFT JOIN ${MOTION_VIEW} mn
+    ON mn.user_id = m.user_id AND mn.brand = m.brand AND mn.family_id = m.family_id
+   AND m.ts < mn.ts`
+
+/**
+ * Exactly the old predicate, re-expressed. The old window was HALF-OPEN
+ * (`a.ts >= m.ts - 15 AND a.ts < m.ts + 15`); splitting it at `m.ts` gives
+ * "no motion in [m.ts-15, m.ts]" and "no motion in (m.ts, m.ts+15)", i.e.
+ * the two bounds below.
+ *
+ * The `>=` on the right edge is load-bearing: it is what keeps the window
+ * half-open, so a step exactly 15 minutes BEFORE a reading marks it moving
+ * while one exactly 15 minutes AFTER does not. A symmetric rewrite
+ * (`BETWEEN`, or `>` here) silently flips those readings.
+ * `__integration__/__tests__/still-equivalence.test.ts` proves row-for-row
+ * equality against the original, pins both edges, and covers the
+ * two-devices-one-family case that a device-scoped rewrite would break.
+ */
+const STILL = `((mp.ts IS NULL OR mp.ts <  m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE)
+          AND (mn.ts IS NULL OR mn.ts >= m.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE))`
 
 function sharedFlags(): string {
   return `${WORN} AS worn,
@@ -158,6 +212,7 @@ FROM (
     WINDOW n AS (${DEVICE_WINDOW})
   ) m
   ${WEAR_JOIN}
+  ${MOTION_JOIN}
 ) f;`
 }
 
@@ -170,6 +225,7 @@ FROM (
          COALESCE(m.spo2 BETWEEN ${SPO2_MIN} AND ${SPO2_MAX}, FALSE) AS plausible
   FROM v_spo2 m
   ${WEAR_JOIN}
+  ${MOTION_JOIN}
 ) f;`
 }
 
@@ -185,6 +241,7 @@ FROM (
            AND m.temp_c / 10 BETWEEN ${TEMP_MIN} AND ${TEMP_MAX}, FALSE) AS scale_suspect
   FROM v_temperature m
   ${WEAR_JOIN}
+  ${MOTION_JOIN}
 ) f;`
 }
 
@@ -204,6 +261,7 @@ FROM (
          COALESCE(m.hrv_ms BETWEEN ${HRV_MIN} AND ${HRV_MAX}, FALSE) AS plausible
   FROM v_hrv m
   ${WEAR_JOIN}
+  ${MOTION_JOIN}
 ) f;`
 }
 
@@ -242,6 +300,8 @@ export interface QualityView {
 export function qualityViewDdls(): QualityView[] {
   return [
     { name: WEAR_VIEW, sql: wearViewDdl() },
+    // After the wear view, before the `_q` views that join it.
+    { name: MOTION_VIEW, sql: motionViewDdl() },
     ...QUALITY_TABLES.map(t => ({ name: qualityViewFor(t), sql: Q_DDL[t]() })),
     ...QUALITY_TABLES.map(t => ({ name: cleanViewFor(t), sql: cleanViewDdl(t) })),
   ]
