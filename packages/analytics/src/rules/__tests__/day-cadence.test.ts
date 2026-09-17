@@ -169,8 +169,9 @@ describe('a day with NO DATA breaks the run', () => {
    */
   it('does not fire across an unworn day', async () => {
     const db = await boot()
-    // Breaching on day-4 and day-2. Day-3 has no readings whatsoever.
-    for (const d of [4, 2]) await seedFullDay(db, d, 30)
+    // Breaching on day-3 and day-1. Day-2 has no readings whatsoever. The run
+    // ends yesterday, so only the gap — not staleness — can stop it firing.
+    for (const d of [3, 1]) await seedFullDay(db, d, 30)
 
     const rows = await run(db, dayRule({ consecutive: 2 }))
     expect(rows).toHaveLength(0)
@@ -181,7 +182,7 @@ describe('a day with NO DATA breaks the run', () => {
     // The control: identical values on adjacent dates must still fire, or the
     // test above would pass for a rule that never fires at all.
     const db = await boot()
-    for (const d of [3, 2]) await seedFullDay(db, d, 30)
+    for (const d of [2, 1]) await seedFullDay(db, d, 30)
 
     const rows = await run(db, dayRule({ consecutive: 2 }))
     expect(rows).toHaveLength(1)

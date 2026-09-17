@@ -158,7 +158,12 @@ brand = "ziva"
 name = "Running warm"
 description = "Temperature at or above the level you set, for the nights you set."
 metric = "temp_c"
-window = "24h"
+# 30d, NOT 24h. At day cadence the window is how far back COMPLETED days are
+# read, and today is excluded — a 24h window held at most one partial day, so
+# "2 nights in a row" could never be observed and this rule never fired
+# (zivaone_app#55, found by ziva-defaults-live.test.ts). It must cover the
+# stepper's longest run (5) plus today; the validator now enforces that.
+window = "30d"
 aggregation = "max"
 compare = "greater_than"
 context = "any"
