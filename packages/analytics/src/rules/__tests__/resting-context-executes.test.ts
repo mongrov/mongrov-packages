@@ -10,8 +10,9 @@ import { describe, expect, it } from 'vitest'
 
 import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { STILL_FLOOR, STILL_WINDOW_MINUTES } from '../../core/reading-quality'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
-import { compileRule, USER_SETTING_PARAM } from '../compiler'
+import { compileRule, emitContextJoin, USER_SETTING_PARAM } from '../compiler'
 import { RuleSchema } from '../schema'
 
 const BRAND = 'ziva'
@@ -123,6 +124,64 @@ describe('a resting-gated rule', () => {
       await hr(db, 14, 150)
       const rows = await run(db)
       expect(rows).toHaveLength(1)
+    }
+    finally {
+      await db.close?.()
+    }
+  }, 120_000)
+
+  it('treats a few steps below the movement floor as resting (mongrov-packages#6)', async () => {
+    // A worn ring logs a handful of steps in most waking minutes — shifting in
+    // a chair is not exercise. The chart's `still` flag and the baseline's
+    // resting average both use the §7g floor (STILL_FLOOR steps in the ±15 min
+    // window); under `steps > 0` this rule alone called the reading moving,
+    // so an elevated resting HR next to a few fidgety steps never alerted.
+    const db = await boot()
+    try {
+      for (const m of [10, 20, 30]) await hr(db, m, 120)
+      await steps(db, 20, 12) // well under the floor of 50 in any window
+      const rows = await run(db)
+      expect(rows).toHaveLength(1)
+    }
+    finally {
+      await db.close?.()
+    }
+  }, 120_000)
+
+  it('classifies resting row-for-row like the windowed-sum definition (mongrov-packages#6)', async () => {
+    // The bar 0.27.0's `still` cleared: agreement with the slow, obvious
+    // definition on data that exercises both outcomes, including the ±15 min
+    // half-open edges.
+    const db = await boot()
+    try {
+      await db.execute(`INSERT INTO memory.heart_rate
+        SELECT now() - INTERVAL 1 DAY + (INTERVAL 5 MINUTE) * g, $b, $f, $u, 'ring_1', 60 + (g % 20)
+        FROM generate_series(0, 287) AS t(g)`, { b: BRAND, f: FAMILY, u: USER })
+      await db.execute(`INSERT INTO memory.activity
+        SELECT now() - INTERVAL 1 DAY + (INTERVAL 1 MINUTE) * g, $b, $f, $u, 'ring_1',
+               CASE WHEN (g % 97) < 11 THEN 1 + (g % 9) ELSE 0 END
+        FROM generate_series(0, 1439) AS t(g)`, { b: BRAND, f: FAMILY, u: USER })
+
+      const gated = `SELECT m.ts FROM v_heart_rate_clean m${emitContextJoin('resting', 'heart_rate')}`
+      const reference = `SELECT m.ts FROM v_heart_rate_clean m
+        WHERE COALESCE((
+          SELECT sum(a.steps) FROM v_activity a
+          WHERE a.user_id = m.user_id AND a.brand = m.brand AND a.family_id = m.family_id
+            AND a.ts >= m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
+            AND a.ts <  m.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
+        ), 0) < ${STILL_FLOOR}`
+      const [{ n }] = await db.execute<{ n: number }>(
+        `SELECT count(*)::INTEGER AS n FROM ((${gated} EXCEPT ${reference}) UNION ALL (${reference} EXCEPT ${gated}))`,
+      )
+      expect(n).toBe(0)
+
+      const [{ resting, total }] = await db.execute<{ resting: number, total: number }>(
+        `SELECT (SELECT count(*) FROM (${reference}))::INTEGER AS resting,
+                (SELECT count(*) FROM v_heart_rate_clean)::INTEGER AS total`,
+      )
+      // Both outcomes present, or agreement would be vacuous.
+      expect(resting).toBeGreaterThan(0)
+      expect(resting).toBeLessThan(total)
     }
     finally {
       await db.close?.()

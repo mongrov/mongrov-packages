@@ -70,11 +70,23 @@ describe('T-17 — emitContextJoin', () => {
     expect(join).not.toContain('a.steps = 0')
   })
 
+  it('resting on a quality-flagged metric → joins its own row in v_<table>_q and requires still (mongrov-packages#6)', () => {
+    // The movement FLOOR is a sum, which the anti join above cannot express;
+    // the `still` flag on the quality view is that sum, proven in 0.27.0.
+    const join = emitContextJoin('resting', 'heart_rate')
+    expect(join).toContain('INNER JOIN v_heart_rate_q rq')
+    expect(join).toContain('rq.still')
+    // One row per reading: the full identity, device and instant included.
+    expect(join).toMatch(/rq\.device_id = m\.device_id/)
+    expect(join).toMatch(/rq\.ts = m\.ts/)
+    expect(join).not.toContain('steps > 0')
+  })
+
   it('joins carry the full tenant triple, not just user_id', () => {
     // A join on user alone would match another brand's sleep sessions for
     // the same person on a multi-brand install.
-    for (const context of ['asleep', 'resting'] as const) {
-      const join = emitContextJoin(context)
+    for (const [context, table] of [['asleep', undefined], ['resting', undefined], ['resting', 'heart_rate']] as const) {
+      const join = emitContextJoin(context, table)
       expect(join).toMatch(/\.user_id = m\.user_id/)
       expect(join).toMatch(/\.brand = m\.brand/)
       expect(join).toMatch(/\.family_id = m\.family_id/)

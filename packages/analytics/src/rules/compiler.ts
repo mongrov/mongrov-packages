@@ -38,7 +38,7 @@ import type { TableName } from '../core/schemas'
 import type { Aggregation, Compare, Rule, RuleContext, Target, Window } from './schema'
 import type { CompiledRule } from './types'
 import { METRIC_METADATA } from '../core/metric_metadata'
-import { readViewFor } from '../core/reading-quality'
+import { isQualityTable, qualityViewFor, readViewFor } from '../core/reading-quality'
 import {
 
   RuleValidationError,
@@ -119,7 +119,7 @@ function compareClause(compare: Compare, lhs: string, rhs: string): string {
  * another brand's sleep sessions for the same person on a multi-brand
  * install.
  */
-export function emitContextJoin(context: RuleContext): string {
+export function emitContextJoin(context: RuleContext, table?: string): string {
   switch (context) {
     case 'any':
       return ''
@@ -152,7 +152,35 @@ INNER JOIN ${viewFor('sleep_session')} s
        *
        * ANTI JOIN keeps this in the join position while inverting the meaning:
        * the sample survives when no movement row matches the window.
+       *
+       * mongrov-packages#6 — and "movement" is the §7g FLOOR, not `steps > 0`.
+       * A worn ring logs a few steps in most waking minutes; 0.27.0 moved the
+       * chart's `still` flag and the baseline's resting average to "fewer than
+       * STILL_FLOOR steps in the window", and this gate was the one site left
+       * on `steps > 0`, so a reading could be still on the chart and moving
+       * for the rule that alerts on it.
+       *
+       * A floor is a SUM, which an anti join cannot express. For a metric
+       * with quality flags the gate therefore joins the reading to its own row
+       * in `v_<table>_q` and requires `still` — the very flag the charts read,
+       * proven row-for-row equal to the windowed sum in 0.27.0. Still a join,
+       * so `emitContextJoin` keeps its shape and the aggregate semantics the
+       * "context is a JOIN" test protects. Do NOT put the floor inside an ASOF
+       * ON clause: ASOF then hunts for a nearer passing row instead of
+       * measuring the window (disproven on 864 readings, see #6).
+       *
+       * Tables without quality flags keep the row-existence form below.
        */
+      if (table !== undefined && isQualityTable(table)) {
+        return `
+INNER JOIN ${qualityViewFor(table)} rq
+   ON rq.user_id = m.user_id
+  AND rq.brand = m.brand
+  AND rq.family_id = m.family_id
+  AND rq.device_id = m.device_id
+  AND rq.ts = m.ts
+  AND rq.still`
+      }
       return `
 ANTI JOIN ${viewFor('activity')} a
    ON a.user_id = m.user_id
@@ -216,7 +244,7 @@ export function compileRule(rule: Rule): CompiledRule {
 
   const ts = tsColumn(rawTable as TableName)
   const interval = windowInterval(rule.window)
-  const join = emitContextJoin(rule.context)
+  const join = emitContextJoin(rule.context, sanitizeIdent(rawTable))
 
   const description
     = `${rule.metric} ${rule.aggregation} over ${rule.window} ${rule.compare} `
