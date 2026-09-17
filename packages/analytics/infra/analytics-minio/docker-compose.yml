@@ -16,7 +16,12 @@ name: mongrov-analytics-minio
 
 services:
   minio:
-    image: minio/minio:RELEASE.2025-04-08T15-41-24Z
+    # quay.io, not Docker Hub. The Docker Hub `minio/minio` repository stopped
+    # being pullable between 2026-09-11 and 2026-09-13 (both pinned tags 404,
+    # anonymous pull tokens grant no access), which silently stopped the
+    # integration suite from running at all (mongrov-packages#7). The same
+    # pinned release is published on quay.io, multi-arch including amd64.
+    image: quay.io/minio/minio:RELEASE.2025-04-08T15-41-24Z
     container_name: mongrov-analytics-minio
     command: server /data --console-address ":9001"
     environment:
@@ -34,7 +39,8 @@ services:
       start_period: 5s
 
   minio-init:
-    image: minio/mc:RELEASE.2025-04-08T15-39-49Z
+    # quay.io for the same reason as `minio` above.
+    image: quay.io/minio/mc:RELEASE.2025-04-08T15-39-49Z
     container_name: mongrov-analytics-minio-init
     depends_on:
       minio:
