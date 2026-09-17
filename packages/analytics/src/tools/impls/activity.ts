@@ -1,6 +1,7 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, formatBytes } from '../formatters'
+import { localDay } from '../local-day'
 
 export const getActivityTotalInputSchema = z.object({
   userId: z.string(),
@@ -31,10 +32,11 @@ export const getActivityTotal: ToolImpl<GetActivityTotalInput> = async (
     brand: ctx.brand,
     familyId: ctx.familyId,
     days: input.days,
+    tz: ctx.timezone ?? 'UTC',
   }
 
   const steps = await ctx.analytics.execute<StepsRow>(
-    `SELECT date_trunc('day', ts)::VARCHAR AS day, SUM(steps)::INTEGER AS steps
+    `SELECT ${localDay()} AS day, SUM(steps)::INTEGER AS steps
      FROM v_activity
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
@@ -43,7 +45,7 @@ export const getActivityTotal: ToolImpl<GetActivityTotalInput> = async (
   )
 
   const buckets = await ctx.analytics.execute<BucketRow>(
-    `SELECT date_trunc('day', ts)::VARCHAR AS day,
+    `SELECT ${localDay()} AS day,
             SUM(calories)::DOUBLE AS calories,
             SUM(distance_km)::DOUBLE AS distance_km
      FROM v_activity_bucket

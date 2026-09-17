@@ -1,6 +1,7 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, deltaPct, formatBytes } from '../formatters'
+import { localDay, tzParam } from '../local-day'
 
 export const compareTrendInputSchema = z.object({
   userId: z.string(),
@@ -46,7 +47,7 @@ const METRIC_SPECS: Record<CompareTrendInput['metric'], MetricSpec> = {
   activity_steps: {
     sql: (windowDays, offsetDays) =>
       `SELECT AVG(daily_steps)::DOUBLE AS value FROM (
-         SELECT date_trunc('day', ts) AS day, SUM(steps) AS daily_steps
+         SELECT ${localDay()} AS day, SUM(steps) AS daily_steps
          FROM v_activity
          WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
            AND ts >= now() - INTERVAL (${windowDays + offsetDays}) DAY
@@ -69,14 +70,10 @@ export const compareTrend: ToolImpl<CompareTrendInput> = async (
     familyId: ctx.familyId,
   }
 
-  const currentRows = await ctx.analytics.execute<Row>(
-    spec.sql(input.currentWindowDays, 0),
-    params,
-  )
-  const priorRows = await ctx.analytics.execute<Row>(
-    spec.sql(input.priorWindowDays, input.currentWindowDays),
-    params,
-  )
+  const currentSql = spec.sql(input.currentWindowDays, 0)
+  const priorSql = spec.sql(input.priorWindowDays, input.currentWindowDays)
+  const currentRows = await ctx.analytics.execute<Row>(currentSql, { ...params, ...tzParam(ctx, currentSql) })
+  const priorRows = await ctx.analytics.execute<Row>(priorSql, { ...params, ...tzParam(ctx, priorSql) })
 
   const current = currentRows[0]?.value ?? null
   const prior = priorRows[0]?.value ?? null

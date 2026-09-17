@@ -21,10 +21,12 @@
 import type { GetActivityTotalInput } from './impls/activity'
 import type { DetectAnomalyInput } from './impls/anomaly'
 import type { CompareTrendInput } from './impls/compare'
+import type { GetHeartRateInput } from './impls/heart-rate'
 import type { GetHRVInput } from './impls/hrv'
 import type { GetInsightsInput } from './impls/insights'
 import type { GetSleepSummaryInput } from './impls/sleep'
 import type { GetSpO2Input } from './impls/spo2'
+import type { GetStressInput } from './impls/stress'
 import type { GetTemperatureInput } from './impls/temperature'
 import type { RateLimiter } from './rate-limit'
 
@@ -51,6 +53,7 @@ import {
 
   compareTrendInputSchema,
 } from './impls/compare'
+import { getHeartRate, getHeartRateInputSchema } from './impls/heart-rate'
 import { getHRV, getHRVInputSchema } from './impls/hrv'
 import {
   getInsights,
@@ -63,6 +66,7 @@ import {
   getSleepSummaryInputSchema,
 } from './impls/sleep'
 import { getSpO2, getSpO2InputSchema } from './impls/spo2'
+import { getStress, getStressInputSchema } from './impls/stress'
 import { getTemperature, getTemperatureInputSchema } from './impls/temperature'
 import { createRateLimiter } from './rate-limit'
 import {
@@ -89,6 +93,8 @@ const DESCRIPTIONS = {
     + 'with how many brief low moments occurred each night and how it '
     + 'compares to their usual range. Args: userId, days (1..90).',
   getTemperature: 'Return a user\'s daily temperature in Celsius — average, high and low per day — alongside their own usual range. Says how it compares to their usual, never whether it is high. Args: userId, days (1..90).',
+  getHeartRate: 'Return a user\'s daily heart rate in beats per minute — average, low and high per day, on the user\'s own days — alongside their usual daily average. Says how it compares to their usual, never whether it is high. Args: userId, days (1..90).',
+  getStress: 'Return a user\'s daily stress score (0-100) — average and high per day, on the user\'s own days, excluding moving or off-wrist readings — alongside their usual daily average. Compares to their usual; never calls a day tense on its own. Args: userId, days (1..90).',
   getInsights: 'Return recent AI-generated insights for a user. Args: userId, '
     + 'days (1..30, default 7), optional severity (info|warn|urgent).',
 } as const
@@ -101,6 +107,8 @@ export interface AnalyticsToolMap {
   detectAnomaly: ReturnType<typeof makeTool<DetectAnomalyInput>>
   getSpO2: ReturnType<typeof makeTool<GetSpO2Input>>
   getTemperature: ReturnType<typeof makeTool<GetTemperatureInput>>
+  getHeartRate: ReturnType<typeof makeTool<GetHeartRateInput>>
+  getStress: ReturnType<typeof makeTool<GetStressInput>>
   getInsights: ReturnType<typeof makeTool<GetInsightsInput>>
 }
 
@@ -169,6 +177,20 @@ export function createAnalyticsTools(
       description: DESCRIPTIONS.getTemperature,
       inputSchema: getTemperatureInputSchema,
       impl: getTemperature,
+    }),
+    getHeartRate: makeTool({
+      ...shared,
+      name: 'getHeartRate',
+      description: DESCRIPTIONS.getHeartRate,
+      inputSchema: getHeartRateInputSchema,
+      impl: getHeartRate,
+    }),
+    getStress: makeTool({
+      ...shared,
+      name: 'getStress',
+      description: DESCRIPTIONS.getStress,
+      inputSchema: getStressInputSchema,
+      impl: getStress,
     }),
     getHRV: makeTool({
       ...shared,

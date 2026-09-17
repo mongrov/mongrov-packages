@@ -40,6 +40,11 @@ export {
   compareTrendInputSchema,
 } from './impls/compare'
 export {
+  getHeartRate,
+  type GetHeartRateInput,
+  getHeartRateInputSchema,
+} from './impls/heart-rate'
+export {
   getHRV,
   type GetHRVInput,
   getHRVInputSchema,
@@ -54,6 +59,11 @@ export {
   type GetSleepSummaryInput,
   getSleepSummaryInputSchema,
 } from './impls/sleep'
+export {
+  getStress,
+  type GetStressInput,
+  getStressInputSchema,
+} from './impls/stress'
 export {
   getTemperature,
   type GetTemperatureInput,

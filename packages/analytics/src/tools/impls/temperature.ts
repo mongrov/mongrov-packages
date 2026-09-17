@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { precisionFor } from '../../core/metric_metadata'
 import { assertNoBanTerms, formatBytes } from '../formatters'
+import { localDay, tzParam } from '../local-day'
 
 export const getTemperatureInputSchema = z.object({
   userId: z.string(),
@@ -40,8 +41,7 @@ interface BaselineRow {
  *     formatter follows the device, not the column.
  */
 export const getTemperature: ToolImpl<GetTemperatureInput> = async (input, ctx) => {
-  const rows = await ctx.analytics.execute<DayRow>(
-    `SELECT date_trunc('day', ts)::VARCHAR AS day,
+  const sql = `SELECT ${localDay()} AS day,
             AVG(temp_c)::DOUBLE AS avg_temp,
             MAX(temp_c)::DOUBLE AS hi_temp,
             MIN(temp_c)::DOUBLE AS lo_temp
@@ -49,14 +49,14 @@ export const getTemperature: ToolImpl<GetTemperatureInput> = async (input, ctx) 
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
        AND temp_c IS NOT NULL
-     GROUP BY 1 ORDER BY 1`,
-    {
-      userId: input.userId,
-      brand: ctx.brand,
-      familyId: ctx.familyId,
-      days: input.days,
-    },
-  )
+     GROUP BY 1 ORDER BY 1`
+  const rows = await ctx.analytics.execute<DayRow>(sql, {
+    userId: input.userId,
+    brand: ctx.brand,
+    familyId: ctx.familyId,
+    days: input.days,
+    ...tzParam(ctx, sql),
+  })
 
   if (rows.length === 0)
     return finalize('No temperature data for the requested window.', 0)

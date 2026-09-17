@@ -17,7 +17,7 @@ describe('createAnalyticsTools', () => {
     vi.useRealTimers()
   })
 
-  it('returns eight AI SDK tools with description + parameters + execute', () => {
+  it('returns ten AI SDK tools with description + parameters + execute', () => {
     const engine = createFakeEngine()
     const handle = createAnalyticsTools({ analytics: engine })
     const names = Object.keys(handle.tools).sort()
@@ -26,9 +26,11 @@ describe('createAnalyticsTools', () => {
       'detectAnomaly',
       'getActivityTotal',
       'getHRV',
+      'getHeartRate',
       'getInsights',
       'getSleepSummary',
       'getSpO2',
+      'getStress',
       'getTemperature',
     ])
     for (const name of names) {

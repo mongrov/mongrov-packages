@@ -91,7 +91,7 @@ describe('createMcpServer', () => {
     await wired.dispose()
   })
 
-  it('list_tools returns all eight analytics tools with JSON Schemas', async () => {
+  it('list_tools returns all ten analytics tools with JSON Schemas', async () => {
     const res = await wired.client.listTools()
     const names = res.tools.map(t => t.name).sort()
     expect(names).toEqual([
@@ -99,9 +99,11 @@ describe('createMcpServer', () => {
       'detectAnomaly',
       'getActivityTotal',
       'getHRV',
+      'getHeartRate',
       'getInsights',
       'getSleepSummary',
       'getSpO2',
+      'getStress',
       'getTemperature',
     ])
     for (const t of res.tools) {

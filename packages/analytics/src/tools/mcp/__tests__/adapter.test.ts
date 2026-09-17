@@ -25,9 +25,11 @@ describe('toMcpTools', () => {
       'detectAnomaly',
       'getActivityTotal',
       'getHRV',
+      'getHeartRate',
       'getInsights',
       'getSleepSummary',
       'getSpO2',
+      'getStress',
       'getTemperature',
     ])
     for (const tool of mcp) {

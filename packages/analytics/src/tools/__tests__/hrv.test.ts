@@ -44,6 +44,8 @@ describe('getHRV', () => {
       brand: 'zivaone',
       familyId: 'fam-1',
       days: 14,
+      // No timezone on the context → the user's days are UTC days.
+      tz: 'UTC',
     })
   })
 
