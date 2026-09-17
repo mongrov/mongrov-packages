@@ -1,6 +1,7 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { assertNoBanTerms, formatBytes, popStddev } from '../formatters'
+import { localDay, tzParam } from '../local-day'
 
 export const detectAnomalyInputSchema = z.object({
   userId: z.string(),
@@ -25,7 +26,7 @@ interface MetricSpec {
 const METRIC_SPECS: Record<DetectAnomalyInput['metric'], MetricSpec> = {
   hrv_ms: {
     sql: lookbackDays =>
-      `SELECT date_trunc('day', ts)::VARCHAR AS day, AVG(hrv_ms)::DOUBLE AS value
+      `SELECT ${localDay()} AS day, AVG(hrv_ms)::DOUBLE AS value
        FROM v_hrv_clean
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND hrv_ms IS NOT NULL
@@ -46,7 +47,7 @@ const METRIC_SPECS: Record<DetectAnomalyInput['metric'], MetricSpec> = {
   },
   activity_steps: {
     sql: lookbackDays =>
-      `SELECT date_trunc('day', ts)::VARCHAR AS day, SUM(steps)::DOUBLE AS value
+      `SELECT ${localDay()} AS day, SUM(steps)::DOUBLE AS value
        FROM v_activity
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND ts >= now() - INTERVAL (${lookbackDays}) DAY
@@ -61,10 +62,12 @@ export const detectAnomaly: ToolImpl<DetectAnomalyInput> = async (
   ctx,
 ) => {
   const spec = METRIC_SPECS[input.metric]
-  const rows = await ctx.analytics.execute<Row>(spec.sql(input.lookbackDays), {
+  const sql = spec.sql(input.lookbackDays)
+  const rows = await ctx.analytics.execute<Row>(sql, {
     userId: input.userId,
     brand: ctx.brand,
     familyId: ctx.familyId,
+    ...tzParam(ctx, sql),
   })
 
   if (rows.length === 0) {

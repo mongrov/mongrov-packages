@@ -13,6 +13,12 @@ export interface ToolContext {
   readonly brand: string
   readonly familyId: string
   readonly now?: () => Date
+  /**
+   * The user's IANA zone. Days in tool output are this zone's days, so they
+   * match the screens. Omitted means UTC — correct only for a UTC user, which
+   * is why the app passes it.
+   */
+  readonly timezone?: string
 }
 
 /** Bounded text summary returned by every tool impl. */
