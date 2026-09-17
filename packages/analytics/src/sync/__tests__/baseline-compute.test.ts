@@ -46,7 +46,11 @@ describe('buildBaselineSql — day-first shape', () => {
     expect(sql).toContain(`date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', ts)))`)
     expect(sql).toContain('avg(spo2) AS daily_value')
     expect(sql).toContain('GROUP BY day')
-    expect(sql).toContain('quantile_cont(daily_value, 0.10)')
+    // CAST, not a bare column: `sum(total_minutes)` over an INTEGER sums to
+    // HUGEINT, which DuckDB refuses to narrow implicitly, so quantile_cont
+    // rejects it and the sleep baseline never computes. Cast once in
+    // quantileSelect so every aggregate gets it.
+    expect(sql).toContain('quantile_cont(CAST(daily_value AS DOUBLE), 0.10)')
     expect(sql).toContain('FROM daily_values')
     // A raw-quantile implementation would read the column directly.
     expect(sql).not.toContain('quantile_cont(spo2')
@@ -129,7 +133,7 @@ describe('Ziva #3 — day-first vs raw quantiles diverge', () => {
     expect(dayFirstP10).not.toBe(rawP10)
 
     // And the generated SQL is the day-first one.
-    expect(buildBaselineSql('spo2', 30)).toContain('quantile_cont(daily_value, 0.10)')
+    expect(buildBaselineSql('spo2', 30)).toContain('quantile_cont(CAST(daily_value AS DOUBLE), 0.10)')
   })
 })
 

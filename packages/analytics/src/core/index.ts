@@ -69,6 +69,13 @@ export {
   qualityViewFor,
   READING_QUALITY_COUNTS_SQL,
   readViewFor,
+  // The movement floor, exported so consumers classify `active` the same way
+  // the quality views do. zivaone_app kept its own copy of this threshold
+  // (`features/vitals/movement-floor.ts`) precisely because it was not on the
+  // package surface, which is two constants that have to agree by hand.
+  STILL_FLOOR,
+  STILL_STEPS_PER_HOUR,
+  STILL_WINDOW_MINUTES,
 } from './reading-quality'
 export type { QualityTable, QualityView } from './reading-quality'
 

@@ -106,7 +106,9 @@ describe('on-read fallback', () => {
     await reader.getBaseline('alice', 'spo2', 30, CTX)
 
     expect(calls[1].sql).toContain('WITH daily_values AS')
-    expect(calls[1].sql).toContain('quantile_cont(daily_value, 0.10)')
+    // See quantileSelect: HUGEINT -> DOUBLE is never implicit, so the cast is
+    // part of the emitted SQL now.
+    expect(calls[1].sql).toContain('quantile_cont(CAST(daily_value AS DOUBLE), 0.10)')
     expect(calls[1].sql).not.toContain('quantile_cont(spo2')
   })
 

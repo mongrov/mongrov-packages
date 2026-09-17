@@ -35,7 +35,7 @@ import {
   METRIC_METADATA,
 
 } from '../core/metric_metadata'
-import { readViewFor } from '../core/reading-quality'
+import { readViewFor, STILL_FLOOR } from '../core/reading-quality'
 
 /** One computed baseline row, as read back from the aggregate query. */
 interface BaselineRow {
@@ -161,9 +161,22 @@ export function buildBaselineSql(
     // so they can never be confused again.
     //
     // "Still" is the same test `hr.restingVsUsual` uses and the same one
-    // `active` uses on every vital screen: no activity with steps > 0 within
-    // +/-15 minutes. Keeping one definition is what makes "active" and
-    // "resting" complementary rather than two independent guesses.
+    // `active` uses on every vital screen: fewer than STILL_FLOOR steps
+    // across the +/-15 minute window. Keeping one definition is what makes
+    // "active" and "resting" complementary rather than two independent
+    // guesses.
+    //
+    // It was `steps > 0`, which is not a movement test — a worn ring reports
+    // a few steps most waking minutes, so nearly every daytime reading was
+    // excluded and this mean was computed from whatever minutes happened to
+    // record a literal zero. See STILL_STEPS_PER_HOUR in core/reading-quality.
+    //
+    // KNOWN DIVERGENCE: the rules compiler's `resting` CONTEXT still gates on
+    // `steps > 0` (rules/compiler.ts). An ANTI JOIN tests row existence and
+    // cannot express a summed floor, so aligning it needs a design change to
+    // a public export rather than a substitution. Until then a reading can be
+    // `still` for this baseline and the charts, yet `not resting` for a rule
+    // that alerts on it.
     return `
       WITH daily_values AS (
         SELECT date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', m.ts))) AS day,
@@ -172,14 +185,13 @@ export function buildBaselineSql(
         WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId
           AND m.ts > now() - ${windowBind}
           AND m.${column} IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM v_activity a
+          AND COALESCE((
+            SELECT SUM(a.steps) FROM v_activity a
             WHERE a.user_id = m.user_id AND a.brand = m.brand
               AND a.family_id = m.family_id
-              AND a.steps > 0
               AND a.ts >= m.ts - INTERVAL 15 MINUTE
               AND a.ts <  m.ts + INTERVAL 15 MINUTE
-          )
+          ), 0) < ${STILL_FLOOR}
         GROUP BY 1
       )
       ${quantileSelect()}
@@ -270,14 +282,27 @@ export function buildBaselineSql(
  * this wrong would silently write under-evidenced baselines.
  */
 function quantileSelect(): string {
+  // DuckDB will not implicitly narrow HUGEINT to DOUBLE.
+  //
+  // `daily_value` for the `session` aggregate is `sum(total_minutes)` over an
+  // INTEGER column, which DuckDB sums into HUGEINT. That conversion is lossy,
+  // so it is never applied implicitly, and quantile_cont / avg / stddev_samp
+  // all reject the argument outright. On react-native-duckdb it surfaces as an
+  // opaque `Unknown duckdb::InvalidInputException error` — no column name, no
+  // function name — so the sleep baseline has never computed on any version.
+  //
+  // Cast once, here, where every aggregate funnels through: casting at the
+  // call sites instead is six chances to miss one, and a missed one fails only
+  // for the metric whose column happens to be integral.
+  const v = 'CAST(daily_value AS DOUBLE)'
   return `SELECT
-      quantile_cont(daily_value, 0.05) AS p05,
-      quantile_cont(daily_value, 0.10) AS p10,
-      quantile_cont(daily_value, 0.50) AS p50,
-      quantile_cont(daily_value, 0.90) AS p90,
-      quantile_cont(daily_value, 0.95) AS p95,
-      avg(daily_value) AS mean,
-      stddev_samp(daily_value) AS stddev,
+      quantile_cont(${v}, 0.05) AS p05,
+      quantile_cont(${v}, 0.10) AS p10,
+      quantile_cont(${v}, 0.50) AS p50,
+      quantile_cont(${v}, 0.90) AS p90,
+      quantile_cont(${v}, 0.95) AS p95,
+      avg(${v}) AS mean,
+      stddev_samp(${v}) AS stddev,
       count(*) AS sample_count
     FROM daily_values
     HAVING count(*) >= ${BASELINE_MIN_DAYS}`

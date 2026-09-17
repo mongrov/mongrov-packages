@@ -3,9 +3,13 @@
  *
  * The existing day-first test (`baseline-compute.test.ts`) computes both
  * quantile shapes in JavaScript and then string-matches the generated SQL for
- * `quantile_cont(daily_value, ...)`. That proves the arithmetic claim and that
- * we spelled the right function name. It does not prove the query returns
- * day-first numbers, because it never runs it.
+ * `quantile_cont(CAST(daily_value AS DOUBLE), ...)`. That proves the
+ * arithmetic claim and that we spelled the right function name. It does not
+ * prove the query returns day-first numbers, because it never runs it.
+ *
+ * (The CAST is not decoration: `sum(total_minutes)` over an INTEGER column
+ * sums to HUGEINT, which DuckDB will not narrow implicitly, so an uncast
+ * `quantile_cont` rejects it outright — see `quantileSelect`.)
  *
  * T-01's acceptance is "identical semantics to spo2" plus "`baseline.get`
  * returns p10/p50/p90", so this executes the real builder against real DuckDB

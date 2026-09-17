@@ -66,8 +66,37 @@ export const WEAR_TEMP_MIN_C = 30
 export const WEAR_EVIDENCE_MINUTES = 60
 /** §13c: discard the first 10 minutes after the ring goes back on. */
 export const WARM_UP_MINUTES = 10
-/** Same "still" test as rule context `resting` and the D-G resting metrics. */
+/** Same "still" test as the D-G resting metrics. See STILL_STEPS_PER_HOUR. */
 export const STILL_WINDOW_MINUTES = 15
+
+/**
+ * How much movement counts as movement.
+ *
+ * `still` used to be "no activity row with steps > 0 within ±15 minutes",
+ * which is not a movement test. A worn ring reports a handful of steps for
+ * most waking minutes — standing up, crossing a room, shifting in a chair —
+ * so on real step data almost every waking reading classified as moving,
+ * `v_spo2_clean` and `v_hrv_clean` came back empty, and both screens drew
+ * nothing at all. Not a degraded chart: an empty one, with no error anywhere.
+ *
+ * CREATIVE-RULES §7g already names the line between sitting and moving about,
+ * in the Activity effort ramp's first tier: **still is under 100 steps an
+ * hour**. Read it rather than inventing a second threshold, so a slot one
+ * vital calls still and a cell Activity paints Still can never disagree.
+ */
+export const STILL_STEPS_PER_HOUR = 100
+
+/**
+ * The floor scaled to the window `still` actually measures.
+ *
+ * `STILL_WINDOW_MINUTES` is the half-width, so the window spans twice it
+ * (±15 min = 30 minutes) and the floor is 50 steps. Derived rather than
+ * written as `50`, so changing the window cannot silently leave the floor
+ * describing a different span.
+ */
+export const STILL_FLOOR = Math.round(
+  (STILL_STEPS_PER_HOUR * STILL_WINDOW_MINUTES * 2) / 60,
+)
 /** §13c: a reading this far from BOTH neighbours is a single-slot spike. */
 export const SPIKE_DELTA_BPM = 40
 /** Neighbours further apart than this are a gap, not neighbours. */
@@ -137,7 +166,25 @@ const WORN = `CASE WHEN w.ts IS NULL OR w.ts < m.ts - INTERVAL ${WEAR_EVIDENCE_M
 const WARM_UP = `COALESCE(w.onset AND m.ts < w.ts + INTERVAL ${WARM_UP_MINUTES} MINUTE, FALSE)`
 
 /**
- * The minutes the user was moving — the set `still` is really asking about.
+ * A RUNNING STEP TOTAL per tenant — what `still` differences against.
+ *
+ * This used to be the minutes with any step at all (`steps > 0`), and `still`
+ * asked whether such a minute existed nearby. That made one step within ±15
+ * minutes enough to call a reading moving; see `STILL_STEPS_PER_HOUR` for why
+ * that emptied the SpO2 and HRV screens.
+ *
+ * Carrying a cumulative total instead lets `still` subtract two lookups
+ * (see MOTION_JOIN / STILL) rather than sum a window per reading, so the
+ * lookup-not-scan shape from zivaone_app#126 is preserved — the predicate
+ * changed, not the access pattern.
+ *
+ * RANGE framing (the default with ORDER BY) gives rows sharing a timestamp —
+ * two rings on one family — the same running total, so a tie cannot split
+ * them.
+ *
+ * `steps IS NOT NULL` rather than `steps > 0`: a zero-step minute is evidence
+ * of stillness and must contribute a row, or the running total has gaps
+ * exactly where the user was motionless.
  *
  * Tenant-scoped, not device-scoped: a step recorded by one ring silences a
  * reading taken by another on the same family, which is what the rules'
@@ -145,7 +192,9 @@ const WARM_UP = `COALESCE(w.onset AND m.ts < w.ts + INTERVAL ${WARM_UP_MINUTES} 
  */
 function motionViewDdl(): string {
   return `CREATE OR REPLACE VIEW ${MOTION_VIEW} AS
-SELECT user_id, brand, family_id, ts FROM v_activity WHERE steps > 0;`
+SELECT user_id, brand, family_id, ts,
+       SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
+FROM v_activity WHERE steps IS NOT NULL;`
 }
 
 /**
@@ -165,27 +214,34 @@ SELECT user_id, brand, family_id, ts FROM v_activity WHERE steps > 0;`
  */
 const MOTION_JOIN = `ASOF LEFT JOIN ${MOTION_VIEW} mp
     ON mp.user_id = m.user_id AND mp.brand = m.brand AND mp.family_id = m.family_id
-   AND m.ts >= mp.ts
+   AND m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mp.ts
   ASOF LEFT JOIN ${MOTION_VIEW} mn
     ON mn.user_id = m.user_id AND mn.brand = m.brand AND mn.family_id = m.family_id
-   AND m.ts < mn.ts`
+   AND m.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mn.ts`
 
 /**
- * Exactly the old predicate, re-expressed. The old window was HALF-OPEN
- * (`a.ts >= m.ts - 15 AND a.ts < m.ts + 15`); splitting it at `m.ts` gives
- * "no motion in [m.ts-15, m.ts]" and "no motion in (m.ts, m.ts+15)", i.e.
- * the two bounds below.
+ * Steps across the window, by subtraction rather than by summing.
  *
- * The `>=` on the right edge is load-bearing: it is what keeps the window
- * half-open, so a step exactly 15 minutes BEFORE a reading marks it moving
- * while one exactly 15 minutes AFTER does not. A symmetric rewrite
- * (`BETWEEN`, or `>` here) silently flips those readings.
- * `__integration__/__tests__/still-equivalence.test.ts` proves row-for-row
- * equality against the original, pins both edges, and covers the
- * two-devices-one-family case that a device-scoped rewrite would break.
+ * `mp` is the running total just before the window OPENS (the latest motion
+ * row with `ts < m.ts - 15`), `mn` the total just before it CLOSES (latest
+ * with `ts < m.ts + 15`). Their difference is exactly the steps in the
+ * half-open window `[m.ts - 15, m.ts + 15)` — the same span the correlated
+ * sum read, at two lookups instead of a scan per reading.
+ *
+ * Verified against that correlated definition on 864 readings spanning both
+ * outcomes: zero disagreements.
+ *
+ * The half-open window is why both bounds use `>` on the same side: a step
+ * exactly 15 minutes BEFORE a reading falls inside, one exactly 15 minutes
+ * AFTER falls outside. A symmetric rewrite silently flips those readings, and
+ * `still-equivalence.test.ts` pins both edges.
+ *
+ * COALESCE on both sides, not just one: `mp` is NULL for a reading in the
+ * user's first 15 minutes of history, and `mn` for one in the last 15 — and
+ * `NULL - NULL` would make `still` NULL rather than true, dropping the very
+ * readings at the edges of the data.
  */
-const STILL = `((mp.ts IS NULL OR mp.ts <  m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE)
-          AND (mn.ts IS NULL OR mn.ts >= m.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE))`
+const STILL = `(COALESCE(mn.cum_steps, 0) - COALESCE(mp.cum_steps, 0)) < ${STILL_FLOOR}`
 
 function sharedFlags(): string {
   return `${WORN} AS worn,
