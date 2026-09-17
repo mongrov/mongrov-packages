@@ -1,9 +1,9 @@
 /**
  * Batch flusher (T-13 + T-15).
  *
- * Drains a `SensorBuffer` into a DuckDB Appender. Successful flushes are
- * durably observable (buffer.drain() removes both in-memory and overflow
- * copies), and a `SyncEmitter` fan-out surfaces `flushed` events for hooks +
+ * Takes a `SensorBuffer`'s rows into a DuckDB Appender. Durable (overflow)
+ * rows are removed only after the write commits (`buffer.take` + `commit`),
+ * and a `SyncEmitter` fan-out surfaces `flushed` events for hooks +
  * downstream invalidation.
  *
  * Retry / concurrency (T-15):
@@ -17,10 +17,12 @@
  *   - Per-attempt timeout: 30s. Timeout aborts the attempt and counts as a
  *     failure toward the 5-failure limit.
  *
- * Data safety: attempts do *not* remove rows from the buffer until the
- * appender reports success. On failure the drained entries are re-pushed onto
- * the in-memory ring (front of queue) so subsequent retries see the same
- * batch.
+ * Data safety: attempts do *not* remove durable rows until the write reports
+ * success. This comment said so for a long time while `flush` called
+ * `buffer.drain()` first, which deleted overflow chunks before writing; a
+ * process killed mid-write lost them (zivaone_app#54). On failure the batch
+ * is released: durable rows stay on disk, in-memory rows return to the ring,
+ * and the next attempt sees the same rows.
  */
 
 import type { HybridDuckDB } from '../core/engine'
@@ -279,14 +281,20 @@ export class BatchFlusher {
   ): Promise<FlushResult> {
     const state = this.#ensureState(table)
     state.state = 'flushing'
-    const drained = await this.#buffer.drain(table)
+    const taken = await this.#buffer.take(table)
+    const drained = taken.entries
     if (drained.length === 0) {
+      await taken.release()
       state.state = state.failureCount > 0 ? 'error' : 'idle'
       return { table, rowsFlushed: 0, ok: true }
     }
 
     try {
       const rowsFlushed = await this.#write(table, drained)
+      // Only now is it safe to forget the durable copies. If this commit
+      // itself fails, the rows stay on disk and are written again next time,
+      // which the idempotent staging write turns into a no-op.
+      await taken.commit()
       state.failureCount = 0
       state.lastError = undefined
       state.state = 'idle'
@@ -301,8 +309,7 @@ export class BatchFlusher {
       return { table, rowsFlushed, ok: true }
     }
     catch (cause) {
-      // Return drained rows to the front of the ring so retries see them.
-      await this.#restore(table, drained)
+      await taken.release()
       const err = cause instanceof SyncError
         ? cause
         : new SyncError('flush_failed', `flush failed for ${table}`, cause)
@@ -481,21 +488,6 @@ export class BatchFlusher {
       catch {
         // Swallow close errors — the surfaced error should be the write.
       }
-    }
-  }
-
-  async #restore(table: string, entries: BufferEntry[]): Promise<void> {
-    // Cheapest recovery: re-push each entry as a fresh batch. Preserves rows
-    // but reorders enqueuedAt — acceptable, since data survives.
-    for (const entry of entries) {
-      await this.#buffer.push({
-        table,
-        brand: entry.brand,
-        familyId: entry.familyId,
-        userId: entry.userId,
-        deviceId: entry.deviceId,
-        rows: entry.rows,
-      })
     }
   }
 

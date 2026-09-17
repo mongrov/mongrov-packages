@@ -32,6 +32,15 @@ import type {
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 
+/** A flush's claim on a table's buffered rows. See `SensorBuffer.take`. */
+export interface TakenBatch {
+  entries: BufferEntry[]
+  /** The write succeeded: remove the durable rows. */
+  commit: () => Promise<void>
+  /** The write failed: make every row available to the next flush. */
+  release: () => Promise<void>
+}
+
 export interface SensorBufferConfig {
   overflow: OverflowStore
   maxBufferBytes?: number
@@ -90,6 +99,34 @@ export class SensorBuffer {
     // Wake any block-policy waiters now that room is available.
     this.#wakeBlockers(table)
     return [...overflow, ...ring]
+  }
+
+  /**
+   * Take a table's buffered rows for a flush, two-phase (zivaone_app#54).
+   *
+   * Unlike `drain`, durable (overflow) rows are LEASED, not deleted: they stay
+   * in the KVStore until `commit()`, which the flusher calls only after the
+   * write succeeds. A kill in between leaves them on disk for the next
+   * process. `release()` returns a failed batch: durable rows simply become
+   * available again, and the in-memory rows go back into the ring.
+   *
+   * In-memory rows are taken outright — they were never durable, and
+   * nothing a flusher does can make a kill spare them.
+   */
+  async take(table: string): Promise<TakenBatch> {
+    const ring = this.#rings.get(table) ?? []
+    this.#rings.set(table, [])
+    this.#inMemoryBytes.set(table, 0)
+    this.#wakeBlockers(table)
+    const { entries: durable, seqs } = await this.#overflow.lease(table)
+    return {
+      entries: [...durable, ...ring],
+      commit: () => this.#overflow.ack(table, seqs),
+      release: async () => {
+        await this.#overflow.release(table, seqs)
+        for (const entry of ring) await this.#pushEntry(table, entry)
+      },
+    }
   }
 
   async size(table?: string): Promise<BufferSize> {
