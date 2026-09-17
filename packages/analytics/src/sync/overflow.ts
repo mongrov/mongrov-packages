@@ -33,6 +33,12 @@ interface TableState {
   nextSeq: number
   /** True once the manifest has been hydrated from KV for this table. */
   hydrated: boolean
+  /**
+   * Seqs handed to an in-flight flush and not yet acked or released. In
+   * memory only, deliberately: after a kill nothing is leased, so every
+   * surviving chunk is offered to the next flush.
+   */
+  leased: Set<number>
 }
 
 export class OverflowStore {
@@ -88,6 +94,58 @@ export class OverflowStore {
     return drained
   }
 
+  /**
+   * Hand every live, unleased entry to a flush WITHOUT removing it.
+   *
+   * The two-phase half of #54. `drain` deletes before the caller has written
+   * anywhere, so a kill between the two lost rows that were durable. A lease
+   * leaves them on disk until `ack` — after the write commits — and marks
+   * them so an overlapping flush of the same table does not take them too.
+   * Marked synchronously, before the first await, which is what makes two
+   * concurrent leases disjoint.
+   */
+  async lease(table: string): Promise<{ entries: BufferEntry[], seqs: number[] }> {
+    const state = await this.#hydrate(table)
+    const seqs = state.seqs.filter(seq => !state.leased.has(seq))
+    for (const seq of seqs) state.leased.add(seq)
+    const entries: BufferEntry[] = []
+    for (const seq of seqs) {
+      const entry = await this.#kv.get<BufferEntry>(chunkKey(table, seq))
+      if (entry)
+        entries.push(entry)
+    }
+    return { entries, seqs }
+  }
+
+  /** The leased entries were written: delete exactly those. */
+  async ack(table: string, seqs: readonly number[]): Promise<void> {
+    if (seqs.length === 0)
+      return
+    const state = await this.#hydrate(table)
+    const done = new Set(seqs)
+    for (const seq of seqs) {
+      await this.#kv.delete(chunkKey(table, seq))
+      state.leased.delete(seq)
+    }
+    state.seqs = state.seqs.filter(seq => !done.has(seq))
+    if (state.seqs.length === 0) {
+      state.nextSeq = 0
+      await this.#kv.delete(manifestKey(table))
+    }
+    else {
+      await this.#kv.set(manifestKey(table), {
+        seqs: state.seqs,
+        nextSeq: state.nextSeq,
+      })
+    }
+  }
+
+  /** The write failed: the entries stay on disk for the next flush. */
+  async release(table: string, seqs: readonly number[]): Promise<void> {
+    const state = await this.#hydrate(table)
+    for (const seq of seqs) state.leased.delete(seq)
+  }
+
   async count(table: string): Promise<number> {
     const state = await this.#hydrate(table)
     return state.seqs.length
@@ -109,7 +167,7 @@ export class OverflowStore {
       return state
 
     if (!state) {
-      state = { seqs: [], nextSeq: 0, hydrated: false }
+      state = { seqs: [], nextSeq: 0, hydrated: false, leased: new Set() }
       this.#tables.set(table, state)
     }
 

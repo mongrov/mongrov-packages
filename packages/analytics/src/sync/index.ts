@@ -14,7 +14,7 @@ export {
   buildBaselineSql,
   createBaselineComputer,
 } from './baseline-compute'
-export { SensorBuffer, type SensorBufferConfig } from './buffer'
+export { SensorBuffer, type SensorBufferConfig, type TakenBatch } from './buffer'
 export { SyncProvider, type SyncProviderProps, useSyncManager } from './context'
 export { SyncError, type SyncErrorCode } from './errors'
 
