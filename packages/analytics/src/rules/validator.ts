@@ -13,6 +13,7 @@ import type { RulesLogger } from './types'
 import {
   isRegisteredKvKey,
   isRuleReadableKvKey,
+  KV_KEY_REGISTRY,
   ruleReadableKvKeys,
 } from '@mongrov/types/kv-keys'
 import { METRIC_METADATA } from '../core/metric_metadata'
@@ -226,6 +227,30 @@ function validateCadence(rule: Rule): void {
       + `or set allowSingleDay: true if one day is genuinely intended.`,
     )
   }
+
+  // The window is how far back COMPLETED days are read, and today is
+  // excluded, so it must hold the longest run the rule can ask for plus
+  // today. ziva.temp-flag-level shipped with a 24h window and a 2-night run:
+  // valid by every other check, and unable ever to fire (zivaone_app#55).
+  // A consecutiveKey can raise the count at eval time, so its registered
+  // range's upper bound is the run that must fit.
+  const longest = rule.consecutiveKey === undefined
+    ? n
+    : Math.max(n, consecutiveKeyMax(rule.consecutiveKey) ?? n)
+  const days = WINDOW_DAYS[rule.window]
+  if (days === undefined || days < longest + 1) {
+    throw new RuleValidationError(
+      `Rule ${rule.id}: cadence 'day' reads completed days inside the window, and a `
+      + `${longest}-day run needs a window of at least ${longest + 1} days `
+      + `(got ${rule.window}) — the rule could never fire.`,
+    )
+  }
+}
+
+/** Upper bound of a registered KV key's range, when it declares one. */
+function consecutiveKeyMax(key: string): number | undefined {
+  const entry = (KV_KEY_REGISTRY as Record<string, { range?: readonly [number, number] }>)[key]
+  return entry?.range?.[1]
 }
 
 function validateConsecutive(rule: Rule): void {

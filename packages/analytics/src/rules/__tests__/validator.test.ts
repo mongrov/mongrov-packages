@@ -137,3 +137,32 @@ describe('validateRule — minDays (QA #108)', () => {
       .toThrow(/window aggregates only/)
   })
 })
+
+describe('validateRule — day-cadence window must hold the run (zivaone_app#55)', () => {
+  const temp = (o: Record<string, unknown> = {}) => make({
+    metric: 'temp_c',
+    aggregation: 'max',
+    compare: 'greater_than',
+    cadence: 'day',
+    consecutive: 2,
+    target: { type: 'absolute', value: 37.5 },
+    ...o,
+  })
+
+  it('rejects the shipped temp-flag shape: a 2-day run in a 24h window', () => {
+    // Today is excluded, so 24h held at most one partial completed day.
+    expect(() => validateRule(temp({ window: '24h' }))).toThrow(/could never fire/)
+  })
+
+  it('needs the run plus today', () => {
+    expect(() => validateRule(temp({ window: '3d', consecutive: 3 }))).toThrow(/at least 4 days/)
+    expect(() => validateRule(temp({ window: '7d', consecutive: 3 }))).not.toThrow()
+  })
+
+  it('sizes a consecutiveKey by its registered range, not its compile-time default', () => {
+    // user:tempNights ranges 1-5, so the window must hold a 5-night run.
+    expect(() => validateRule(temp({ window: '3d', consecutiveKey: 'user:tempNights' })))
+      .toThrow(/5-day run needs a window of at least 6 days/)
+    expect(() => validateRule(temp({ window: '7d', consecutiveKey: 'user:tempNights' }))).not.toThrow()
+  })
+})

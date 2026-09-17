@@ -621,7 +621,13 @@ SELECT ${extreme}(value) AS observed_value,
        ANY_VALUE(threshold_value) AS threshold_value
 FROM runs
 GROUP BY run_key
+-- The run must be CURRENT: it ends on the most recent completed day. Without
+-- this, any qualifying run anywhere in the window fired, so a warm spell
+-- that ended a week ago re-notified every day — the throttle allows one a
+-- day — for as long as the run stayed inside the window, up to 30 days after
+-- the user recovered (zivaone_app#55, ziva-defaults-live.test.ts).
 HAVING COUNT(*) >= CAST($consecutive AS BIGINT)
+   AND MAX(day) = date_trunc('day', timezone(CAST($tz AS VARCHAR), NOW())) - INTERVAL 1 DAY
 ORDER BY observed_value ${direction === 'greater_than' ? 'DESC' : 'ASC'}
 LIMIT 1;`
 
