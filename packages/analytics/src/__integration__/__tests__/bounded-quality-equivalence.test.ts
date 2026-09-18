@@ -37,6 +37,7 @@ import { HybridDuckDB } from '../../core/engine'
 import {
   cleanMacroFor,
   cleanViewFor,
+  MOTION_MACRO,
   QUALITY_TABLES,
   qualityMacroFor,
   qualityViewFor,
@@ -199,6 +200,58 @@ describe('bounded quality macros', () => {
     await db.close()
   }, 900_000)
 
+  it('v_motion_between gives the same steps-in-window as v_motion, for windows inside [lo, hi)', async () => {
+    const db = await openSeeded()
+    // Its `cum_steps` restarts at `lo`, so rows are NOT comparable — only the
+    // difference of two lookups is, and that is the contract under test. Every
+    // heart-rate reading is a probe; its window is [ts - 15, ts + 15).
+    const stepsVia = (motion: string, lo: string, hi: string, probeFrom: string, probeTo: string) => `
+      SELECT p.user_id, p.ts,
+             COALESCE(mn.cum_steps, 0) - COALESCE(mp.cum_steps, 0) AS steps
+      FROM (SELECT user_id, brand, family_id, ts FROM v_heart_rate
+            WHERE ts >= ${probeFrom} AND ts < ${probeTo}) p
+      ASOF LEFT JOIN ${motion} mp
+        ON mp.user_id = p.user_id AND mp.brand = p.brand AND mp.family_id = p.family_id
+       AND p.ts - INTERVAL 15 MINUTE > mp.ts
+      ASOF LEFT JOIN ${motion} mn
+        ON mn.user_id = p.user_id AND mn.brand = p.brand AND mn.family_id = p.family_id
+       AND p.ts + INTERVAL 15 MINUTE > mn.ts`
+    const diff = (a: string, b: string) =>
+      `SELECT count(*)::INTEGER AS n FROM ((${a} EXCEPT ALL ${b}) UNION ALL (${b} EXCEPT ALL ${a}))`
+
+    let inside = 0
+    let outside = 0
+    let moving = 0
+    for (const [lo, hi] of windows()) {
+      // Probes whose whole window lies in [lo, hi): must agree exactly.
+      const pFrom = `${lo} + INTERVAL 15 MINUTE`
+      const pTo = `${hi} - INTERVAL 15 MINUTE`
+      const [d] = await db.execute<{ n: number }>(diff(
+        stepsVia(`${MOTION_MACRO}(${lo}, ${hi})`, lo, hi, pFrom, pTo),
+        stepsVia('v_motion', lo, hi, pFrom, pTo),
+      ))
+      inside += Number(d!.n)
+      // Negative control: probes whose window starts BEFORE lo break the
+      // contract, and the comparison must be able to see it.
+      const [o] = await db.execute<{ n: number }>(diff(
+        stepsVia(`${MOTION_MACRO}(${lo}, ${hi})`, lo, hi, lo, pFrom),
+        stepsVia('v_motion', lo, hi, lo, pFrom),
+      ))
+      outside += Number(o!.n)
+      const [m] = await db.execute<{ n: number }>(
+        `SELECT count(*) FILTER (WHERE steps > 0)::INTEGER AS n FROM (${stepsVia('v_motion', lo, hi, pFrom, pTo)})`,
+      )
+      moving += Number(m!.n)
+    }
+
+    expect(inside).toBe(0)
+    // The fixture has movement inside the compared windows, and a window that
+    // starts before `lo` is visibly wrong — so zero above is not vacuous.
+    expect(moving).toBeGreaterThan(0)
+    expect(outside).toBeGreaterThan(0)
+    await db.close()
+  }, 900_000)
+
   it('are dropped on detach and recreated on the next attach', async () => {
     const db = await openSeeded()
     await dropViews(db)
@@ -211,7 +264,7 @@ describe('bounded quality macros', () => {
     const [back] = await db.execute<{ n: number }>(
       `SELECT count(DISTINCT function_name)::INTEGER AS n FROM duckdb_functions() WHERE function_name LIKE '%\\_between' ESCAPE '\\'`,
     )
-    expect(back!.n).toBe(QUALITY_TABLES.length * 2)
+    expect(back!.n).toBe(QUALITY_TABLES.length * 2 + 1)
     await db.close()
   }, 900_000)
 })

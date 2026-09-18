@@ -65,6 +65,7 @@ export {
   cleanMacroFor,
   cleanViewFor,
   isQualityTable,
+  MOTION_MACRO,
   PLAUSIBLE_RANGES,
   QUALITY_FLAG_COLUMNS,
   QUALITY_TABLES,
