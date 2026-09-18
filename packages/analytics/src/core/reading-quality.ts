@@ -494,9 +494,29 @@ function motionSlice(from: string, to: string): string {
  */
 export const MOTION_MACRO = 'v_motion_between'
 
+/**
+ * The macro parameters, TYPED — never the bare `lo` / `hi`.
+ *
+ * DuckDB binds a macro body at `CREATE MACRO` time with its parameters still
+ * untyped. A comparison (`ts >= lo`) lets it infer the type from the other
+ * side; arithmetic (`lo - INTERVAL 15 MINUTE`) does not, and DuckDB raises
+ * `ParameterNotResolvedException` internally. The desktop builds catch that
+ * and move on. The react-native-duckdb build on device lets it ESCAPE, so the
+ * CREATE fails, `createViews` failed, and attach went to `error` — no analytics
+ * at all on device, including storing synced ring data (zivaone_app#191).
+ * `v_motion_between`, which only compared, created fine; every `_q` macro,
+ * which subtracts an interval, did not.
+ *
+ * An explicit CAST gives the parameter its type at bind time, so nothing is
+ * left to resolve. It folds for a constant argument, so it costs no pruning.
+ * `macro-param-types.test.ts` asserts every macro's parameters resolve.
+ */
+const LO = 'CAST(lo AS TIMESTAMP)'
+const HI = 'CAST(hi AS TIMESTAMP)'
+
 function motionMacroDdl(): string {
   return `CREATE OR REPLACE MACRO ${MOTION_MACRO}(lo, hi) AS TABLE
-${motionSlice('lo', 'hi')};`
+${motionSlice(LO, HI)};`
 }
 
 function qualityMacroDdl(table: QualityTable): string {
@@ -504,31 +524,31 @@ function qualityMacroDdl(table: QualityTable): string {
   const sources: QualitySources = { base: '_base', wear: '_wear', motion: '_motion' }
   return `CREATE OR REPLACE MACRO ${qualityMacroFor(table)}(lo, hi) AS TABLE
 WITH _motion AS (
-${motionSlice(`lo - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE`, `hi + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE`)}
+${motionSlice(`${LO} - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE`, `${HI} + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE`)}
 ),
 _wear AS (
   SELECT t.user_id, t.brand, t.family_id, t.device_id, t.ts,
          t.temp_c >= ${WEAR_TEMP_MIN_C} AS on_wrist,
          COALESCE(t.temp_c >= ${WEAR_TEMP_MIN_C} AND p.temp_c < ${WEAR_TEMP_MIN_C}, FALSE) AS onset
   FROM (SELECT * FROM v_temperature
-        WHERE ts >= lo - INTERVAL ${WEAR_EVIDENCE_MINUTES} MINUTE AND ts < hi) t
+        WHERE ts >= ${LO} - INTERVAL ${WEAR_EVIDENCE_MINUTES} MINUTE AND ts < ${HI}) t
   ASOF LEFT JOIN v_temperature p
     ON p.user_id = t.user_id AND p.brand = t.brand AND p.family_id = t.family_id
    AND p.device_id = t.device_id AND t.ts > p.ts
 ),
 _base AS (
   SELECT * FROM v_${table}
-  WHERE ts >= lo - INTERVAL ${basePad} MINUTE AND ts < hi + INTERVAL ${basePad} MINUTE
+  WHERE ts >= ${LO} - INTERVAL ${basePad} MINUTE AND ts < ${HI} + INTERVAL ${basePad} MINUTE
 )
 SELECT * FROM (
 ${Q_BODY[table](sources)}
 ) q
-WHERE ts >= lo AND ts < hi;`
+WHERE ts >= ${LO} AND ts < ${HI};`
 }
 
 function cleanMacroDdl(table: QualityTable): string {
   return `CREATE OR REPLACE MACRO ${cleanMacroFor(table)}(lo, hi) AS TABLE
-${cleanBody(table, `${qualityMacroFor(table)}(lo, hi)`)};`
+${cleanBody(table, `${qualityMacroFor(table)}(${LO}, ${HI})`)};`
 }
 
 /**
