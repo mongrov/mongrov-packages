@@ -36,11 +36,18 @@ const METRIC_SPECS: Record<CompareTrendInput['metric'], MetricSpec> = {
   },
   sleep_total_minutes: {
     sql: (windowDays, offsetDays) =>
-      `SELECT AVG(total_minutes)::DOUBLE AS value
-       FROM v_sleep_session
-       WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-         AND ts_start >= now() - INTERVAL (${windowDays + offsetDays}) DAY
-         AND ts_start <  now() - INTERVAL (${offsetDays}) DAY`,
+      // Per NIGHT, then averaged. A night can be stored as two sessions (a
+      // 20-30 minute gap splits the primary block), so AVG over sessions
+      // reported a 7h night as a 3h and a 4h one. detectAnomaly already sums
+      // per night_of; this matches it.
+      `SELECT AVG(nightly)::DOUBLE AS value FROM (
+         SELECT night_of, SUM(total_minutes) AS nightly
+         FROM v_sleep_session
+         WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+           AND ts_start >= now() - INTERVAL (${windowDays + offsetDays}) DAY
+           AND ts_start <  now() - INTERVAL (${offsetDays}) DAY
+         GROUP BY night_of
+       )`,
     unit: 'min',
     label: 'sleep total',
   },

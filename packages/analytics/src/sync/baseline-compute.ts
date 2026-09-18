@@ -36,6 +36,7 @@ import {
 
 } from '../core/metric_metadata'
 import { readViewFor, STILL_FLOOR } from '../core/reading-quality'
+import { minDayReadings } from '../rules/compiler'
 
 /** One computed baseline row, as read back from the aggregate query. */
 interface BaselineRow {
@@ -107,6 +108,20 @@ export function buildBaselineSql(
   // This does not reproduce on node/Python DuckDB, which hand values to the
   // binder and therefore always have a type. Only a device build shows it.
   const windowBind = `(INTERVAL 1 DAY) * CAST($windowDays AS BIGINT)`
+
+  // A day-bucketed baseline reads COMPLETE LOCAL DAYS: the $windowDays days
+  // before today, each whole. `ts > now() - N days` alone holds two partial
+  // days — today, still accumulating, and the oldest day, cut at the current
+  // time of day — and each counted as a full day: a 500-step morning in a
+  // summed baseline, a two-reading day in an averaged one, and one more day
+  // toward the BASELINE_MIN_DAYS gate than the user had. The rules' day
+  // cadence already excludes today; this makes the baseline agree.
+  //
+  // The WHERE keeps its `now() -` prefilter (one extra day of slack for the
+  // zone offset) so the scan still prunes; the HAVING decides the days.
+  const scanBind = `(INTERVAL 1 DAY) * (CAST($windowDays AS BIGINT) + 1)`
+  const localToday = `date_trunc('day', timezone(CAST($tz AS VARCHAR), now()))`
+  const completeDays = `day >= ${localToday} - ${windowBind} AND day < ${localToday}`
 
   let dailySelect: string
   let tsColumn: string
@@ -183,7 +198,7 @@ export function buildBaselineSql(
                avg(m.${column}) AS daily_value
         FROM ${view} m
         WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId
-          AND m.ts > now() - ${windowBind}
+          AND m.ts > now() - ${scanBind}
           AND m.${column} IS NOT NULL
           AND COALESCE((
             SELECT SUM(a.steps) FROM v_activity a
@@ -193,6 +208,7 @@ export function buildBaselineSql(
               AND a.ts <  m.ts + INTERVAL 15 MINUTE
           ), 0) < ${STILL_FLOOR}
         GROUP BY 1
+        HAVING ${completeDays}
       )
       ${quantileSelect()}
     `.trim()
@@ -262,13 +278,25 @@ export function buildBaselineSql(
   dailySelect
     = `date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', ${tsColumn}))) AS day, ${fn}(${column}) AS daily_value`
 
+  // An averaged day also needs enough readings to BE a day: the floor the
+  // rules' day cadence applies (minDayReadings, 25% of the metric's slots),
+  // so a day the rules and the trend charts call absent is absent here too.
+  // A summed day takes no floor. Steps are logged per minute on some rings
+  // and only while moving on others, so a row count says nothing about
+  // whether a sum is whole — the complete-days bound is what does.
+  const sampling = meta.sampling_minutes
+  const dayFloor = fn === 'avg' && typeof sampling === 'number'
+    ? ` AND count(${column}) >= ${minDayReadings(sampling)}`
+    : ''
+
   return `
     WITH daily_values AS (
       SELECT ${dailySelect}
       FROM ${view}
       WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-        AND ${tsColumn} > now() - ${windowBind}
+        AND ${tsColumn} > now() - ${scanBind}
       GROUP BY day
+      HAVING ${completeDays}${dayFloor}
     )
     ${quantileSelect()}
   `.trim()
