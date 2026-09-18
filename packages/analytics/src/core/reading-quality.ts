@@ -453,17 +453,58 @@ export function cleanMacroFor(table: QualityTable): string {
   return `${cleanViewFor(table)}_between`
 }
 
+/**
+ * A running step total over `[from, to)` only — `v_motion`'s shape, from a
+ * slice. Shared by `v_motion_between` and every `_q` macro, so the two cannot
+ * disagree about what "steps in a window" means.
+ */
+function motionSlice(from: string, to: string): string {
+  return `  SELECT user_id, brand, family_id, ts,
+         SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
+  FROM v_activity
+  WHERE steps IS NOT NULL
+    AND ts >= ${from}
+    AND ts < ${to}`
+}
+
+/**
+ * `v_motion`, bounded: the running step total over `[lo, hi)` only.
+ *
+ * For callers that difference two lookups themselves — "steps in this window"
+ * as `cum(mn) - cum(mp)` — which is how the app's day grids and resting
+ * queries measure movement (zivaone_app#181). Against `v_motion` those joins
+ * paid for the user's whole activity history, a minute-resolution table and
+ * the largest one; this pays for the window.
+ *
+ * ## `cum_steps` is RELATIVE to `lo`
+ *
+ * The total restarts at the slice start, so a row's `cum_steps` here is not
+ * its `v_motion` value. Only a DIFFERENCE of two rows is the same quantity,
+ * which is the only way `cum_steps` is meaningful anyway — `v_motion`'s
+ * absolute value depends on where the history happens to begin.
+ *
+ * ## What the bounds must cover
+ *
+ * For a window `[a, b)` measured as `cum(latest < b) - cum(latest < a)`, pass
+ * `lo <= a` and `hi >= b`. Rows before the earlier lookup count in both terms
+ * and cancel; if the slice has no row before `a`, every row up to the later
+ * lookup is inside the window, which is what the difference sums anyway. The
+ * reasoning is the same as the `_q` macros' motion pad, and it shares their
+ * slice.
+ */
+export const MOTION_MACRO = 'v_motion_between'
+
+function motionMacroDdl(): string {
+  return `CREATE OR REPLACE MACRO ${MOTION_MACRO}(lo, hi) AS TABLE
+${motionSlice('lo', 'hi')};`
+}
+
 function qualityMacroDdl(table: QualityTable): string {
   const basePad = table === 'heart_rate' ? SPIKE_NEIGHBOUR_MINUTES : 0
   const sources: QualitySources = { base: '_base', wear: '_wear', motion: '_motion' }
   return `CREATE OR REPLACE MACRO ${qualityMacroFor(table)}(lo, hi) AS TABLE
 WITH _motion AS (
-  SELECT user_id, brand, family_id, ts,
-         SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
-  FROM v_activity
-  WHERE steps IS NOT NULL
-    AND ts >= lo - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
-    AND ts < hi + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
+${motionSlice(`lo - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE`, `hi + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE`)}
 ),
 _wear AS (
   SELECT t.user_id, t.brand, t.family_id, t.device_id, t.ts,
@@ -498,6 +539,7 @@ ${cleanBody(table, `${qualityMacroFor(table)}(lo, hi)`)};`
  */
 export function qualityMacroDdls(): QualityView[] {
   return [
+    { name: MOTION_MACRO, sql: motionMacroDdl() },
     ...QUALITY_TABLES.map(t => ({ name: qualityMacroFor(t), sql: qualityMacroDdl(t) })),
     ...QUALITY_TABLES.map(t => ({ name: cleanMacroFor(t), sql: cleanMacroDdl(t) })),
   ]
