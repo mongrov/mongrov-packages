@@ -166,6 +166,38 @@ describe('detectAnomaly and compareTrend execute with the zone bound', () => {
   }, 60_000)
 })
 
+describe('compareTrend sleep — a night is a night, not a session', () => {
+  // The mapper stores a night as TWO sessions when its primary block has a
+  // 20-30 minute gap (sessionsFromCorrected). Averaging SESSIONS reported
+  // that night as two short ones: 3h and 4h instead of 7h.
+  it('averages per-night totals, so a split night counts once and whole', async () => {
+    const a = await boot()
+    try {
+      const session = async (id: string, night: string, start: string, end: string, minutes: number) =>
+        a.execute(
+          `INSERT INTO sleep_session (session_id, ts_start, ts_end, brand, family_id, user_id, device_id, total_minutes, night_of)
+           VALUES ($id, CAST($s AS TIMESTAMP), CAST($e AS TIMESTAMP), $b, $f, $u, 'd1', $m, CAST($n AS DATE))`,
+          { id, s: start, e: end, b: BRAND, f: USER, u: USER, m: minutes, n: night },
+        )
+      const n2 = kolkataDate(3)
+      const n1 = kolkataDate(2)
+      // Night n2: one 420-minute session. Night n1: 180 + 240, split.
+      await session('a', n2, `${n2} 17:00:00`, `${n1} 00:00:00`, 420)
+      await session('b1', n1, `${n1} 17:00:00`, `${n1} 20:00:00`, 180)
+      await session('b2', n1, `${n1} 20:30:00`, `${kolkataDate(1)} 00:30:00`, 240)
+
+      const res = await compareTrend(
+        { userId: USER, metric: 'sleep_total_minutes', currentWindowDays: 7, priorWindowDays: 7 },
+        ctx(a, TZ),
+      )
+      expect(res.text).toContain('current 7d: 420.0min')
+    }
+    finally {
+      await a.close()
+    }
+  }, 60_000)
+})
+
 describe('getHeartRate / getStress compare to the user\'s own band', () => {
   it.each([
     ['getHeartRate', 'heart_rate', 'bpm', 'hr_bpm', 64, getHeartRate, 'usual daily average: 60–70 bpm (typical 64)'],

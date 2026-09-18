@@ -83,8 +83,15 @@ async function boot(): Promise<DB> {
  * `param-casts.test.ts` covers.
  */
 async function seed(db: DB, days: number, dipC: number): Promise<void> {
-  for (let d = 0; d < days; d++) {
-    const values = [37, 37, dipC, 37, 37]
+  // Past days only, each at temp's day floor (12 readings, minDayReadings of
+  // a 30-minute cadence): a baseline reads complete local days that count as
+  // days, so today and a thin day are not part of it.
+  //
+  // From two UTC days back, not one: TZ is Los Angeles, and for the seven
+  // hours after 00:00 UTC, one UTC day back is still LOCAL today — which the
+  // baseline rightly excludes, so the count would depend on the hour.
+  for (let d = 2; d <= days + 1; d++) {
+    const values = [37, 37, 37, 37, 37, dipC, 37, 37, 37, 37, 37, 37]
     for (let i = 0; i < values.length; i++) {
       // Relative to now, not fixed calendar dates: the builder filters on
       // `ts > now() - INTERVAL 1 DAY * $windowDays`, so a hard-coded month
@@ -137,10 +144,10 @@ describe('temp_c baseline (T-01)', () => {
     const row = rows[0]!
 
     // Every day has the same shape, so every DAILY mean is identical:
-    // (37*4 + 35) / 5 = 36.6. Note the daily value IS fractional even though
-    // every stored reading is an integer — which is the mapper's stated
-    // reason for tolerating an INTEGER column.
-    const dailyMean = (37 * 4 + 35) / 5
+    // (37*11 + 35) / 12 = 36.83. Note the daily value IS fractional even
+    // though every stored reading is an integer — which is the mapper's
+    // stated reason for tolerating an INTEGER column.
+    const dailyMean = (37 * 11 + 35) / 12
     expect(row.p10).toBeCloseTo(dailyMean, 4)
     expect(row.p50).toBeCloseTo(dailyMean, 4)
     expect(row.p90).toBeCloseTo(dailyMean, 4)
@@ -155,7 +162,7 @@ describe('temp_c baseline (T-01)', () => {
 
   it('counts DAYS in sample_count, not readings', async () => {
     const db = await boot()
-    await seed(db, 25, 35) // 25 days x 5 readings = 125 rows
+    await seed(db, 25, 35) // 25 days x 12 readings = 300 rows
 
     const rows = await computeBaseline(db, 30)
     expect(Number(rows[0]!.sample_count)).toBe(25)
