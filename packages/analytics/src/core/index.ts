@@ -60,11 +60,16 @@ export type {
 // Signal-quality views (T-25, sprint6 §13). Claims read `v_{vital}_clean`;
 // `v_{vital}_q` carries the per-reading flags for diagnostics and muted charts.
 export {
+  // Bounded forms of the same flags: `FROM v_hrv_clean_between(lo, hi)` in
+  // place of `FROM v_hrv_clean WHERE ts ...` (zivaone_app#121).
+  cleanMacroFor,
   cleanViewFor,
   isQualityTable,
   PLAUSIBLE_RANGES,
   QUALITY_FLAG_COLUMNS,
   QUALITY_TABLES,
+  qualityMacroDdls,
+  qualityMacroFor,
   qualityViewDdls,
   qualityViewFor,
   READING_QUALITY_COUNTS_SQL,

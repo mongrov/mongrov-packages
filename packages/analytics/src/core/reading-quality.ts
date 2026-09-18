@@ -155,10 +155,12 @@ FROM v_temperature;`
 }
 
 /** Latest wear evidence at or before each reading, same device. */
-const WEAR_JOIN = `ASOF LEFT JOIN ${WEAR_VIEW} w
+function wearJoin(source: string): string {
+  return `ASOF LEFT JOIN ${source} w
     ON w.user_id = m.user_id AND w.brand = m.brand
    AND w.family_id = m.family_id AND w.device_id = m.device_id
    AND m.ts >= w.ts`
+}
 
 const WORN = `CASE WHEN w.ts IS NULL OR w.ts < m.ts - INTERVAL ${WEAR_EVIDENCE_MINUTES} MINUTE
               THEN TRUE ELSE w.on_wrist END`
@@ -212,12 +214,14 @@ FROM v_activity WHERE steps IS NOT NULL;`
  * strictly after it. Aliases avoid `n`, which `heartRateQDdl` already uses as
  * a WINDOW name.
  */
-const MOTION_JOIN = `ASOF LEFT JOIN ${MOTION_VIEW} mp
+function motionJoin(source: string): string {
+  return `ASOF LEFT JOIN ${source} mp
     ON mp.user_id = m.user_id AND mp.brand = m.brand AND mp.family_id = m.family_id
    AND m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mp.ts
-  ASOF LEFT JOIN ${MOTION_VIEW} mn
+  ASOF LEFT JOIN ${source} mn
     ON mn.user_id = m.user_id AND mn.brand = m.brand AND mn.family_id = m.family_id
    AND m.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mn.ts`
+}
 
 /**
  * Steps across the window, by subtraction rather than by summing.
@@ -249,12 +253,11 @@ function sharedFlags(): string {
          ${STILL} AS still`
 }
 
-function heartRateQDdl(): string {
+function heartRateQBody(src: QualitySources): string {
   // Spike needs both neighbours present and close; an edge reading or one
   // next to a gap cannot be judged and is kept. A step change (60 → 110 →
   // 120) is not a spike: the second reading agrees with the first.
-  return `CREATE OR REPLACE VIEW ${qualityViewFor('heart_rate')} AS
-SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND NOT spike, FALSE) AS clean
+  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND NOT spike, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags()},
          COALESCE(m.bpm BETWEEN ${BPM_MIN} AND ${BPM_MAX}, FALSE) AS plausible
@@ -264,83 +267,107 @@ FROM (
         AND LEAD(ts) OVER n <= ts + INTERVAL ${SPIKE_NEIGHBOUR_MINUTES} MINUTE
         AND abs(bpm - LAG(bpm) OVER n) >= ${SPIKE_DELTA_BPM}
         AND abs(bpm - LEAD(bpm) OVER n) >= ${SPIKE_DELTA_BPM}, FALSE) AS spike
-    FROM v_heart_rate
+    FROM ${src.base}
     WINDOW n AS (${DEVICE_WINDOW})
   ) m
-  ${WEAR_JOIN}
-  ${MOTION_JOIN}
-) f;`
+  ${wearJoin(src.wear)}
+  ${motionJoin(src.motion)}
+) f`
 }
 
-function spo2QDdl(): string {
+function spo2QBody(src: QualitySources): string {
   // Motion corrupts the optical read, so a moving SpO2 is excluded outright.
-  return `CREATE OR REPLACE VIEW ${qualityViewFor('spo2')} AS
-SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND still, FALSE) AS clean
+  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND still, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags()},
          COALESCE(m.spo2 BETWEEN ${SPO2_MIN} AND ${SPO2_MAX}, FALSE) AS plausible
-  FROM v_spo2 m
-  ${WEAR_JOIN}
-  ${MOTION_JOIN}
-) f;`
+  FROM ${src.base} m
+  ${wearJoin(src.wear)}
+  ${motionJoin(src.motion)}
+) f`
 }
 
-function temperatureQDdl(): string {
+function temperatureQBody(src: QualitySources): string {
   // Android 10x guard: a value that only lands in range when divided by ten
   // is flagged, never divided. Corrected data is fabricated data.
-  return `CREATE OR REPLACE VIEW ${qualityViewFor('temperature')} AS
-SELECT *, COALESCE(worn AND NOT warm_up AND plausible, FALSE) AS clean
+  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags()},
          COALESCE(m.temp_c BETWEEN ${TEMP_MIN} AND ${TEMP_MAX}, FALSE) AS plausible,
          COALESCE(m.temp_c > ${TEMP_MAX}
            AND m.temp_c / 10 BETWEEN ${TEMP_MIN} AND ${TEMP_MAX}, FALSE) AS scale_suspect
-  FROM v_temperature m
-  ${WEAR_JOIN}
-  ${MOTION_JOIN}
-) f;`
+  FROM ${src.base} m
+  ${wearJoin(src.wear)}
+  ${motionJoin(src.motion)}
+) f`
 }
 
-function hrvQDdl(): string {
+function hrvQBody(src: QualitySources): string {
   // One row carries two vitals with different gates, so cleanliness is per
   // column. HRV: clamp + still (§13c). Stress: no clamp, but an `active`
   // reading is masked from alerting and tense-day counts (§13c) — the raw
   // raster still shows it, reading `v_hrv`. HRV 0 is below the 5 ms clamp:
   // the firmware reports it when RR variance is under its floor, which is a
   // real observation of "unmeasurable", not a measurement.
-  return `CREATE OR REPLACE VIEW ${qualityViewFor('hrv')} AS
-SELECT *,
+  return `SELECT *,
        COALESCE(hrv_ms IS NOT NULL AND worn AND NOT warm_up AND plausible AND still, FALSE) AS hrv_clean,
        COALESCE(stress IS NOT NULL AND worn AND NOT warm_up AND still, FALSE) AS stress_clean
 FROM (
   SELECT m.*, ${sharedFlags()},
          COALESCE(m.hrv_ms BETWEEN ${HRV_MIN} AND ${HRV_MAX}, FALSE) AS plausible
-  FROM v_hrv m
-  ${WEAR_JOIN}
-  ${MOTION_JOIN}
-) f;`
+  FROM ${src.base} m
+  ${wearJoin(src.wear)}
+  ${motionJoin(src.motion)}
+) f`
+}
+
+/** The clean projection of a quality relation, whatever `from` is. */
+function cleanBody(table: QualityTable, from: string): string {
+  const exclude = `EXCLUDE (${QUALITY_FLAG_COLUMNS[table].join(', ')})`
+  if (table === 'hrv') {
+    return `SELECT * ${exclude}
+       REPLACE (CASE WHEN hrv_clean THEN hrv_ms END AS hrv_ms,
+                CASE WHEN stress_clean THEN stress END AS stress)
+FROM ${from}
+WHERE hrv_clean OR stress_clean`
+  }
+  return `SELECT * ${exclude} FROM ${from} WHERE clean`
 }
 
 function cleanViewDdl(table: QualityTable): string {
-  const exclude = `EXCLUDE (${QUALITY_FLAG_COLUMNS[table].join(', ')})`
-  if (table === 'hrv') {
-    return `CREATE OR REPLACE VIEW ${cleanViewFor('hrv')} AS
-SELECT * ${exclude}
-       REPLACE (CASE WHEN hrv_clean THEN hrv_ms END AS hrv_ms,
-                CASE WHEN stress_clean THEN stress END AS stress)
-FROM ${qualityViewFor('hrv')}
-WHERE hrv_clean OR stress_clean;`
-  }
   return `CREATE OR REPLACE VIEW ${cleanViewFor(table)} AS
-SELECT * ${exclude} FROM ${qualityViewFor(table)} WHERE clean;`
+${cleanBody(table, qualityViewFor(table))};`
 }
 
-const Q_DDL: Readonly<Record<QualityTable, () => string>> = {
-  heart_rate: heartRateQDdl,
-  hrv: hrvQDdl,
-  spo2: spo2QDdl,
-  temperature: temperatureQDdl,
+/**
+ * Where a quality body reads from. The views read the unbounded union views;
+ * the bounded macros (below) read padded slices of the same rows. One body per
+ * table serves both, so the two can never disagree about what a flag means.
+ */
+interface QualitySources {
+  /** The readings being judged. */
+  base: string
+  /** Wear evidence, shaped like `v_wear`. */
+  wear: string
+  /** Running step total, shaped like `v_motion`. */
+  motion: string
 }
+
+const Q_BODY: Readonly<Record<QualityTable, (src: QualitySources) => string>> = {
+  heart_rate: heartRateQBody,
+  hrv: hrvQBody,
+  spo2: spo2QBody,
+  temperature: temperatureQBody,
+}
+
+function viewSources(table: QualityTable): QualitySources {
+  return { base: `v_${table}`, wear: WEAR_VIEW, motion: MOTION_VIEW }
+}
+
+const Q_DDL: Readonly<Record<QualityTable, () => string>> = Object.fromEntries(
+  QUALITY_TABLES.map(t => [t, () => `CREATE OR REPLACE VIEW ${qualityViewFor(t)} AS
+${Q_BODY[t](viewSources(t))};`]),
+) as Record<QualityTable, () => string>
 
 export interface QualityView {
   name: string
@@ -366,6 +393,119 @@ export function qualityViewDdls(): QualityView[] {
 /** Reverse creation order, so no view is dropped while another reads it. */
 export function qualityViewNames(): string[] {
   return qualityViewDdls().map(v => v.name).reverse()
+}
+
+/**
+ * The same quality flags, computed only over the window a query asks about.
+ *
+ * ## Why these exist (zivaone_app#121)
+ *
+ * The `_q` views ASOF-join `v_motion`, a running `SUM` over each tenant's
+ * ENTIRE activity history, and `v_wear`, a `LAG` over the entire temperature
+ * history. A window function over a whole partition cannot be pruned by a
+ * filter above it, so a query for ONE day paid for every minute the ring was
+ * ever worn: one day of `v_hrv_clean` cost as much as a year of it, and the
+ * cost grew linearly with history (15 / 32 / 115 ms at 30 / 90 / 365 days for
+ * a query returning one row). A screen firing 25 queries multiplied that.
+ *
+ * `v_{table}_q_between(lo, hi)` returns exactly the rows of `v_{table}_q` with
+ * `lo <= ts < hi`, computed from padded slices instead. Cost tracks the
+ * window, not the history: 5 ms against ~100 ms for one day at 365 days.
+ *
+ * `lo` and `hi` are UTC instants, compared against the stored `ts` directly —
+ * a local-day window is converted by the caller, as every query already does.
+ *
+ * ## Why each pad is exact, not merely "wide enough"
+ *
+ * Every flag is a lookup relative to the reading. A slice gives the same
+ * answer as the full table iff every lookup a reading in `[lo, hi)` makes
+ * either lands inside the slice or would have produced the same value anyway.
+ *
+ *   - **Motion, +/- STILL_WINDOW_MINUTES.** `still` is `cum(mn) - cum(mp)`.
+ *     The running total restarts at the slice start, but rows before `mp`
+ *     count in both terms and cancel, so only `mp` and `mn` matter. The left
+ *     pad makes `[ts - 15, ts)` fully present for the earliest reading; when
+ *     the slice has no `mp`, every row up to `mn` is inside the window, which
+ *     is exactly what the full table's difference sums. The right pad covers
+ *     `mn` for the latest reading.
+ *
+ *   - **Wear, - WEAR_EVIDENCE_MINUTES.** `worn` is TRUE for any evidence older
+ *     than that pad, so evidence the slice misses would have yielded TRUE
+ *     anyway. `onset` compares a row with its PREDECESSOR, which a `LAG` over
+ *     the slice gets wrong at the slice's first row — the one case the pad
+ *     cannot cover. So the predecessor comes from an ASOF join against the
+ *     unbounded `v_temperature`: a lookup, not a window, and exact.
+ *
+ *   - **Heart-rate base, +/- SPIKE_NEIGHBOUR_MINUTES.** `spike` reads the
+ *     immediate neighbours and only counts ones within that distance. A
+ *     neighbour outside the pad is a gap in both forms.
+ *
+ * `bounded-quality-equivalence.test.ts` checks every flag of every table
+ * against the views across hundreds of stepped windows, on a fixture built to
+ * put each of these edges inside a window; each pad, and the ASOF onset, has
+ * a mutation that the test catches.
+ */
+export function qualityMacroFor(table: QualityTable): string {
+  return `${qualityViewFor(table)}_between`
+}
+
+export function cleanMacroFor(table: QualityTable): string {
+  return `${cleanViewFor(table)}_between`
+}
+
+function qualityMacroDdl(table: QualityTable): string {
+  const basePad = table === 'heart_rate' ? SPIKE_NEIGHBOUR_MINUTES : 0
+  const sources: QualitySources = { base: '_base', wear: '_wear', motion: '_motion' }
+  return `CREATE OR REPLACE MACRO ${qualityMacroFor(table)}(lo, hi) AS TABLE
+WITH _motion AS (
+  SELECT user_id, brand, family_id, ts,
+         SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
+  FROM v_activity
+  WHERE steps IS NOT NULL
+    AND ts >= lo - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
+    AND ts < hi + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
+),
+_wear AS (
+  SELECT t.user_id, t.brand, t.family_id, t.device_id, t.ts,
+         t.temp_c >= ${WEAR_TEMP_MIN_C} AS on_wrist,
+         COALESCE(t.temp_c >= ${WEAR_TEMP_MIN_C} AND p.temp_c < ${WEAR_TEMP_MIN_C}, FALSE) AS onset
+  FROM (SELECT * FROM v_temperature
+        WHERE ts >= lo - INTERVAL ${WEAR_EVIDENCE_MINUTES} MINUTE AND ts < hi) t
+  ASOF LEFT JOIN v_temperature p
+    ON p.user_id = t.user_id AND p.brand = t.brand AND p.family_id = t.family_id
+   AND p.device_id = t.device_id AND t.ts > p.ts
+),
+_base AS (
+  SELECT * FROM v_${table}
+  WHERE ts >= lo - INTERVAL ${basePad} MINUTE AND ts < hi + INTERVAL ${basePad} MINUTE
+)
+SELECT * FROM (
+${Q_BODY[table](sources)}
+) q
+WHERE ts >= lo AND ts < hi;`
+}
+
+function cleanMacroDdl(table: QualityTable): string {
+  return `CREATE OR REPLACE MACRO ${cleanMacroFor(table)}(lo, hi) AS TABLE
+${cleanBody(table, `${qualityMacroFor(table)}(lo, hi)`)};`
+}
+
+/**
+ * Every bounded macro, in creation order (a clean macro calls its `_q` one).
+ *
+ * Kept apart from `qualityViewDdls` on purpose: callers drop that list with
+ * `DROP VIEW`, which fails on a macro.
+ */
+export function qualityMacroDdls(): QualityView[] {
+  return [
+    ...QUALITY_TABLES.map(t => ({ name: qualityMacroFor(t), sql: qualityMacroDdl(t) })),
+    ...QUALITY_TABLES.map(t => ({ name: cleanMacroFor(t), sql: cleanMacroDdl(t) })),
+  ]
+}
+
+/** Reverse creation order, for `DROP MACRO TABLE`. */
+export function qualityMacroNames(): string[] {
+  return qualityMacroDdls().map(m => m.name).reverse()
 }
 
 function countsFor(table: QualityTable, excluded: string, extra: { spike?: boolean, scale?: boolean } = {}): string {
