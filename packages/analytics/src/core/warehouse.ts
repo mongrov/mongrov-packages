@@ -42,7 +42,7 @@ import type {
   TokenVendor,
 } from './types'
 import { AnalyticsError } from './errors'
-import { qualityViewDdls, qualityViewNames } from './reading-quality'
+import { qualityMacroDdls, qualityMacroNames, qualityViewDdls, qualityViewNames } from './reading-quality'
 import { dropViewDdl, generateViewDdl, VIEWED_TABLES } from './schemas'
 
 /**
@@ -402,6 +402,21 @@ export async function createViews(
       )
     }
   }
+  // Bounded forms of the same flags (zivaone_app#121). After the views,
+  // because they read the same union views; as loud as them, because a query
+  // calling a missing macro fails exactly like one reading a missing view.
+  for (const macro of qualityMacroDdls()) {
+    try {
+      await db.execute(macro.sql)
+    }
+    catch (cause) {
+      throw new AnalyticsError(
+        'attach_failed',
+        `CREATE MACRO ${macro.name} failed`,
+        rootCause(cause),
+      )
+    }
+  }
 }
 
 /**
@@ -411,7 +426,17 @@ export async function createViews(
  * in `detaching`.
  */
 export async function dropViews(db: HybridDuckDB): Promise<void> {
-  // Dependents first: the quality views read the union views.
+  // Dependents first: the macros read the union views too, and a clean macro
+  // calls its quality macro.
+  for (const name of qualityMacroNames()) {
+    try {
+      await db.execute(`DROP MACRO TABLE IF EXISTS ${name};`)
+    }
+    catch {
+      // Best-effort, as below.
+    }
+  }
+  // The quality views read the union views.
   for (const name of qualityViewNames()) {
     try {
       await db.execute(`DROP VIEW IF EXISTS ${name};`)
