@@ -374,6 +374,13 @@ export async function createViews(
     localCatalog: string
     remoteCatalog?: string
   },
+  opts: {
+    /**
+     * A bounded macro failed to create. Attach carries on (see below); this
+     * is how the failure stays loud.
+     */
+    onMacroFailed?: (name: string, cause: unknown) => void
+  } = {},
 ): Promise<void> {
   for (const table of VIEWED_TABLES) {
     try {
@@ -402,19 +409,19 @@ export async function createViews(
       )
     }
   }
-  // Bounded forms of the same flags (zivaone_app#121). After the views,
-  // because they read the same union views; as loud as them, because a query
-  // calling a missing macro fails exactly like one reading a missing view.
+  // Bounded forms of the same flags (zivaone_app#121), after the views they
+  // read. NOT fatal, unlike the views: attach also gates WRITES — the ring
+  // handoff and the sync cursors — and a read-side helper must never stop
+  // synced ring data being stored. That is exactly what happened when a macro
+  // failed only on the device's DuckDB build (zivaone_app#191): attach went to
+  // `error` and every write was rejected with it. Now the queries that read a
+  // missing macro fail on their own, loudly, and everything else keeps working.
   for (const macro of qualityMacroDdls()) {
     try {
       await db.execute(macro.sql)
     }
     catch (cause) {
-      throw new AnalyticsError(
-        'attach_failed',
-        `CREATE MACRO ${macro.name} failed`,
-        rootCause(cause),
-      )
+      opts.onMacroFailed?.(macro.name, rootCause(cause))
     }
   }
 }
