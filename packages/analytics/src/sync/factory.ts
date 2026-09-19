@@ -537,6 +537,36 @@ interface CreateSinkDeps {
  * for logging / diagnostics without a second query.
  */
 /**
+ * SCD-2 close of one open `device_config` row, local catalog.
+ *
+ * Hand-written SQL with named placeholders, the same hazard as
+ * `ACTIVE_PRIOR_CONFIGS_SQL` below. It read `metric = $data_type` — a
+ * leftover of the 0.8.0 `data_type` -> `metric` rename — while the call
+ * bound `metric`, so the statement could never execute. Harmless until the
+ * app started syncing the ring's monitoring schedule (zivaone_app#190): then
+ * every sync whose schedule changed threw here, before its rows were
+ * buffered, and the next sync computed the same close and threw again
+ * (zivaone_app#221). Every unit test mocked the engine.
+ * `__tests__/close-config-sql.test.ts` (unit suite, real DuckDB) now executes it, with the
+ * params `closeDeviceConfigParams` builds, against the real DDL.
+ */
+export const CLOSE_DEVICE_CONFIG_SQL
+  = `UPDATE memory.main.device_config\n`
+    + `        SET valid_to = $valid_to\n`
+    + `      WHERE device_id = $device_id\n`
+    + `        AND metric = $metric\n`
+    + `        AND valid_to IS NULL`
+
+/** The params `CLOSE_DEVICE_CONFIG_SQL` binds — one builder, so the names cannot drift. */
+export function closeDeviceConfigParams(close: { valid_to: Date, device_id: string, metric: string }) {
+  return {
+    valid_to: close.valid_to.toISOString(),
+    device_id: close.device_id,
+    metric: close.metric,
+  }
+}
+
+/**
  * Open (`valid_to IS NULL`) device_config rows for one device.
  *
  * Fully-qualified `memory.main.device_config` so this resolves against the
@@ -636,18 +666,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
           // Fully-qualified `memory.main.device_config` — same reason as
           // `fetchActivePriorConfigs` above: sink runs after `attach()` has
           // called `USE <iceberg>.default`, so 2-part names miss.
-          await engine.execute(
-            `UPDATE memory.main.device_config
-                SET valid_to = $valid_to
-              WHERE device_id = $device_id
-                AND metric = $data_type
-                AND valid_to IS NULL`,
-            {
-              valid_to: close.valid_to.toISOString(),
-              device_id: close.device_id,
-              metric: close.metric,
-            },
-          )
+          await engine.execute(CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams(close))
         }
       }
 
