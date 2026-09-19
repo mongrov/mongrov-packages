@@ -32,7 +32,7 @@ import type { Clock, CompiledRule, FlushSummary, RulesLogger, RuleViolation } fr
 import { nanoid } from 'nanoid'
 import { AnalyticsError, describeError } from '../core/errors'
 import { METRIC_METADATA } from '../core/metric_metadata'
-import { BASELINE_OFFSET_PARAM, USER_SETTING_PARAM } from './compiler'
+import { BAND_SCALE_PARAM, BASELINE_OFFSET_PARAM, USER_SETTING_PARAM } from './compiler'
 
 export interface EvaluatorConfig {
   registry: RulesRegistry
@@ -79,6 +79,9 @@ export interface Evaluator {
   evaluateOnBatch: (batch: FlushSummary) => Promise<RuleViolation[]>
   evaluateScheduled: () => Promise<RuleViolation[]>
 }
+
+/** A JSON-quoted string's surrounding quotes. */
+const JSON_QUOTES_RE = /^"|"$/g
 
 export function createEvaluator(config: EvaluatorConfig): Evaluator {
   const {
@@ -178,6 +181,30 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     }
     settingCache.set(cacheKey, value)
     return value
+  }
+
+  /** `$bandScale` for a `phase_band` rule — see the call site. Never throws. */
+  async function resolveBandScale(userId: string, compiled: CompiledRule, ruleId: string): Promise<number> {
+    const scales = compiled.bandScales ?? {}
+    const fallback = (compiled.bandScaleDefault !== undefined ? scales[compiled.bandScaleDefault] : undefined) ?? 1
+    if (!storage || compiled.bandScaleKey === undefined)
+      return fallback
+    try {
+      const stored = await storage.get<unknown>(`analytics:${userId}:${compiled.bandScaleKey}`)
+      // The app stores the bare name; tolerate a JSON-quoted one.
+      const name = typeof stored === 'string' ? stored.replace(JSON_QUOTES_RE, '') : undefined
+      const scale = name !== undefined ? scales[name] : undefined
+      return typeof scale === 'number' && Number.isFinite(scale) ? scale : fallback
+    }
+    catch (err) {
+      logger?.warn('rules.evaluator: band scale read failed, using default', {
+        ruleId,
+        userId,
+        key: compiled.bandScaleKey,
+        err: describeError(err),
+      })
+      return fallback
+    }
   }
 
   /**
@@ -296,6 +323,11 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
           rule.id,
         )
       }
+      // D-H — a `phase_band` target's half-width multiplier, from the user's
+      // NAMED sensitivity. Unset or unknown falls back to the rule's default
+      // scale: an unreadable setting must not silence the alert.
+      if (compiled.bandScaleKey !== undefined)
+        params[BAND_SCALE_PARAM] = await resolveBandScale(ctx.userId, compiled, rule.id)
       rows = await analytics.execute<EvaluationRow>(compiled.sql, params)
     }
     catch (err) {

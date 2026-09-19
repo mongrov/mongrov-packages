@@ -90,6 +90,7 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
   validateMinDays(rule)
   validateContext(rule)
   validateUserSettingKey(rule)
+  validatePhaseBand(rule)
 
   const allowed = allowedWindowsFor(rule.metric)
   if (!allowed.includes(rule.window)) {
@@ -346,6 +347,38 @@ function validateUserSettingKey(rule: Rule): void {
     + `Add new keys to KV_KEY_REGISTRY in @mongrov/types/kv-keys — a key `
     + `absent from the registry would silently fall back to defaultValue.`,
   )
+}
+
+/**
+ * D-H — a `phase_band` target is a per-reading comparison against a band, so
+ * it needs a run of readings (`consecutive >= 2`, reading cadence). Its scale
+ * key must be a registered STRING setting: the value is a sensitivity name,
+ * looked up in `scales`. A threshold key would be a number, and every name
+ * lookup would miss and fall back to the default forever.
+ */
+function validatePhaseBand(rule: Rule): void {
+  const t = rule.target
+  if (t.type !== 'phase_band')
+    return
+  const fail = (msg: string): never => {
+    throw new RuleValidationError(`Rule ${rule.id}: ${msg}`)
+  }
+  if (rule.cadence !== 'reading' || (rule.consecutive ?? 1) < 2)
+    fail(`phase_band needs reading cadence and consecutive >= 2.`)
+  if (!(t.defaultLo < t.defaultHi))
+    fail(`phase_band defaultLo (${t.defaultLo}) must be below defaultHi (${t.defaultHi}).`)
+  if (t.scaleKey !== undefined) {
+    const key = t.scaleKey
+    if (!isRegisteredKvKey(key))
+      fail(`'${key}' is not in the KVStore key namespace registry.`)
+    const entry = (KV_KEY_REGISTRY as Record<string, { valueType?: string }>)[key]
+    if (entry?.valueType !== 'string')
+      fail(`scaleKey '${key}' must be a string setting naming a sensitivity.`)
+    if (t.scales === undefined || Object.keys(t.scales).length === 0)
+      fail(`scaleKey '${key}' needs a non-empty scales map.`)
+  }
+  if (t.defaultScale !== undefined && t.scales?.[t.defaultScale] === undefined)
+    fail(`defaultScale '${t.defaultScale}' is not a key of scales.`)
 }
 
 /** Scan a rawSql body for whole-word references to collected-only columns. */

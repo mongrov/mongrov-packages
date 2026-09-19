@@ -138,6 +138,38 @@ const TargetBaselineOffset = z.object({
   offsetKey: z.string().min(1).optional(),
 })
 
+/**
+ * D-H (zivaone_app T-26) — outside the user's own band, either side.
+ *
+ * The band is two stored rails, `${band}_lo` and `${band}_hi` in
+ * `user_baseline` (their `p50`), the same rows the screen draws. While either
+ * rail is missing the POPULATION rails apply (`defaultLo`/`defaultHi`): D-H
+ * keeps the rule running on honest defaults rather than going quiet until the
+ * user's band is learned. Both stored rails or neither — half a band is not a
+ * band.
+ *
+ * `scaleKey` names a KVStore setting holding a NAMED sensitivity, and
+ * `scales` maps each name to a half-width multiplier applied about the band's
+ * midpoint (the app's `widenBand`), so a user who picked "watchful" is
+ * alerted against the same narrowed band their screen shows.
+ *
+ * Reading-cadence `consecutive` only: the band is stable for the window, and
+ * each reading is compared to it — the same per-sample shape as
+ * `user_setting`, not a per-window baseline mean.
+ */
+const TargetPhaseBand = z.object({
+  type: z.literal('phase_band'),
+  /** `user_baseline.metric` prefix; rails are `${band}_lo` / `${band}_hi`. */
+  band: z.string().min(1),
+  windowDays: z.number().int().positive(),
+  defaultLo: z.number(),
+  defaultHi: z.number(),
+  scaleKey: z.string().min(1).optional(),
+  scales: z.record(z.string(), z.number().positive()).optional(),
+  /** The `scales` entry used when the setting is unset or unknown. */
+  defaultScale: z.string().optional(),
+})
+
 export const TargetSchema = z.discriminatedUnion('type', [
   TargetAbsolute,
   TargetBaselinePercent,
@@ -145,6 +177,7 @@ export const TargetSchema = z.discriminatedUnion('type', [
   TargetRange,
   TargetUserSetting,
   TargetBaselineOffset,
+  TargetPhaseBand,
 ])
 export type Target = z.infer<typeof TargetSchema>
 

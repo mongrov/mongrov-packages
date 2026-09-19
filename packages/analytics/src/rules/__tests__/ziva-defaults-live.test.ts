@@ -215,10 +215,13 @@ const CASES: Case[] = [
     },
   },
   {
-    // Three consecutive RESTING readings at or above the flag level (default 100).
-    id: 'ziva.hr-flag-level',
+    // D-H: three slot-adjacent ASLEEP readings outside the sleeping band. No
+    // stored band yet, so the population rails 48-62 apply. The run sits
+    // mid-session (2h-2h20m ago); either side of it the night is in band.
+    id: 'ziva.hr-out-of-band',
     seed: async (a, breach) => {
-      await recent(a, 'heart_rate', 'bpm', 3 * 60, 10, () => (breach ? 112 : 72))
+      await sleepSession(a, 's', 8 * 60, 60, 420)
+      await recent(a, 'heart_rate', 'bpm', 7 * 60, 10, m => (breach && m >= 120 && m <= 145 ? 70 : 55))
     },
   },
 ]

@@ -76,6 +76,14 @@ export interface CompiledRule {
   consecutiveKey?: string
   /** QA #108 — distinct local days required; the evaluator binds `$tz` when set. */
   minDays?: number
+  /**
+   * `phase_band` — the evaluator binds `$bandScale` from this KVStore key: a
+   * NAMED sensitivity looked up in `bandScales`, falling back to
+   * `bandScaleDefault`'s entry (or 1) when unset or unknown.
+   */
+  bandScaleKey?: string
+  bandScales?: Readonly<Record<string, number>>
+  bandScaleDefault?: string
 }
 
 /** Structured violation delivered to `on('violation', handler)` subscribers. */

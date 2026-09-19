@@ -58,8 +58,8 @@ describe('brand default catalogs', () => {
     // `analytics:rule:{ruleId}:{userId}:*` and are cross-referenced by name
     // from the Sprint 5 catalog additions.
     expect(zivaDefaults.map(r => r.id).sort()).toEqual([
-      // D-G + the HR slot table — resting-gated, high-only.
-      'ziva.hr-flag-level',
+      // D-H — the two-sided sleeping-band rule; ziva.hr-flag-level is retired.
+      'ziva.hr-out-of-band',
       'ziva.hrv-below-usual',
       'ziva.hrv-drop-30',
       'ziva.low-activity-week',
@@ -341,34 +341,40 @@ describe('D3 — hrv_ms is relative-only, enforced at registration', () => {
     })
   })
 
-  describe('the HR flag rule (D-G)', () => {
-    const rule = zivaDefaults.find(r => r.id === 'ziva.hr-flag-level')!
+  describe('the HR out-of-band rule (D-H)', () => {
+    const rule = zivaDefaults.find(r => r.id === 'ziva.hr-out-of-band')!
 
-    it('is resting-gated, which is what makes an absolute number safe', () => {
-    // 160 bpm on a run is not a finding; 105 sitting still is. Without the
-    // gate this rule would alert on every workout, and the slot table's
-    // decision 2 says exercise highs are context, never exceptions.
-      expect(rule.context).toBe('resting')
-    })
-
-    it('is high-only — there is deliberately no low-side counterpart', () => {
-    // A low resting rate is usually fitness. v1 ships no rule for it.
-      expect(rule.compare).toBe('greater_than_or_equal')
+    it('replaces the flag line: no HR rule reads user:hrFlagLevel any more', () => {
+      expect(zivaDefaults.find(r => r.id === 'ziva.hr-flag-level')).toBeUndefined()
       expect(zivaDefaults.filter(r => r.metric === 'hr_bpm')).toHaveLength(1)
     })
 
-    it('requires about half an hour of sustained elevation', () => {
-    // 3 slot-adjacent readings at the 10-minute HR cadence. Adjacency matters:
-    // a gap breaks the run rather than closing it.
-      expect(rule.consecutive).toBe(3)
+    it('watches the SLEEPING phase — the one that changes first and cannot be felt', () => {
+      expect(rule.context).toBe('asleep')
     })
 
-    it('reads its threshold from the registered KV key', () => {
+    it('is two-sided, against the stored asleep band with the population rails while learning', () => {
       expect(rule.target).toMatchObject({
-        type: 'user_setting',
-        key: 'user:hrFlagLevel',
-        defaultValue: 100,
+        type: 'phase_band',
+        band: 'hr_asleep',
+        windowDays: 90,
+        defaultLo: 48,
+        defaultHi: 62,
       })
+    })
+
+    it('scales the band by the ONE sensitivity control, with D-H\'s multipliers', () => {
+      expect(rule.target).toMatchObject({
+        scaleKey: 'user:hrSensitivity',
+        defaultScale: 'normal',
+        scales: { gentle: 1.35, normal: 1, watchful: 0.7 },
+      })
+    })
+
+    it('requires about half an hour outside the band', () => {
+      // 3 slot-adjacent readings at the 10-minute HR cadence.
+      expect(rule.consecutive).toBe(3)
+      expect(rule.severity).toBe('warn')
     })
   })
 
