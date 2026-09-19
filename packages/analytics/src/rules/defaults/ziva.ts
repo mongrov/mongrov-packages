@@ -320,37 +320,54 @@ direction = "above"
 minGapMinutes = 1440
 maxPerDay = 1
 
-# ── Heart rate (D-G + HR slot table, 2026-08-19) ────────────────────────────
+# ── Heart rate (ruling D-H, 2026-08-21; zivaone_app T-26) ─────────────────
 #
-# High-only in v1: a low resting rate is usually fitness, and alerting on it
-# would be wrong far more often than right.
+# One two-sided rule against the user's own SLEEPING band. It replaces
+# ziva.hr-flag-level (a resting flag line, high only, user:hrFlagLevel), which
+# D-H retired: a threshold that means one thing asleep and another mid-walk
+# cannot exist, and one fixed low line would fire every night for a fit
+# person who sleeps at 45.
 #
-# The rule is RESTING-GATED, which is what makes it safe to state an absolute
-# number. 160 bpm on a run is not a finding; 105 bpm sitting still is. The gate
-# is \`context = "resting"\` — no movement within +/-15 min — corrected in
-# analytics 0.20.0 from an older form that would have dropped every sample on
-# a device that only reports activity while the user moves.
+# Asleep only — the phase that "changes first and you can't feel it" (§7l).
+# ABOVE or BELOW the band counts; the verdict vocabulary stays the shipped
+# pair because "high" is the finding, but a night well below the user's own
+# range is as much a change as one above it.
 #
-# \`consecutive = 3\` at the 10-minute HR cadence is about half an hour of
-# sustained elevation at rest, slot-adjacent, so a gap breaks the run.
+# The band is the stored hr_asleep_lo/_hi rails (p50, the 90-day window the
+# screen reads). While either is missing it is the population rails 48-62:
+# D-H keeps the rule running on honest defaults while the band is learned.
+# user:hrSensitivity scales the half-width about the midpoint exactly as the
+# screen's band does: gentle 1.35, normal 1.0, watchful 0.7.
+#
+# consecutive = 3 at the 10-minute HR cadence is about half an hour asleep
+# outside the band, slot-adjacent, so a gap breaks the run.
 
 [[rule]]
-id = "ziva.hr-flag-level"
+id = "ziva.hr-out-of-band"
 brand = "ziva"
-name = "Resting heart rate stayed high"
-description = "Resting heart rate at or above your flag level for three consecutive readings."
+name = "Sleeping heart rate outside your range"
+description = "Three readings in a row while asleep sat outside your usual sleeping range."
 metric = "hr_bpm"
 window = "24h"
 aggregation = "avg"
-compare = "greater_than_or_equal"
-context = "resting"
+compare = "between"
+context = "asleep"
 consecutive = 3
 severity = "warn"
 
 [rule.target]
-type = "user_setting"
-key = "user:hrFlagLevel"
-defaultValue = 100
+type = "phase_band"
+band = "hr_asleep"
+windowDays = 90
+defaultLo = 48
+defaultHi = 62
+scaleKey = "user:hrSensitivity"
+defaultScale = "normal"
+
+[rule.target.scales]
+gentle = 1.35
+normal = 1.0
+watchful = 0.7
 
 [rule.throttle]
 minGapMinutes = 60

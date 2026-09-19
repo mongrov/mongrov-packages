@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { BASELINE_MIN_DAYS, getBaselineMetricIds } from '../../core/metric_metadata'
 import { buildBaselineSql, createBaselineComputer } from '../baseline-compute'
+import { HR_PHASE_BAND_METRICS } from '../hr-phase-bands'
 
 const CTX = {
   brand: 'ziva',
@@ -232,7 +233,8 @@ describe('computeAll', () => {
       stddev: 1,
       sample_count: 25,
     })
-    const computer = createBaselineComputer({ analytics: engine as never })
+    // The per-metric loop; the phase-band pass has its own test below.
+    const computer = createBaselineComputer({ analytics: engine as never, hrPhaseBands: false })
 
     const result = await computer.computeAll(CTX)
 
@@ -269,6 +271,7 @@ describe('computeAll', () => {
     const computer = createBaselineComputer({
       analytics: engine as never,
       logger: { debug: vi.fn(), info: vi.fn(), warn },
+      hrPhaseBands: false,
     })
 
     const result = await computer.computeAll(CTX)
@@ -283,9 +286,60 @@ describe('computeAll', () => {
       analytics: engine as never,
       metrics: ['spo2'],
       windows: [30],
+      hrPhaseBands: false,
     })
     const result = await computer.computeAll(CTX)
     expect(result.skipped).toBe(1)
     expect(result.computed).toBe(0)
+  })
+})
+
+describe('computeAll · HR phase bands (D-H)', () => {
+  const RAIL = { p05: 1, p10: 2, p50: 3, p90: 4, p95: 5, mean: 3, stddev: 1, sample_count: 25 }
+
+  it('upserts each rail the band query returns, under its own metric name', async () => {
+    const upserts: string[] = []
+    const engine = {
+      async execute(sql: string, params: Record<string, unknown>) {
+        if (sql.includes(`'hr_' || phase`))
+          return HR_PHASE_BAND_METRICS.map(metric => ({ metric, ...RAIL }))
+        if (sql.startsWith('INSERT INTO user_baseline'))
+          upserts.push(`${String(params.metric)}@${String(params.windowDays)}`)
+        return []
+      },
+    }
+    const computer = createBaselineComputer({ analytics: engine as never, metrics: [], windows: [90] })
+    const result = await computer.computeAll(CTX)
+    expect(upserts.sort()).toEqual(HR_PHASE_BAND_METRICS.map(m => `${m}@90`).sort())
+    expect(result.computed).toBe(6)
+  })
+
+  it('a rail short of days is simply absent — skipped, not failed', async () => {
+    const engine = {
+      async execute(sql: string) {
+        return sql.includes(`'hr_' || phase`) ? [{ metric: 'hr_asleep_lo', ...RAIL }, { metric: 'hr_asleep_hi', ...RAIL }] : []
+      },
+    }
+    const result = await createBaselineComputer({ analytics: engine as never, metrics: [], windows: [90] }).computeAll(CTX)
+    expect(result).toEqual({ computed: 2, skipped: 4, failed: 0 })
+  })
+
+  it('a failing band query fails once and does not abort the cycle', async () => {
+    const warn = vi.fn()
+    const engine = {
+      async execute(sql: string) {
+        if (sql.includes(`'hr_' || phase`))
+          throw new Error('boom')
+        return []
+      },
+    }
+    const result = await createBaselineComputer({
+      analytics: engine as never,
+      metrics: [],
+      windows: [90],
+      logger: { debug: vi.fn(), info: vi.fn(), warn },
+    }).computeAll(CTX)
+    expect(result.failed).toBe(1)
+    expect(warn).toHaveBeenCalledWith('baseline: hr phase bands failed', expect.anything())
   })
 })

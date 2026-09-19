@@ -215,6 +215,9 @@ export const USER_SETTING_PARAM = 'userSettingValue'
 /** Placeholder the evaluator binds for a `baseline_offset` target's offset. */
 export const BASELINE_OFFSET_PARAM = 'baselineOffset'
 
+/** Placeholder the evaluator binds for a `phase_band` target's half-width multiplier. */
+export const BAND_SCALE_PARAM = 'bandScale'
+
 /**
  * The local-day bucket for a naive-UTC timestamp column.
  *
@@ -288,6 +291,10 @@ export function compileRule(rule: Rule): CompiledRule {
     cadence: rule.cadence,
     consecutiveKey: rule.consecutiveKey,
     minDays: rule.minDays,
+    /** Evaluator binds `$bandScale` from this key when present. */
+    bandScaleKey: rule.target.type === 'phase_band' ? rule.target.scaleKey : undefined,
+    bandScales: rule.target.type === 'phase_band' ? rule.target.scales : undefined,
+    bandScaleDefault: rule.target.type === 'phase_band' ? rule.target.defaultScale : undefined,
   }
 }
 
@@ -301,6 +308,10 @@ function describeTarget(target: Target): string {
     case 'baseline_offset': return (
       `${target.offset} ${target.direction} ${target.windowDays}d baseline p50${
         target.offsetKey ? ` (key ${target.offsetKey})` : ''}`
+    )
+    case 'phase_band': return (
+      `outside ${target.band} band (${target.windowDays}d, default [${target.defaultLo}, ${target.defaultHi}]${
+        target.scaleKey ? `, scaled by ${target.scaleKey}` : ''})`
     )
   }
 }
@@ -362,6 +373,14 @@ function buildForTarget(args: BuildArgs): {
   const floor = args.minDays !== undefined
     ? `\n   AND COUNT(DISTINCT ${localDayExpr(`m.${ts}`)}) >= CAST($minDays AS BIGINT)`
     : ''
+
+  if (target.type === 'phase_band') {
+    // The validator requires `consecutive >= 2` for this target; a window
+    // aggregate has no side of the band to report.
+    throw new RuleValidationError(
+      `phase_band targets need consecutive >= 2 (reading cadence).`,
+    )
+  }
 
   if (target.type === 'absolute') {
     const params = { threshold_absolute: target.value }
@@ -683,6 +702,9 @@ function buildConsecutive(args: BuildArgs): {
   const where = whereClause(ts, interval)
   const from = `FROM ${view} m${join}`
 
+  if (target.type === 'phase_band')
+    return buildConsecutiveBand({ from, where, ts, column, cadenceMinutes, target, consecutive: consecutive as number })
+
   let thresholdExpr: string
   let params: Record<string, string | number> = {}
   if (target.type === 'absolute') {
@@ -764,6 +786,95 @@ ORDER BY observed_value ${compare === 'greater_than' ? 'DESC' : 'ASC'}
 LIMIT 1;`
 
   return { sql, params: { ...params, consecutive: consecutive as number } }
+}
+
+/**
+ * `phase_band` × `consecutive` — N slot-adjacent readings outside the band,
+ * on either side (D-H, `ziva.hr-out-of-band`).
+ *
+ * The band is resolved ONCE for the window, like `user_setting`'s threshold:
+ *
+ *   stored  the two rails' `p50` from `user_baseline` — the rows the screen
+ *           draws. Both or neither: a user with one learned rail is still
+ *           learning, and gets the population rails for both.
+ *   scaled  half-width × `$bandScale` about the band's own midpoint, the
+ *           app's `widenBand`, so the alert and the screen's band agree for
+ *           every sensitivity.
+ *
+ * Run detection is `buildConsecutive`'s, unchanged: islands keyed on the
+ * cadence slot, numbered over breaching rows only.
+ *
+ * A run reports its reading FURTHEST from the band's midpoint and the rail
+ * that reading crossed. Two-sided, so neither MIN nor MAX is "the worst".
+ */
+function buildConsecutiveBand(args: {
+  from: string
+  where: string
+  ts: string
+  column: string
+  cadenceMinutes: number
+  target: Extract<Target, { type: 'phase_band' }>
+  consecutive: number
+}): { sql: string, params: Record<string, string | number> } {
+  const { from, where, ts, column, cadenceMinutes, target, consecutive } = args
+  const params: Record<string, string | number> = {
+    bandLoMetric: `${target.band}_lo`,
+    bandHiMetric: `${target.band}_hi`,
+    baselineDays: target.windowDays,
+    bandDefaultLo: target.defaultLo,
+    bandDefaultHi: target.defaultHi,
+    consecutive,
+  }
+  // No key: the scale is the rule's own default, bound now. With a key the
+  // evaluator binds it per user; the SQL is the same either way.
+  if (target.scaleKey === undefined)
+    params[BAND_SCALE_PARAM] = (target.defaultScale !== undefined ? target.scales?.[target.defaultScale] : undefined) ?? 1
+
+  const sql = `WITH stored AS (
+  SELECT MAX(p50) FILTER (WHERE metric = CAST($bandLoMetric AS VARCHAR)) AS lo,
+         MAX(p50) FILTER (WHERE metric = CAST($bandHiMetric AS VARCHAR)) AS hi
+  FROM user_baseline
+  WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+    AND window_days = CAST($baselineDays AS INTEGER)
+),
+rails AS (
+  SELECT CASE WHEN lo IS NOT NULL AND hi IS NOT NULL THEN lo ELSE CAST($bandDefaultLo AS DOUBLE) END AS lo,
+         CASE WHEN lo IS NOT NULL AND hi IS NOT NULL THEN hi ELSE CAST($bandDefaultHi AS DOUBLE) END AS hi
+  FROM stored
+),
+band AS (
+  SELECT (lo + hi) / 2.0 - (hi - lo) / 2.0 * CAST($${BAND_SCALE_PARAM} AS DOUBLE) AS lo,
+         (lo + hi) / 2.0 + (hi - lo) / 2.0 * CAST($${BAND_SCALE_PARAM} AS DOUBLE) AS hi
+  FROM rails
+),
+samples AS (
+  SELECT m.${ts} AS ts,
+         m.${column} AS value,
+         (m.${column} < b.lo OR m.${column} > b.hi) AS breached,
+         CASE WHEN m.${column} < b.lo THEN b.lo ELSE b.hi END AS threshold_value,
+         ABS(m.${column} - (b.lo + b.hi) / 2.0) AS deviation
+  ${from}
+  CROSS JOIN band b
+  ${where}
+),
+runs AS (
+  SELECT ts, value, breached, threshold_value, deviation,
+         -- Same islands as buildConsecutive: keyed on the cadence slot, and
+         -- numbered over breaching rows only, so neither a missing slot nor
+         -- an in-band reading can join two runs.
+         CAST(epoch(ts) / 60 / ${cadenceMinutes} AS BIGINT)
+           - ROW_NUMBER() OVER (PARTITION BY breached ORDER BY ts) AS run_key
+  FROM samples
+)
+SELECT arg_max(value, deviation) AS observed_value,
+       arg_max(threshold_value, deviation) AS threshold_value
+FROM runs
+WHERE breached
+GROUP BY run_key
+HAVING COUNT(*) >= CAST($consecutive AS BIGINT)
+ORDER BY MAX(deviation) DESC
+LIMIT 1;`
+  return { sql, params }
 }
 
 /**

@@ -17,8 +17,8 @@ export {
 export { SensorBuffer, type SensorBufferConfig, type TakenBatch } from './buffer'
 export { SyncProvider, type SyncProviderProps, useSyncManager } from './context'
 export { SyncError, type SyncErrorCode } from './errors'
-
 export type { BatchCompletePayload } from './events'
+
 // Event bus integration (Phase H).
 export {
   bindFlushEvents,
@@ -30,7 +30,6 @@ export {
 } from './events'
 // Factory + hooks + provider (Phase I).
 export { createSyncManager, type CreateSyncManagerConfig } from './factory'
-
 export {
   type FetchParams,
   type FetchResult,
@@ -38,6 +37,7 @@ export {
   R2Fetcher,
   type R2FetcherConfig,
 } from './fetcher'
+
 // Flusher + triggers (Phase C).
 export {
   BACKOFF_SEQUENCE_MS,
@@ -52,6 +52,14 @@ export {
   type SyncEmitter,
 } from './flusher'
 export { useSensorSink, useSyncProgress, useSyncState } from './hooks'
+export {
+  buildHrPhaseBandsSql,
+  HR_PHASE_BAND_METRICS,
+  HR_PHASES,
+  type HrPhase,
+  type HrPhaseBandMetric,
+  PHASE_MIN_READINGS,
+} from './hr-phase-bands'
 export type {
   SensorSink,
   SyncManager,

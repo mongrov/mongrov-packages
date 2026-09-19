@@ -37,6 +37,7 @@ import {
 } from '../core/metric_metadata'
 import { readViewFor, STILL_FLOOR } from '../core/reading-quality'
 import { minDayReadings } from '../rules/compiler'
+import { buildHrPhaseBandsSql } from './hr-phase-bands'
 
 /** One computed baseline row, as read back from the aggregate query. */
 interface BaselineRow {
@@ -66,6 +67,11 @@ export interface BaselineComputeConfig {
   metrics?: readonly MetricId[]
   /** Override for tests. Defaults to 7 / 30 / 90. */
   windows?: readonly BaselineWindowDays[]
+  /**
+   * Also write heart rate's six phase-band rails (`hr-phase-bands.ts`).
+   * Default true; tests of the per-metric path turn it off.
+   */
+  hrPhaseBands?: boolean
 }
 
 export interface BaselineComputeResult {
@@ -366,6 +372,8 @@ export interface BaselineComputer {
   ) => Promise<boolean>
   /** Compute every configured metric x window for one user. */
   computeAll: (ctx: BaselineComputeContext) => Promise<BaselineComputeResult>
+  /** Write HR's phase-band rails for one window. Returns the rails written. */
+  computeHrPhaseBands: (windowDays: BaselineWindowDays, ctx: BaselineComputeContext) => Promise<number>
 }
 
 export function createBaselineComputer(
@@ -432,8 +440,52 @@ export function createBaselineComputer(
     return true
   }
 
+  /**
+   * HR's six phase-band rails (D-H). One query yields every rail with enough
+   * days; each is upserted like any other baseline row. A rail short of
+   * BASELINE_MIN_DAYS is simply absent from the result — "learning".
+   */
+  async function computeHrPhaseBands(
+    windowDays: BaselineWindowDays,
+    ctx: BaselineComputeContext,
+  ): Promise<number> {
+    const rows = await analytics.execute<BaselineRow & { metric: string }>(buildHrPhaseBandsSql(), {
+      userId: ctx.userId,
+      brand: ctx.brand,
+      familyId: ctx.familyId,
+      tz: ctx.userTimezone,
+      windowDays,
+    })
+    for (const row of rows) {
+      await analytics.execute(UPSERT_SQL, {
+        brand: ctx.brand,
+        familyId: ctx.familyId,
+        userId: ctx.userId,
+        metric: row.metric,
+        windowDays,
+        p05: row.p05,
+        p10: row.p10,
+        p50: row.p50,
+        p90: row.p90,
+        p95: row.p95,
+        mean: row.mean,
+        stddev: row.stddev,
+        sampleCount: row.sample_count,
+      })
+      eventBus?.emit('user_baseline:updated', {
+        userId: ctx.userId,
+        metric: row.metric,
+        windowDays,
+        sampleCount: row.sample_count,
+        computedAt: new Date().toISOString(),
+      })
+    }
+    return rows.length
+  }
+
   return {
     computeOne,
+    computeHrPhaseBands,
 
     async computeAll(ctx) {
       let computed = 0
@@ -453,6 +505,24 @@ export function createBaselineComputer(
             failed += 1
             logger?.warn('baseline: compute failed', {
               metric,
+              windowDays,
+              userId: ctx.userId,
+              err: err instanceof Error ? err.message : String(err),
+            })
+          }
+        }
+      }
+
+      if (config.hrPhaseBands !== false) {
+        for (const windowDays of windows) {
+          try {
+            const written = await computeHrPhaseBands(windowDays, ctx)
+            computed += written
+            skipped += 6 - written
+          }
+          catch (err) {
+            failed += 1
+            logger?.warn('baseline: hr phase bands failed', {
               windowDays,
               userId: ctx.userId,
               err: err instanceof Error ? err.message : String(err),
