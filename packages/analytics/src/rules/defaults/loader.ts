@@ -25,6 +25,21 @@ export interface ParseCatalogOptions {
   name?: string
 }
 
+/**
+ * TOML text to PLAIN data: what the rule schema is given.
+ *
+ * @iarna/toml tags every table with Symbol-keyed metadata (its declared /
+ * inline markers). zod 3's `z.record` skipped those keys; zod 4's rejects
+ * them ("expected string, received symbol"), so the first catalog with a
+ * nested table — analytics 0.30.0's `[rule.target.scales]` — failed to load
+ * in any app on zod 4, and with it every rule in the brand's catalog. The
+ * package tests on zod 3, whose OUTPUT is rebuilt without the symbols either
+ * way, so the guard has to sit on this input.
+ */
+export function parseTomlPlain(toml: string): unknown {
+  return JSON.parse(JSON.stringify(parseString(toml)))
+}
+
 export function parseCatalog(
   toml: string,
   options?: ParseCatalogOptions,
@@ -32,7 +47,7 @@ export function parseCatalog(
   const label = options?.name ?? 'catalog'
   let doc: CatalogDoc
   try {
-    doc = parseString(toml) as CatalogDoc
+    doc = parseTomlPlain(toml) as CatalogDoc
   }
   catch (err) {
     throw new RuleValidationError(
