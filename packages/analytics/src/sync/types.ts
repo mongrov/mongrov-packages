@@ -55,4 +55,11 @@ export interface FlushResult {
   rowsFlushed: number
   ok: boolean
   error?: Error
+  /**
+   * Rows dropped as unwritable rather than retried forever (zivaone_app#226).
+   * A flush with `ok: true` and a non-zero count here did lose data.
+   */
+  rowsRejected?: number
+  /** One example rejection, naming the offending value. */
+  rejectedSample?: string
 }

@@ -83,6 +83,15 @@ export interface FlushedEvent {
   /** Tenant observed on the drained entries; undefined for an empty flush. */
   brand?: string
   familyId?: string
+  /**
+   * Rows this flush could not write and will not retry (zivaone_app#226).
+   * Absent or 0 on a clean flush. Non-zero means data was dropped on
+   * purpose — the count is here so that loss is visible without reading
+   * DuckDB error text out of a log line.
+   */
+  rowsRejected?: number
+  /** One example rejection, to name the offending value. */
+  rejectedSample?: string
 }
 
 /**
@@ -158,6 +167,41 @@ function isKeyed(table: string): boolean {
   return LOCAL_SCHEMAS[table as TableName]?.includes('PRIMARY KEY') ?? false
 }
 
+/**
+ * A short, loggable description of why rows were rejected. DuckDB puts the
+ * offending value in the message ("Could not cast value 6537.800293 to
+ * DECIMAL(4,1)"), which is the one detail worth keeping.
+ */
+function describeRejection(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.length > 200 ? `${message.slice(0, 200)}…` : message
+}
+
+/** A row with the buffer entry it came from, so tenant fields survive a split. */
+interface FlatRow {
+  row: Record<string, unknown>
+  parent: BufferEntry
+}
+
+function flattenEntries(entries: BufferEntry[]): FlatRow[] {
+  return entries.flatMap(parent => parent.rows.map(row => ({ row, parent })))
+}
+
+/**
+ * Regroup flat rows into buffer entries, preserving each row's tenant
+ * context. Order within an entry is preserved; entries with no surviving
+ * rows disappear.
+ */
+function rebuildEntries(rows: FlatRow[]): BufferEntry[] {
+  const byParent = new Map<BufferEntry, Record<string, unknown>[]>()
+  for (const { row, parent } of rows) {
+    const list = byParent.get(parent) ?? []
+    list.push(row)
+    byParent.set(parent, list)
+  }
+  return Array.from(byParent, ([parent, grouped]) => ({ ...parent, rows: grouped }))
+}
+
 export class BatchFlusher {
   readonly #engine: HybridDuckDB
   readonly #buffer: SensorBuffer
@@ -167,6 +211,8 @@ export class BatchFlusher {
   readonly #now: () => number
   readonly #emit: SyncEmitter | undefined
   readonly #tables = new Map<string, TableRuntimeState>()
+  /** Probe tables whose NOT NULL columns already mirror their target. */
+  readonly #probesAligned = new Set<string>()
   readonly #batches = new Map<string, BatchRecord>()
 
   constructor(config: BatchFlusherConfig) {
@@ -289,8 +335,35 @@ export class BatchFlusher {
       return { table, rowsFlushed: 0, ok: true }
     }
 
+    let rowsRejected = 0
+    let rejectedSample: string | undefined
     try {
-      const rowsFlushed = await this.#write(table, drained)
+      let rowsFlushed: number
+      try {
+        rowsFlushed = await this.#write(table, drained)
+      }
+      catch (writeError) {
+        // One unwritable value must not cost the table forever
+        // (zivaone_app#226). Find the rows that cannot be written, write the
+        // rest, and let the batch commit so the poison rows leave the buffer.
+        //
+        // Only once the table has exhausted its retry budget. Dropping rows
+        // is irreversible, so it must never be the answer to a passing
+        // problem — a timeout, a busy connection, a half-open engine. Those
+        // clear within the existing backoff; a value the column cannot hold
+        // fails identically every time and is still here on the last attempt.
+        // Checked BEFORE this failure is counted, so the isolation runs on
+        // attempt MAX_CONSECUTIVE_FAILURES rather than one past it.
+        if (state.failureCount + 1 < MAX_CONSECUTIVE_FAILURES)
+          throw writeError
+        const flat = flattenEntries(drained)
+        const { good, bad } = await this.#classifyRows(table, flat)
+        if (bad.length === 0)
+          throw writeError
+        rowsRejected = bad.length
+        rejectedSample = describeRejection(writeError)
+        rowsFlushed = good.length > 0 ? await this.#write(table, rebuildEntries(good)) : 0
+      }
       // Only now is it safe to forget the durable copies. If this commit
       // itself fails, the rows stay on disk and are written again next time,
       // which the idempotent staging write turns into a no-op.
@@ -304,9 +377,22 @@ export class BatchFlusher {
       this.#recordInBatch(batchId, table, rowsFlushed, affectedUserIds, brand, familyId)
       this.#emit?.({
         type: 'flushed',
-        payload: { table, rowsFlushed, reason, affectedUserIds, brand, familyId },
+        payload: {
+          table,
+          rowsFlushed,
+          reason,
+          affectedUserIds,
+          brand,
+          familyId,
+          ...(rowsRejected > 0 ? { rowsRejected, rejectedSample } : {}),
+        },
       })
-      return { table, rowsFlushed, ok: true }
+      return {
+        table,
+        rowsFlushed,
+        ok: true,
+        ...(rowsRejected > 0 ? { rowsRejected, rejectedSample } : {}),
+      }
     }
     catch (cause) {
       await taken.release()
@@ -464,6 +550,109 @@ export class BatchFlusher {
     )
     await this.#engine.execute(`DELETE FROM ${staging};`)
     return rowsAppended
+  }
+
+  /** Mirror the target's NOT NULL columns onto the probe, once per probe. */
+  async #copyNotNull(table: string, probe: string): Promise<void> {
+    if (this.#probesAligned.has(probe))
+      return
+    const required = await this.#engine.execute<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns `
+      + `WHERE table_name = '${table}' AND is_nullable = 'NO'`,
+    )
+    for (const { column_name } of required) {
+      try {
+        await this.#engine.execute(
+          `ALTER TABLE ${probe} ALTER COLUMN ${column_name} SET NOT NULL;`,
+        )
+      }
+      catch {
+        // Already constrained, or the engine will not take it. The probe is
+        // then merely more permissive than the target, which is the
+        // pre-existing behaviour — never less permissive, which would
+        // discard writable rows.
+      }
+    }
+    this.#probesAligned.add(probe)
+  }
+
+  /**
+   * Split a failed batch into the rows that can be written and the rows that
+   * cannot (zivaone_app#226).
+   *
+   * One value the target column cannot represent — `6537.8` into
+   * `temp_c DECIMAL(4,1)` — failed the whole table's write. The batch was
+   * then released back to the buffer by design (T-45 keeps durable rows until
+   * a write commits), so the same row was retried on every later flush and
+   * that metric could never write again. Its delta cursor is the newest
+   * stored row, so it never advanced either: every sync re-pulled the whole
+   * history and failed on the same row. The vital reads "Never measured"
+   * while the ring streams hundreds of readings a day.
+   *
+   * Rows are classified against a scratch copy of the target rather than by
+   * retrying the target directly. The vitals tables carry no primary key, so
+   * they take the plain append path with no `ON CONFLICT` to lean on: a
+   * partially-appended batch retried in halves could write a row twice.
+   * Classifying against `{table}__probe` keeps the target untouched until
+   * there is a validated set, which is then written exactly once by the
+   * caller through the normal path.
+   *
+   * If the engine itself is down, creating or clearing the probe throws and
+   * the original failure is rethrown — a broken connection must not be read
+   * as "every row is bad" and silently discard a batch.
+   */
+  async #classifyRows(
+    table: string,
+    rows: FlatRow[],
+  ): Promise<{ good: FlatRow[], bad: FlatRow[] }> {
+    const probe = `${table}__probe`
+    await this.#engine.execute(
+      `CREATE TABLE IF NOT EXISTS ${probe} AS SELECT * FROM ${table} WHERE false;`,
+    )
+    // `CREATE TABLE AS SELECT` copies column types but NOT constraints, so
+    // the probe would accept a NULL the target rejects — classification would
+    // report every row writable, the real write would fail anyway, and the
+    // table would be stuck exactly as before. Copy NOT NULL across. The
+    // PRIMARY KEY is deliberately NOT copied: keyed tables reach the target
+    // through `ON CONFLICT DO NOTHING`, so a duplicate is not a rejection and
+    // a probe that enforced the key would discard rows the target accepts.
+    await this.#copyNotNull(table, probe)
+
+    const accepts = async (subset: FlatRow[]): Promise<boolean> => {
+      await this.#engine.execute(`DELETE FROM ${probe};`)
+      try {
+        this.#appendInto(probe, table, rebuildEntries(subset))
+        return true
+      }
+      catch {
+        return false
+      }
+    }
+
+    const walk = async (subset: FlatRow[]): Promise<{ good: FlatRow[], bad: FlatRow[] }> => {
+      if (subset.length === 0)
+        return { good: [], bad: [] }
+      if (await accepts(subset))
+        return { good: subset, bad: [] }
+      if (subset.length === 1)
+        return { good: [], bad: subset }
+      const mid = Math.floor(subset.length / 2)
+      const left = await walk(subset.slice(0, mid))
+      const right = await walk(subset.slice(mid))
+      return { good: [...left.good, ...right.good], bad: [...left.bad, ...right.bad] }
+    }
+
+    try {
+      return await walk(rows)
+    }
+    finally {
+      // Best-effort: a leftover probe row is harmless (the next classify
+      // clears it first) and must not mask the write error being handled.
+      try {
+        await this.#engine.execute(`DELETE FROM ${probe};`)
+      }
+      catch {}
+    }
   }
 
   /** Append `entries` into `target`, using `columnOrder` of `sourceTable`. */
