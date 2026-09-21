@@ -590,12 +590,19 @@ export class BatchFlusher {
    * while the ring streams hundreds of readings a day.
    *
    * Rows are classified against a scratch copy of the target rather than by
-   * retrying the target directly. The vitals tables carry no primary key, so
-   * they take the plain append path with no `ON CONFLICT` to lean on: a
-   * partially-appended batch retried in halves could write a row twice.
-   * Classifying against `{table}__probe` keeps the target untouched until
-   * there is a validated set, which is then written exactly once by the
-   * caller through the normal path.
+   * retrying the target directly: a batch that partially appended before
+   * throwing, then retried in halves, could write a row twice. Classifying
+   * against `{table}__probe` keeps the target untouched until there is a
+   * validated set, which is then written exactly once by the caller through
+   * the normal path.
+   *
+   * The probe deliberately does NOT copy the PRIMARY KEY. Every metric table
+   * has one — `withIdentityKey` splices the `IDENTITY_COLUMNS` tuple into the
+   * local DDL, so it is absent from the `SCHEMAS` string and present on the
+   * created table — and keyed tables reach the target through `ON CONFLICT DO
+   * NOTHING`. A duplicate is therefore not a rejection, and a probe that
+   * enforced the key would discard rows the target accepts. NOT NULL is
+   * copied for the opposite reason: the target does enforce it.
    *
    * If the engine itself is down, creating or clearing the probe throws and
    * the original failure is rethrown — a broken connection must not be read
