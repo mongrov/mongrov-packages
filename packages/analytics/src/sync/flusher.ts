@@ -120,7 +120,6 @@ export interface BatchCompleteEvent {
 export type SyncEmitter = (event:
   | { type: 'flushed', payload: FlushedEvent }
   | { type: 'flush-failed', payload: { table: string, error: SyncError } }
-  | { type: 'rows-rejected', payload: { table: string, rowsRejected: number, sample?: string } }
   | { type: 'batch-complete', payload: BatchCompleteEvent },
 ) => void
 
@@ -212,6 +211,8 @@ export class BatchFlusher {
   readonly #now: () => number
   readonly #emit: SyncEmitter | undefined
   readonly #tables = new Map<string, TableRuntimeState>()
+  /** Probe tables whose NOT NULL columns already mirror their target. */
+  readonly #probesAligned = new Set<string>()
   readonly #batches = new Map<string, BatchRecord>()
 
   constructor(config: BatchFlusherConfig) {
@@ -361,10 +362,6 @@ export class BatchFlusher {
           throw writeError
         rowsRejected = bad.length
         rejectedSample = describeRejection(writeError)
-        this.#emit?.({
-          type: 'rows-rejected',
-          payload: { table, rowsRejected, sample: rejectedSample },
-        })
         rowsFlushed = good.length > 0 ? await this.#write(table, rebuildEntries(good)) : 0
       }
       // Only now is it safe to forget the durable copies. If this commit
@@ -555,6 +552,30 @@ export class BatchFlusher {
     return rowsAppended
   }
 
+  /** Mirror the target's NOT NULL columns onto the probe, once per probe. */
+  async #copyNotNull(table: string, probe: string): Promise<void> {
+    if (this.#probesAligned.has(probe))
+      return
+    const required = await this.#engine.execute<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns `
+      + `WHERE table_name = '${table}' AND is_nullable = 'NO'`,
+    )
+    for (const { column_name } of required) {
+      try {
+        await this.#engine.execute(
+          `ALTER TABLE ${probe} ALTER COLUMN ${column_name} SET NOT NULL;`,
+        )
+      }
+      catch {
+        // Already constrained, or the engine will not take it. The probe is
+        // then merely more permissive than the target, which is the
+        // pre-existing behaviour — never less permissive, which would
+        // discard writable rows.
+      }
+    }
+    this.#probesAligned.add(probe)
+  }
+
   /**
    * Split a failed batch into the rows that can be written and the rows that
    * cannot (zivaone_app#226).
@@ -588,6 +609,14 @@ export class BatchFlusher {
     await this.#engine.execute(
       `CREATE TABLE IF NOT EXISTS ${probe} AS SELECT * FROM ${table} WHERE false;`,
     )
+    // `CREATE TABLE AS SELECT` copies column types but NOT constraints, so
+    // the probe would accept a NULL the target rejects — classification would
+    // report every row writable, the real write would fail anyway, and the
+    // table would be stuck exactly as before. Copy NOT NULL across. The
+    // PRIMARY KEY is deliberately NOT copied: keyed tables reach the target
+    // through `ON CONFLICT DO NOTHING`, so a duplicate is not a rejection and
+    // a probe that enforced the key would discard rows the target accepts.
+    await this.#copyNotNull(table, probe)
 
     const accepts = async (subset: FlatRow[]): Promise<boolean> => {
       await this.#engine.execute(`DELETE FROM ${probe};`)

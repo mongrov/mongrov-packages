@@ -150,6 +150,31 @@ describe('a poison row does not cost the table', () => {
     await r.db.close()
   })
 
+  it('isolates a NOT NULL violation, not just a failed cast', async () => {
+    // The probe is created with CREATE TABLE AS SELECT, which copies column
+    // types but NOT constraints. Without mirroring NOT NULL onto it, this row
+    // passes classification, the real write fails anyway, and the table is
+    // stuck exactly as it was before the fix. `#appendInto` maps a missing
+    // column to null, so this is reachable from any short firmware row.
+    const r = await rig()
+    await r.buffer.push({
+      table: 'temperature',
+      ...TENANT,
+      rows: [
+        reading('2026-09-21T01:00:00Z', 36.2),
+        { ...reading('2026-09-21T02:00:00Z', 36.3), temp_c: null },
+        reading('2026-09-21T03:00:00Z', 36.4),
+      ],
+    })
+
+    const result = (await flushToBudget(r.flusher, 'temperature')).at(-1)!
+
+    expect(result.ok).toBe(true)
+    expect(result.rowsRejected).toBe(1)
+    expect(await storedTemps(r.db)).toEqual([36.2, 36.4])
+    await r.db.close()
+  })
+
   it('a dead engine is not read as "every row is bad"', async () => {
     // The dangerous failure mode of any isolate-and-drop scheme: if the write
     // fails because the connection is gone, classifying would reject every row
