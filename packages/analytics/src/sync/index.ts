@@ -80,11 +80,17 @@ export { mapHeartRate } from './mapper/heart-rate'
 export { mapHrv } from './mapper/hrv'
 
 export {
+  dropImplausibleRows,
+  EARLIEST_PLAUSIBLE_ISO,
+  MAX_CLOCK_AHEAD_DAYS,
+} from './mapper/plausibility'
+
+export type { DropReport } from './mapper/plausibility'
+export {
   mapRingConfig,
   type MapRingConfigResult,
   type RingConfigClose,
 } from './mapper/ring-config'
-
 export {
   FIRMWARE_QUALITY_TO_STAGE,
   mapSleepRaw,
