@@ -365,7 +365,21 @@ function validatePhaseBand(rule: Rule): void {
   }
   if (rule.cadence !== 'reading' || (rule.consecutive ?? 1) < 2)
     fail(`phase_band needs reading cadence and consecutive >= 2.`)
-  if (!(t.defaultLo < t.defaultHi))
+  /*
+   * The population rails are OPTIONAL, and omitting them is what makes a rule
+   * silent until the user has a band of their own — the same discipline every
+   * screen follows (principle 27, zivaone_app#267).
+   *
+   * Both or neither: a rule with one rail would compare against a half-open
+   * range nobody wrote down. Checked here rather than in the schema because a
+   * `.refine()` makes the target a ZodEffects, which `z.discriminatedUnion`
+   * cannot hold.
+   */
+  const hasLo = t.defaultLo !== undefined
+  const hasHi = t.defaultHi !== undefined
+  if (hasLo !== hasHi)
+    fail(`phase_band: defaultLo and defaultHi must be given together, or both omitted.`)
+  if (hasLo && hasHi && !(t.defaultLo! < t.defaultHi!))
     fail(`phase_band defaultLo (${t.defaultLo}) must be below defaultHi (${t.defaultHi}).`)
   if (t.scaleKey !== undefined) {
     const key = t.scaleKey

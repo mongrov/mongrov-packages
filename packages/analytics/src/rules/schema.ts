@@ -162,8 +162,26 @@ const TargetPhaseBand = z.object({
   /** `user_baseline.metric` prefix; rails are `${band}_lo` / `${band}_hi`. */
   band: z.string().min(1),
   windowDays: z.number().int().positive(),
-  defaultLo: z.number(),
-  defaultHi: z.number(),
+  /**
+   * Population rails to compare against while the user's own are missing.
+   *
+   * OPTIONAL, and omitting them is the honest default: with no rails stored
+   * and no fallback the rule emits NO violation, which is what "still
+   * learning" means everywhere else in the product (principle 27).
+   *
+   * Supplying them keeps the rule running on a population range before the
+   * user has one. That is a real choice with a real cost — a narrow range
+   * fires for every healthy person outside it, for the whole learning
+   * period — so it is stated per rule rather than assumed. `ziva.hr-out-of-
+   * band` used 48-62 and alerted every 65 bpm sleeper for three weeks
+   * (zivaone_app#267).
+   *
+   * Both or neither — enforced by `validatePhaseBand`, not here: a
+   * `.refine()` makes this a ZodEffects, which `z.discriminatedUnion`
+   * cannot hold.
+   */
+  defaultLo: z.number().optional(),
+  defaultHi: z.number().optional(),
   scaleKey: z.string().min(1).optional(),
   scales: z.record(z.string(), z.number().positive()).optional(),
   /** The `scales` entry used when the setting is unset or unknown. */

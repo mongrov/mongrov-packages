@@ -833,14 +833,40 @@ function buildConsecutiveBand(args: {
     bandLoMetric: `${target.band}_lo`,
     bandHiMetric: `${target.band}_hi`,
     baselineDays: target.windowDays,
-    bandDefaultLo: target.defaultLo,
-    bandDefaultHi: target.defaultHi,
     consecutive,
+  }
+  // Bound only when the SQL references them: an unreferenced bind fails the
+  // prepare with "Failed to retrieve bind parameter index".
+  const hasDefaults = target.defaultLo !== undefined && target.defaultHi !== undefined
+  if (hasDefaults) {
+    params.bandDefaultLo = target.defaultLo as number
+    params.bandDefaultHi = target.defaultHi as number
   }
   // No key: the scale is the rule's own default, bound now. With a key the
   // evaluator binds it per user; the SQL is the same either way.
   if (target.scaleKey === undefined)
     params[BAND_SCALE_PARAM] = (target.defaultScale !== undefined ? target.scales?.[target.defaultScale] : undefined) ?? 1
+
+  /*
+   * `rails` is where "still learning" is decided.
+   *
+   * WITH defaults: the population pair stands in until the user has their
+   * own, and the rule fires against it from day one.
+   *
+   * WITHOUT them: the CASE yields NULL, the `band` CTE yields NULL rails,
+   * every `breached` comparison is NULL, and the rule emits nothing. That is
+   * the honest state — the screens draw no reference they have not earned
+   * (principle 27), and this makes the alert agree with them
+   * (zivaone_app#267).
+   *
+   * Both or neither is enforced by `validatePhaseBand`, so a half-set pair
+   * cannot reach here and silently behave like one of the two.
+   */
+  const railsExpr = hasDefaults
+    ? `SELECT CASE WHEN lo IS NOT NULL AND hi IS NOT NULL THEN lo ELSE CAST($bandDefaultLo AS DOUBLE) END AS lo,
+         CASE WHEN lo IS NOT NULL AND hi IS NOT NULL THEN hi ELSE CAST($bandDefaultHi AS DOUBLE) END AS hi
+  FROM stored`
+    : `SELECT lo, hi FROM stored WHERE lo IS NOT NULL AND hi IS NOT NULL`
 
   const sql = `WITH stored AS (
   SELECT MAX(p50) FILTER (WHERE metric = CAST($bandLoMetric AS VARCHAR)) AS lo,
@@ -850,9 +876,7 @@ function buildConsecutiveBand(args: {
     AND window_days = CAST($baselineDays AS INTEGER)
 ),
 rails AS (
-  SELECT CASE WHEN lo IS NOT NULL AND hi IS NOT NULL THEN lo ELSE CAST($bandDefaultLo AS DOUBLE) END AS lo,
-         CASE WHEN lo IS NOT NULL AND hi IS NOT NULL THEN hi ELSE CAST($bandDefaultHi AS DOUBLE) END AS hi
-  FROM stored
+  ${railsExpr}
 ),
 band AS (
   SELECT (lo + hi) / 2.0 - (hi - lo) / 2.0 * CAST($${BAND_SCALE_PARAM} AS DOUBLE) AS lo,

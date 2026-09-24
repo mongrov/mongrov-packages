@@ -221,6 +221,11 @@ const CASES: Case[] = [
     id: 'ziva.hr-out-of-band',
     seed: async (a, breach) => {
       await sleepSession(a, 's', 8 * 60, 60, 420)
+      // The user's OWN asleep rails. The rule dropped its population fallback
+      // in zivaone_app#267, so without these it is correctly silent and the
+      // breach side of this case could never fire.
+      await baseline(a, 'hr_asleep_lo', 90, 48)
+      await baseline(a, 'hr_asleep_hi', 90, 62)
       await recent(a, 'heart_rate', 'bpm', 7 * 60, 10, m => (breach && m >= 120 && m <= 145 ? 70 : 55))
     },
   },

@@ -106,51 +106,72 @@ async function fires(opts: { rest: number, run: number, from?: number, to?: numb
   }
 }
 
+/**
+ * The band the shipped rule used to get for free.
+ *
+ * Until zivaone_app#267 the rule carried `defaultLo = 48 / defaultHi = 62`
+ * and every test below leaned on them without saying so. The rule now has no
+ * population fallback — it is silent until the user has rails of their own —
+ * so the tests that are about BAND ARITHMETIC seed the same numbers as a
+ * stored band, and the ones about the fallback have become the silence tests.
+ */
+const LEARNED: [number, number] = [48, 62]
+
 describe('ziva.hr-out-of-band on a live engine', () => {
+  it('is SILENT while the user has no band of their own (#267)', async () => {
+    // The whole point of dropping the defaults. 70 bpm asleep for half an
+    // hour is well outside 48-62, and would have fired every night of a new
+    // user's first three weeks against a range that was never theirs.
+    await expect(fires({ rest: 55, run: 70 })).resolves.toBeNull()
+    // And a low run, so this is not "it stopped firing upward only".
+    await expect(fires({ rest: 55, run: 40 })).resolves.toBeNull()
+  }, 60_000)
+
+  it('is silent with only ONE stored rail — half a band is no band', async () => {
+    // Previously this fell back to the population pair. Now there is nothing
+    // to fall back to, and a lone rail must not become a half-open range.
+    await expect(fires({ rest: 54, run: 80, band: [58, null] })).resolves.toBeNull()
+  }, 60_000)
+
   it('fires ABOVE the band, quoting the worst reading and the rail it crossed', async () => {
-    const v = await fires({ rest: 55, run: 70 })
+    const v = await fires({ rest: 55, run: 70, band: LEARNED })
     expect(v).not.toBeNull()
     expect(v!.observedValue).toBe(70)
     expect(v!.thresholdValue).toBeCloseTo(62, 5)
   }, 60_000)
 
   it('fires BELOW the band too — the band is two-sided', async () => {
-    const v = await fires({ rest: 55, run: 40 })
+    const v = await fires({ rest: 55, run: 40, band: LEARNED })
     expect(v).not.toBeNull()
     expect(v!.observedValue).toBe(40)
     expect(v!.thresholdValue).toBeCloseTo(48, 5)
   }, 60_000)
 
   it('needs a run: two readings outside are not half an hour', async () => {
-    await expect(fires({ rest: 55, run: 70, from: 120, to: 135 })).resolves.toBeNull()
+    await expect(fires({ rest: 55, run: 70, from: 120, to: 135, band: LEARNED })).resolves.toBeNull()
   }, 60_000)
 
   it('watches sleep only: the same readings awake do not fire', async () => {
-    await expect(fires({ rest: 55, run: 70, asleep: false })).resolves.toBeNull()
+    await expect(fires({ rest: 55, run: 70, asleep: false, band: LEARNED })).resolves.toBeNull()
   }, 60_000)
 
-  it('uses the stored band once learned, not the population rails', async () => {
-    // 60 is inside 48-62, but outside a learned 50-58.
-    await expect(fires({ rest: 54, run: 60 })).resolves.toBeNull()
+  it('uses the user\'s OWN band, not a wider one', async () => {
+    // 60 is inside 48-62 and outside a learned 50-58. The rails that apply
+    // are whichever the user actually has.
+    await expect(fires({ rest: 54, run: 60, band: LEARNED })).resolves.toBeNull()
     await expect(fires({ rest: 54, run: 60, band: [50, 58] })).resolves.not.toBeNull()
-  }, 60_000)
-
-  it('treats half a stored band as no band: the population rails still apply', async () => {
-    // A lone stored low rail of 58, mixed with the default high, would make a
-    // 58-62 band and flag this whole in-band night of 54s.
-    await expect(fires({ rest: 54, run: 54, band: [58, null] })).resolves.toBeNull()
   }, 60_000)
 
   it('follows the sensitivity: watchful narrows the band, gentle widens it', async () => {
     // 61 is inside normal (48-62) but outside watchful (50.1-59.9).
-    await expect(fires({ rest: 55, run: 61 })).resolves.toBeNull()
-    await expect(fires({ rest: 55, run: 61, sensitivity: 'watchful' })).resolves.not.toBeNull()
+    await expect(fires({ rest: 55, run: 61, band: LEARNED })).resolves.toBeNull()
+    await expect(fires({ rest: 55, run: 61, sensitivity: 'watchful', band: LEARNED })).resolves.not.toBeNull()
     // 63 is outside normal, inside gentle (45.55-64.45).
-    await expect(fires({ rest: 55, run: 63 })).resolves.not.toBeNull()
-    await expect(fires({ rest: 55, run: 63, sensitivity: 'gentle' })).resolves.toBeNull()
+    await expect(fires({ rest: 55, run: 63, band: LEARNED })).resolves.not.toBeNull()
+    await expect(fires({ rest: 55, run: 63, sensitivity: 'gentle', band: LEARNED })).resolves.toBeNull()
   }, 120_000)
 
   it('an unknown sensitivity falls back to normal rather than going quiet', async () => {
-    await expect(fires({ rest: 55, run: 63, sensitivity: 'loud' })).resolves.not.toBeNull()
+    await expect(fires({ rest: 55, run: 63, sensitivity: 'loud', band: LEARNED })).resolves.not.toBeNull()
   }, 60_000)
 })

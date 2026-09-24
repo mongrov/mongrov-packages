@@ -358,14 +358,25 @@ describe('D3 — hrv_ms is relative-only, enforced at registration', () => {
       expect(rule.context).toBe('asleep')
     })
 
-    it('is two-sided, against the stored asleep band with the population rails while learning', () => {
+    it('is two-sided, against the stored asleep band and NOTHING else', () => {
       expect(rule.target).toMatchObject({
         type: 'phase_band',
         band: 'hr_asleep',
         windowDays: 90,
-        defaultLo: 48,
-        defaultHi: 62,
       })
+    })
+
+    it('carries NO population rails, so it is silent while learning (#267)', () => {
+      // It used to ship `defaultLo: 48, defaultHi: 62`. That range is narrow —
+      // a healthy 65 bpm sleeper sits outside it — so every such user was told
+      // for three weeks that their heart rate was "outside your usual sleeping
+      // range", against a range that was never theirs.
+      //
+      // `toMatchObject` above cannot catch a reinstated default, because it
+      // ignores extra keys. These two assertions are the guard.
+      const target = rule.target as Record<string, unknown>
+      expect(target.defaultLo).toBeUndefined()
+      expect(target.defaultHi).toBeUndefined()
     })
 
     it('scales the band by the ONE sensitivity control, with D-H\'s multipliers', () => {

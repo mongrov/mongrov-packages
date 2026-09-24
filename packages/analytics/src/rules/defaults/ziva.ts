@@ -334,8 +334,16 @@ maxPerDay = 1
 # range is as much a change as one above it.
 #
 # The band is the stored hr_asleep_lo/_hi rails (p50, the 90-day window the
-# screen reads). While either is missing it is the population rails 48-62:
-# D-H keeps the rule running on honest defaults while the band is learned.
+# screen reads), and NOTHING while either is missing: no defaultLo/defaultHi,
+# so the rule is silent until the user has a range of their own.
+#
+# It used to fall back to the population rails 48-62 (D-H, "keep the rule
+# running on honest defaults while the band is learned"). Reversed in
+# zivaone_app#267: 48-62 is narrow, so a healthy 65 bpm sleeper was told every
+# night for three weeks that their heart rate was "outside your usual sleeping
+# range" -- a range that was not theirs and that they were outside of by
+# construction. The screens draw no reference they have not earned
+# (principle 27); this makes the alert agree with them.
 # user:hrSensitivity scales the half-width about the midpoint exactly as the
 # screen's band does: gentle 1.35, normal 1.0, watchful 0.7.
 #
@@ -359,8 +367,6 @@ severity = "warn"
 type = "phase_band"
 band = "hr_asleep"
 windowDays = 90
-defaultLo = 48
-defaultHi = 62
 scaleKey = "user:hrSensitivity"
 defaultScale = "normal"
 
