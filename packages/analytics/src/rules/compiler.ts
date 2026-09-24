@@ -38,7 +38,7 @@ import type { TableName } from '../core/schemas'
 import type { Aggregation, Compare, Rule, RuleContext, Target, Window } from './schema'
 import type { CompiledRule } from './types'
 import { METRIC_METADATA } from '../core/metric_metadata'
-import { isQualityTable, qualityViewFor, readViewFor } from '../core/reading-quality'
+import { isQualityTable, qualityViewFor, readViewFor, stillEnoughSql } from '../core/reading-quality'
 import {
 
   RuleValidationError,
@@ -170,6 +170,18 @@ INNER JOIN ${viewFor('sleep_session')} s
        * measuring the window (disproven on 864 readings, see #6).
        *
        * Tables without quality flags keep the row-existence form below.
+       *
+       * `stillEnoughSql`, not a bare `rq.still` (zivaone_app#219). `still` is
+       * three-valued now — NULL where no activity row falls inside the window,
+       * so stillness is unknown rather than established. An INNER JOIN on a
+       * NULL drops the row, which would stop resting-gated rules firing
+       * exactly when activity coverage is sparse: overnight, which is when a
+       * resting rule matters most.
+       *
+       * Sharing the expression with the clean views is the point. They keep
+       * unknown readings, and if this gate did not, a reading would be still
+       * on the chart and moving for the rule that alerts on it -- the drift
+       * this comment says 0.27.0 removed, reintroduced by a different route.
        */
       if (table !== undefined && isQualityTable(table)) {
         return `
@@ -179,7 +191,7 @@ INNER JOIN ${qualityViewFor(table)} rq
   AND rq.family_id = m.family_id
   AND rq.device_id = m.device_id
   AND rq.ts = m.ts
-  AND rq.still`
+  AND ${stillEnoughSql('rq.')}`
       }
       return `
 ANTI JOIN ${viewFor('activity')} a
