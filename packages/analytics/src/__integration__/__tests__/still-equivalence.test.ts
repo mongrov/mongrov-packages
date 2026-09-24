@@ -212,6 +212,16 @@ describe('`still` is the movement floor, and the shipped view computes it', () =
     await steps(db, U, '12:00', STILL_FLOOR + 10)
     for (const t of ['11:44', '11:45', '11:46', '12:00', '12:14', '12:15', '12:16'])
       await hr(db, U, t)
+    // A ZERO-STEP row beside each reading, so every window holds evidence.
+    //
+    // Without these the fixture carries exactly one activity row, and the
+    // three readings whose window excludes it have no activity data at all —
+    // so `still` is NULL for them (zivaone_app#219), and this test would be
+    // measuring absence of evidence rather than the window edges it is named
+    // for. Zero steps add nothing to the running total, so the arithmetic
+    // below is untouched; only the evidence test changes.
+    for (const t of ['11:44', '11:45', '11:46', '12:14', '12:15', '12:16'])
+      await steps(db, U, t, 0)
 
     await createViews(db, { brand: B, familyId: F, localCatalog: 'memory' })
 

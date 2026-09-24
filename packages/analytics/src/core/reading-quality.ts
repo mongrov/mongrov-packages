@@ -245,7 +245,69 @@ function motionJoin(source: string): string {
  * `NULL - NULL` would make `still` NULL rather than true, dropping the very
  * readings at the edges of the data.
  */
-const STILL = `(COALESCE(mn.cum_steps, 0) - COALESCE(mp.cum_steps, 0)) < ${STILL_FLOOR}`
+/**
+ * Is there any activity row inside the window at all?
+ *
+ * `mn` is the latest motion row strictly before the window CLOSES. If that row
+ * also falls at or after the window OPENS it is inside the window, so the
+ * window holds evidence. If it sits earlier than the window opens — or there
+ * is no row at all — then nothing was recorded near this reading and the
+ * question "was the wearer still?" has no answer here.
+ *
+ * A pure comparison on columns the ASOF joins already produced: no extra
+ * lookup, no scan (zivaone_app#126's shape is untouched).
+ */
+const MOTION_EVIDENCE = `(mn.ts IS NOT NULL AND mn.ts >= m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE)`
+
+/**
+ * THREE-VALUED (zivaone_app#219): true, false, or NULL for "we cannot tell".
+ *
+ * This was a plain `delta < FLOOR`, which made absence of evidence read as
+ * evidence of stillness. With no activity rows near a reading both ASOF
+ * lookups land on the same distant row, the difference is 0, and 0 is below
+ * any floor — so the reading was called STILL because nothing had been
+ * recorded, not because the wearer was motionless.
+ *
+ * Measured on a real ring (zivaone_app#219): SpO2 readings between 08:30 and
+ * 14:30 sat 1-7 hours from the nearest activity row and every one of them
+ * passed as still. Overnight SpO2 was surviving the gate partly by accident,
+ * and would have started failing had activity coverage improved.
+ *
+ * `steps IS NOT NULL` in `motionViewDdl` already says a zero-step minute is
+ * evidence of stillness and must contribute a row. This is the other half of
+ * that statement: where no row exists, there is no evidence either way.
+ *
+ * NULL rather than false, because "moving" would be just as wrong a claim as
+ * "still". What each clean view does with unknown is its own decision -- see
+ * `STILL_ENOUGH`.
+ */
+const STILL = `CASE WHEN ${MOTION_EVIDENCE}
+           THEN (COALESCE(mn.cum_steps, 0) - COALESCE(mp.cum_steps, 0)) < ${STILL_FLOOR}
+           ELSE NULL END`
+
+/**
+ * What the clean views do with a reading whose stillness is unknown: KEEP it.
+ *
+ * Stated here once, as an expression with a name, rather than as a bare
+ * `COALESCE` inline in four view bodies -- this is a product decision and it
+ * should be visible as one.
+ *
+ * Unknown passes because the commonest cause of it is a sleeping wearer: a
+ * motionless night produces few activity rows, and dropping those readings
+ * would empty the SpO2 and HRV screens overnight -- the exact regression
+ * `STILL_STEPS_PER_HOUR` exists to have fixed. Treating unknown as moving
+ * would trade a quiet wrong answer for a loud missing one.
+ *
+ * The honesty this buys is in the FLAG, not in the filter: `still` now says
+ * which readings we actually know about, so the quality probe can separate
+ * "moving" from "no idea" and a future consumer can decide differently
+ * without re-deriving the window.
+ */
+export function stillEnoughSql(alias = ''): string {
+  return `COALESCE(${alias}still, TRUE)`
+}
+
+const STILL_ENOUGH = stillEnoughSql()
 
 function sharedFlags(): string {
   return `${WORN} AS worn,
@@ -277,7 +339,7 @@ FROM (
 
 function spo2QBody(src: QualitySources): string {
   // Motion corrupts the optical read, so a moving SpO2 is excluded outright.
-  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND still, FALSE) AS clean
+  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND ${STILL_ENOUGH}, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags()},
          COALESCE(m.spo2 BETWEEN ${SPO2_MIN} AND ${SPO2_MAX}, FALSE) AS plausible
@@ -310,8 +372,8 @@ function hrvQBody(src: QualitySources): string {
   // the firmware reports it when RR variance is under its floor, which is a
   // real observation of "unmeasurable", not a measurement.
   return `SELECT *,
-       COALESCE(hrv_ms IS NOT NULL AND worn AND NOT warm_up AND plausible AND still, FALSE) AS hrv_clean,
-       COALESCE(stress IS NOT NULL AND worn AND NOT warm_up AND still, FALSE) AS stress_clean
+       COALESCE(hrv_ms IS NOT NULL AND worn AND NOT warm_up AND plausible AND ${STILL_ENOUGH}, FALSE) AS hrv_clean,
+       COALESCE(stress IS NOT NULL AND worn AND NOT warm_up AND ${STILL_ENOUGH}, FALSE) AS stress_clean
 FROM (
   SELECT m.*, ${sharedFlags()},
          COALESCE(m.hrv_ms BETWEEN ${HRV_MIN} AND ${HRV_MAX}, FALSE) AS plausible
@@ -577,7 +639,8 @@ function countsFor(table: QualityTable, excluded: string, extra: { spike?: boole
        COUNT(*) FILTER (WHERE NOT worn) AS off_wrist,
        COUNT(*) FILTER (WHERE warm_up) AS warm_up,
        COUNT(*) FILTER (WHERE NOT plausible) AS implausible,
-       COUNT(*) FILTER (WHERE NOT still) AS moving,
+       COUNT(*) FILTER (WHERE still IS FALSE) AS moving,
+       COUNT(*) FILTER (WHERE still IS NULL) AS motion_unknown,
        ${extra.spike ? 'COUNT(*) FILTER (WHERE spike)' : 'CAST(0 AS BIGINT)'} AS spike,
        ${extra.scale ? 'COUNT(*) FILTER (WHERE scale_suspect)' : 'CAST(0 AS BIGINT)'} AS scale_suspect
 FROM ${qualityViewFor(table)}
