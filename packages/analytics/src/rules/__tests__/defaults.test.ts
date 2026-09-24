@@ -58,6 +58,11 @@ describe('brand default catalogs', () => {
     // `analytics:rule:{ruleId}:{userId}:*` and are cross-referenced by name
     // from the Sprint 5 catalog additions.
     expect(zivaDefaults.map(r => r.id).sort()).toEqual([
+      // zivaone_app#248 — moved out of `use-battery-notification.ts`, which
+      // hard-coded the thresholds. The app keeps only its evening advisory,
+      // which this schema has no time-of-day predicate to express.
+      'ziva.battery-critical',
+      'ziva.battery-low',
       // D-H — the two-sided sleeping-band rule; ziva.hr-flag-level is retired.
       'ziva.hr-out-of-band',
       'ziva.hrv-below-usual',

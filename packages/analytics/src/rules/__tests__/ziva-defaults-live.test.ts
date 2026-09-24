@@ -224,6 +224,37 @@ const CASES: Case[] = [
       await recent(a, 'heart_rate', 'bpm', 7 * 60, 10, m => (breach && m >= 120 && m <= 145 ? 70 : 55))
     },
   },
+  {
+    // The LAST reading in the hour is below 20 (zivaone_app#248).
+    //
+    // The two sides are the SAME three values in opposite order: draining
+    // 40 -> 30 -> 15, and recovering 15 -> 30 -> 40. That is deliberate.
+    // `min` and `avg` over the window cannot tell them apart, so this case
+    // fails if the rule's aggregation is ever changed away from `last` —
+    // verified by making that change and watching the healthy side fire.
+    //
+    // It is also the real complaint behind #248: a user who charges the ring
+    // must stop being told to charge it, and an aggregation that looks at the
+    // whole window keeps alerting off a reading from before they did.
+    id: 'ziva.battery-low',
+    seed: async (a, breach) => {
+      const curve = breach ? [40, 30, 15] : [15, 30, 40]
+      await atMinutesAgo(a, 'device_battery', 'battery_pct', 50, curve[0])
+      await atMinutesAgo(a, 'device_battery', 'battery_pct', 30, curve[1])
+      await atMinutesAgo(a, 'device_battery', 'battery_pct', 5, curve[2])
+    },
+  },
+  {
+    // Below 10, and the same reversal. The healthy side ends at 15 — inside
+    // `battery-low`'s range but outside this one — so the two rails stay
+    // pinned as distinct rather than both being satisfied by one low reading.
+    id: 'ziva.battery-critical',
+    seed: async (a, breach) => {
+      const curve = breach ? [20, 6] : [6, 15]
+      await atMinutesAgo(a, 'device_battery', 'battery_pct', 30, curve[0])
+      await atMinutesAgo(a, 'device_battery', 'battery_pct', 5, curve[1])
+    },
+  },
 ]
 
 /**
