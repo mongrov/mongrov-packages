@@ -372,6 +372,67 @@ watchful = 0.7
 [rule.throttle]
 minGapMinutes = 60
 maxPerDay = 3
+
+# ── Ring battery ──────────────────────────────────────────────────────────
+#
+# These two moved here from \`use-battery-notification.ts\` in the app, which
+# hard-coded 10 / 20 / 30 (zivaone_app#248). The threshold is content, not
+# code, and belongs in the catalog with every other one.
+#
+# The app's THIRD tier — under 30% after 18:00, "charge overnight so your
+# sleep data records fully" — deliberately stays in the app. \`context\` is
+# \`any | asleep | resting\` and there is no time-of-day predicate, so this
+# schema cannot express "only in the evening". Splitting by what the schema
+# can say keeps each threshold with exactly one home, rather than moving a
+# rule here and quietly dropping the condition that made it useful.
+#
+# \`aggregation = "last"\` and not \`min\`: battery is a level, not a
+# measurement to average or a trough to find. The question is what the ring
+# reports NOW, and a \`min\` over the window would keep firing off a reading
+# from before the user charged it.
+
+[[rule]]
+id = "ziva.battery-low"
+brand = "ziva"
+name = "Ring battery low"
+description = "Ring battery below 20% in the past hour."
+metric = "device_battery"
+window = "1h"
+aggregation = "last"
+compare = "less_than"
+severity = "warn"
+
+[rule.target]
+type = "absolute"
+value = 20
+
+# 4 hours between alerts, matching the gap the app hook enforced via MMKV.
+# \`maxPerDay\` is a backstop, not the binding constraint — the gap already
+# caps this at six.
+[rule.throttle]
+minGapMinutes = 240
+maxPerDay = 6
+
+[[rule]]
+id = "ziva.battery-critical"
+brand = "ziva"
+name = "Ring battery critical"
+description = "Ring battery below 10% — readings will stop when it dies."
+metric = "device_battery"
+window = "1h"
+aggregation = "last"
+compare = "less_than"
+severity = "critical"
+
+[rule.target]
+type = "absolute"
+value = 10
+
+# 30 minutes, as the app hook's urgent tier used. Capped per day so a ring
+# that sits at 9% while charging cannot produce 48 notifications.
+[rule.throttle]
+minGapMinutes = 30
+maxPerDay = 8
 `
 
 export const zivaDefaults: Rule[] = parseCatalog(TOML, { name: 'ziva' })
