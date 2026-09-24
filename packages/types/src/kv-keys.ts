@@ -205,6 +205,20 @@ export const KV_KEY_REGISTRY = {
     usedBy: [],
     defaultValue: 'normal',
   },
+  /**
+   * One-time banner dismissal, the HR twin of `user:tempDay30BannerDismissed`
+   * (zivaone_app#220).
+   *
+   * Heart Rate shipped the "We've learned what's usual for you" banner with a
+   * `useState` dismissal, so it came back on every remount. SpO2, Temperature
+   * and Activity each persist theirs; HR was the one vital that did not.
+   */
+  'user:hrDay30BannerDismissed': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'User dismissed the day-30 baseline-ready banner on Heart Rate',
+    usedBy: [],
+  },
 
   // ── sprint6: HRV (T-06) ───────────────────────────────────────────────
   /**
@@ -285,6 +299,24 @@ export const KV_KEY_REGISTRY = {
     defaultValue: true,
   },
   /** The "we've learned your usual" banner — dismissed once, stays dismissed. */
+  /**
+   * The ring-battery alerts' notify switch (zivaone_app#248).
+   *
+   * The two battery rails live in `ziva.toml` as `ziva.battery-low` and
+   * `ziva.battery-critical`, and the app's notification bridge gates every
+   * metric on a key from this registry. Battery had none, so it passed on a
+   * separate always-on list. This is the entry that lets it answer to a
+   * switch like every other vital, once Settings offers one.
+   *
+   * Defaults TRUE, like every other notify key: an unset switch notifies.
+   */
+  'user:batteryNotify': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'User opted in to ring battery notifications',
+    usedBy: ['ziva.battery-low', 'ziva.battery-critical'],
+    defaultValue: true,
+  },
   'user:activityDay30BannerDismissed': {
     kind: 'ux_state',
     valueType: 'boolean',
