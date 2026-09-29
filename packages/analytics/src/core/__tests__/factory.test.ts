@@ -293,7 +293,15 @@ describe('createAnalytics — retention + persistence (Phase 6)', () => {
     expect(deletes).toHaveLength(3)
     const hrvDelete = deletes.find(c => c.sql.includes('memory.hrv'))
     expect(hrvDelete?.sql).toContain(`LEAST(now() - INTERVAL '90 days', CAST($pushWatermark AS TIMESTAMP))`)
-    expect(hrvDelete?.params).toEqual({ pushWatermark: wm.toISOString() })
+    // The attaching tenant is bound into the delete alongside the watermark,
+    // so the sweep cannot reach another family's rows.
+    expect(hrvDelete?.params).toEqual({
+      pushWatermark: wm.toISOString(),
+      brand: ATTACH_CTX.brand,
+      familyId: ATTACH_CTX.tenantId,
+      userId: ATTACH_CTX.userId,
+    })
+    expect(hrvDelete?.sql).toContain('AND brand = $brand AND family_id = $familyId AND user_id = $userId')
     // Insight uses fixed 90d.
     const insightDelete = deletes.find(c => c.sql.includes('memory.insight'))
     expect(insightDelete?.sql).toContain(`INTERVAL '90 days'`)

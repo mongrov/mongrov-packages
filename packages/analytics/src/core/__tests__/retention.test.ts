@@ -45,6 +45,14 @@ describe('resolveEffectiveRetention', () => {
   })
 })
 
+/**
+ * Every sweep is tenant-scoped, so every call needs one. `OTHER` exists to
+ * prove the scope actually bites — see the cross-tenant test at the end.
+ */
+// Matches what the live-DuckDB tests below seed: brand 'b', family 'f', user 'u'.
+const TENANT = { brand: 'b', familyId: 'f', userId: 'u' }
+const OTHER = { brand: 'b', familyId: 'f2', userId: 'u2' }
+
 describe('buildDeleteSql', () => {
   it('emits a plain retention cutoff without watermark bound', () => {
     const sql = buildDeleteSql({
@@ -52,9 +60,11 @@ describe('buildDeleteSql', () => {
       table: 'tool_call_audit',
       tsCol: 'ts',
       days: 30,
+      // No `user_id` on this table — family scope is the whole scope.
+      tenantColumns: ['brand', 'family_id'],
     })
     expect(sql).toBe(
-      `DELETE FROM memory.tool_call_audit WHERE ts < now() - INTERVAL '30 days';`,
+      `DELETE FROM memory.tool_call_audit WHERE ts < now() - INTERVAL '30 days' AND brand = $brand AND family_id = $familyId;`,
     )
   })
 
@@ -65,6 +75,7 @@ describe('buildDeleteSql', () => {
       tsCol: 'ts',
       days: 90,
       watermarkBound: true,
+      tenantColumns: ['brand', 'family_id', 'user_id'],
     })
     expect(sql).toContain('DELETE FROM memory.hrv')
     expect(sql).toContain('ts < LEAST(')
@@ -79,6 +90,7 @@ describe('buildDeleteSql', () => {
       tsCol: 'ts_end',
       days: 60,
       watermarkBound: true,
+      tenantColumns: ['brand', 'family_id', 'user_id'],
     })
     expect(sql).toContain('ts_end < LEAST(')
     expect(sql).toContain(`INTERVAL '60 days'`)
@@ -92,10 +104,7 @@ describe('runRetentionSweep (scripted engine)', () => {
     await db.open()
     const openCalls = fake.calls.length
 
-    const result = await runRetentionSweep(db, 'memory', {
-      effectiveDays: 90,
-      mode: 'local',
-    })
+    const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'local' })
     const deletes = fake.calls.slice(openCalls).filter(c => c.sql.startsWith('DELETE FROM'))
 
     // 15 tables total in SCHEMAS; device_config + sync_watermark skipped → 13 DELETEs.
@@ -119,10 +128,7 @@ describe('runRetentionSweep (scripted engine)', () => {
     const db = new HybridDuckDB(fake.factory)
     await db.open()
 
-    const result = await runRetentionSweep(db, 'memory', {
-      effectiveDays: 180,
-      mode: 'local',
-    })
+    const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 180, mode: 'local' })
     const insight = result.swept.find(e => e.table === 'insight')
     const audit = result.swept.find(e => e.table === 'tool_call_audit')
     const hrv = result.swept.find(e => e.table === 'hrv')
@@ -137,11 +143,7 @@ describe('runRetentionSweep (scripted engine)', () => {
     await db.open()
     const openCalls = fake.calls.length
 
-    const result = await runRetentionSweep(db, 'memory', {
-      effectiveDays: 90,
-      mode: 'r2',
-      getPushWatermark: async () => null,
-    })
+    const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'r2', getPushWatermark: async () => null })
 
     // Only the non-pushed internal table gets a DELETE.
     expect(result.swept.map(e => e.table)).toEqual(['tool_call_audit'])
@@ -158,7 +160,7 @@ describe('runRetentionSweep (scripted engine)', () => {
     const db = new HybridDuckDB(fake.factory)
     await db.open()
 
-    const result = await runRetentionSweep(db, 'memory', { effectiveDays: 90 })
+    const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90 })
     expect(result.swept.map(e => e.table)).toEqual(['tool_call_audit'])
     expect(result.skipped).toHaveLength(12)
   })
@@ -170,11 +172,7 @@ describe('runRetentionSweep (scripted engine)', () => {
     const openCalls = fake.calls.length
     const wm = new Date('2026-07-01T00:00:00.000Z')
 
-    const result = await runRetentionSweep(db, 'memory', {
-      effectiveDays: 90,
-      mode: 'r2',
-      getPushWatermark: async table => (table === 'hrv' ? wm : null),
-    })
+    const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'r2', getPushWatermark: async table => (table === 'hrv' ? wm : null) })
 
     expect(result.swept.map(e => e.table).sort()).toEqual(['hrv', 'tool_call_audit'])
     const hrvDelete = fake.calls
@@ -183,7 +181,13 @@ describe('runRetentionSweep (scripted engine)', () => {
     expect(hrvDelete).toBeDefined()
     expect(hrvDelete?.sql).toContain('LEAST(')
     expect(hrvDelete?.sql).toContain('CAST($pushWatermark AS TIMESTAMP)')
-    expect(hrvDelete?.params).toEqual({ pushWatermark: wm.toISOString() })
+    // The tenant scope rides along with the watermark on every delete.
+    expect(hrvDelete?.params).toEqual({
+      pushWatermark: wm.toISOString(),
+      brand: TENANT.brand,
+      familyId: TENANT.familyId,
+      userId: TENANT.userId,
+    })
   })
 
   it('wraps engine failures in AnalyticsError with retention_failed code', async () => {
@@ -194,7 +198,7 @@ describe('runRetentionSweep (scripted engine)', () => {
     fake.failNextExecute(new Error('disk full'))
 
     await expect(
-      runRetentionSweep(db, 'memory', { effectiveDays: 90, mode: 'local' }),
+      runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'local' }),
     ).rejects.toMatchObject({
       name: 'AnalyticsError',
       code: 'retention_failed',
@@ -202,7 +206,7 @@ describe('runRetentionSweep (scripted engine)', () => {
 
     // Same call, second invocation — no scripted failure — succeeds.
     await expect(
-      runRetentionSweep(db, 'memory', { effectiveDays: 90, mode: 'local' }),
+      runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'local' }),
     ).resolves.toBeDefined()
   })
 })
@@ -247,11 +251,7 @@ describe('runRetentionSweep — live local DuckDB', () => {
          VALUES (now() - INTERVAL '40 days', 'b', 'f', 'u', 'getHRV', '{}', 'ok')`,
       )
 
-      const result = await runRetentionSweep(db, 'memory', {
-        effectiveDays: 90,
-        mode: 'r2',
-        getPushWatermark: async () => null,
-      })
+      const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'r2', getPushWatermark: async () => null })
 
       expect(await count(db, 'hrv')).toBe(2) // nothing reached R2 → nothing deleted
       expect(await count(db, 'insight')).toBe(1) // insight is pushed too → guarded
@@ -272,11 +272,7 @@ describe('runRetentionSweep — live local DuckDB', () => {
       await insertHrv(db, 1)
       const watermark = new Date(Date.now() - 97 * DAY_MS)
 
-      await runRetentionSweep(db, 'memory', {
-        effectiveDays: 90,
-        mode: 'r2',
-        getPushWatermark: async table => (table === 'hrv' ? watermark : null),
-      })
+      await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'r2', getPushWatermark: async table => (table === 'hrv' ? watermark : null) })
 
       // Bound = LEAST(now-90d, now-97d) = now-97d → only the 100d row goes;
       // the 95d row is past retention but NOT yet pushed → preserved.
@@ -295,11 +291,7 @@ describe('runRetentionSweep — live local DuckDB', () => {
       await insertHrv(db, 1)
       const watermark = new Date() // everything pushed
 
-      await runRetentionSweep(db, 'memory', {
-        effectiveDays: 90,
-        mode: 'r2',
-        getPushWatermark: async table => (table === 'hrv' ? watermark : null),
-      })
+      await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'r2', getPushWatermark: async table => (table === 'hrv' ? watermark : null) })
 
       expect(await count(db, 'hrv')).toBe(1) // 100d + 95d aged out, 1d kept
     }
@@ -318,14 +310,76 @@ describe('runRetentionSweep — live local DuckDB', () => {
          VALUES ('i1', now() - INTERVAL '100 days', 'b', 'f', 'u', 'hrv_ms', 'threshold', 'warn', 't')`,
       )
 
-      const result = await runRetentionSweep(db, 'memory', {
-        effectiveDays: 90,
-        mode: 'local',
-      })
+      const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'local' })
 
       expect(await count(db, 'hrv')).toBe(1)
       expect(await count(db, 'insight')).toBe(0) // fixed 90d, unguarded in local mode
       expect(result.skipped).toEqual([])
+    }
+    finally {
+      await db.close()
+    }
+  })
+  /**
+   * The 2026-09-26 review, finding 2 (P1). The app uses one shared persistent
+   * `memory.duckdb`, so rows for more than one family genuinely coexist in it.
+   *
+   * Before the scope landed, the generated DELETE filtered on timestamp alone,
+   * so sweeping as family `f` — with `f`'s own successful push watermark —
+   * deleted family `f2`'s historical rows, which `f2` had never pushed
+   * anywhere. Silent cross-tenant data loss.
+   */
+  it('does not delete another tenant\'s rows using this tenant\'s watermark', async () => {
+    const db = await bootReal()
+    try {
+      // Old rows for BOTH families, well past any cutoff.
+      await db.execute(
+        `INSERT INTO memory.hrv (ts, brand, family_id, user_id, device_id, hrv_ms)
+         VALUES (now() - INTERVAL '200 days', 'b', 'f', 'u', 'd', 50)`,
+      )
+      await db.execute(
+        `INSERT INTO memory.hrv (ts, brand, family_id, user_id, device_id, hrv_ms)
+         VALUES (now() - INTERVAL '200 days', 'b', 'f2', 'u2', 'd', 51)`,
+      )
+      expect(await count(db, 'hrv')).toBe(2)
+
+      // Sweep as TENANT, with TENANT's watermark ahead of both rows.
+      await runRetentionSweep(db, 'memory', {
+        tenant: TENANT,
+        effectiveDays: 90,
+        mode: 'r2',
+        getPushWatermark: async () => new Date(),
+      })
+
+      // TENANT's row is gone; OTHER's survives untouched.
+      const rows = await db.execute<{ family_id: string }>(
+        `SELECT family_id FROM memory.hrv ORDER BY family_id`,
+      )
+      expect(rows.map(r => r.family_id)).toEqual([OTHER.familyId])
+    }
+    finally {
+      await db.close()
+    }
+  })
+
+  it('scopes the audit table by family even though it has no user_id', async () => {
+    const db = await bootReal()
+    try {
+      await db.execute(
+        `INSERT INTO memory.tool_call_audit (ts, brand, family_id, requester_user_id, tool_name, args, outcome)
+         VALUES (now() - INTERVAL '40 days', 'b', 'f', 'u', 'getHRV', '{}', 'ok')`,
+      )
+      await db.execute(
+        `INSERT INTO memory.tool_call_audit (ts, brand, family_id, requester_user_id, tool_name, args, outcome)
+         VALUES (now() - INTERVAL '40 days', 'b', 'f2', 'u2', 'getHRV', '{}', 'ok')`,
+      )
+
+      await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'local' })
+
+      const rows = await db.execute<{ family_id: string }>(
+        `SELECT family_id FROM memory.tool_call_audit`,
+      )
+      expect(rows.map(r => r.family_id)).toEqual([OTHER.familyId])
     }
     finally {
       await db.close()
