@@ -230,4 +230,113 @@ describe('RefreshManager', () => {
     jest.advanceTimersByTime(100000)
     expect(adapter.refresh).not.toHaveBeenCalled()
   })
+
+  /**
+   * 2026-09-26 review, finding 6 (P1).
+   *
+   * Sign-out cancels the timer and clears the store, but a refresh already
+   * awaiting the adapter used to survive it: on resolve it wrote both tokens
+   * and fired `onRefreshed`, so credentials came back after logout and could
+   * be hydrated later.
+   */
+  it('a refresh in flight when the session ends writes nothing and fires nothing', async () => {
+    let releaseRefresh: ((t: unknown) => void) | undefined
+    const adapter = createMockAdapter({
+      refresh: jest.fn(() => new Promise((resolve) => {
+        releaseRefresh = resolve
+      }) as Promise<{ accessToken: string, refreshToken: string, expiresIn: number }>),
+    })
+    const onRefreshed = jest.fn()
+    const onRefreshFailed = jest.fn()
+
+    await SecureTokenStore.setAccessToken('old-access')
+    await SecureTokenStore.setRefreshToken('old-refresh')
+
+    const manager = createRefreshManager({
+      adapter,
+      tokenStore: SecureTokenStore,
+      onRefreshed,
+      onRefreshFailed,
+      proactiveRefresh: false,
+      refreshThreshold: 0.8,
+    })
+
+    // Refresh is in flight and parked inside the adapter.
+    const pending = manager.handleUnauthorized()
+    await Promise.resolve()
+
+    // Sign-out's sequence: cancel, then clear the store.
+    manager.cancelRefresh()
+    await SecureTokenStore.clear()
+
+    // The adapter answers afterwards.
+    releaseRefresh?.({ accessToken: 'new-access', refreshToken: 'new-refresh', expiresIn: 3600 })
+    await expect(pending).rejects.toMatchObject({ code: 'REFRESH_FAILED' })
+
+    // The whole point: the store stays empty and nobody is told otherwise.
+    expect(await SecureTokenStore.getAccessToken()).toBeNull()
+    expect(await SecureTokenStore.getRefreshToken()).toBeNull()
+    expect(onRefreshed).not.toHaveBeenCalled()
+    // Nor may a dead refresh report failure — that tears down whatever
+    // session replaced it.
+    expect(onRefreshFailed).not.toHaveBeenCalled()
+  })
+
+  it('a refresh abandoned by sign-out cannot fail the session that replaced it', async () => {
+    let rejectRefresh: ((e: Error) => void) | undefined
+    const adapter = createMockAdapter({
+      refresh: jest.fn(() => new Promise((_resolve, reject) => {
+        rejectRefresh = reject
+      }) as Promise<{ accessToken: string, refreshToken: string, expiresIn: number }>),
+    })
+    const onRefreshed = jest.fn()
+    const onRefreshFailed = jest.fn()
+
+    await SecureTokenStore.setRefreshToken('old-refresh')
+    const manager = createRefreshManager({
+      adapter,
+      tokenStore: SecureTokenStore,
+      onRefreshed,
+      onRefreshFailed,
+      proactiveRefresh: false,
+      refreshThreshold: 0.8,
+    })
+
+    const pending = manager.handleUnauthorized()
+    await Promise.resolve()
+    manager.cancelRefresh()
+
+    rejectRefresh?.(new Error('network died'))
+    await expect(pending).rejects.toMatchObject({ code: 'REFRESH_FAILED' })
+    expect(onRefreshFailed).not.toHaveBeenCalled()
+  })
+
+  it('destroy invalidates an in-flight refresh too', async () => {
+    let releaseRefresh: ((t: unknown) => void) | undefined
+    const adapter = createMockAdapter({
+      refresh: jest.fn(() => new Promise((resolve) => {
+        releaseRefresh = resolve
+      }) as Promise<{ accessToken: string, refreshToken: string, expiresIn: number }>),
+    })
+    const onRefreshed = jest.fn()
+
+    await SecureTokenStore.setRefreshToken('old-refresh')
+    const manager = createRefreshManager({
+      adapter,
+      tokenStore: SecureTokenStore,
+      onRefreshed,
+      onRefreshFailed: jest.fn(),
+      proactiveRefresh: false,
+      refreshThreshold: 0.8,
+    })
+
+    const pending = manager.handleUnauthorized()
+    await Promise.resolve()
+    manager.destroy()
+
+    releaseRefresh?.({ accessToken: 'new-access', refreshToken: 'new-refresh', expiresIn: 3600 })
+    await expect(pending).rejects.toMatchObject({ code: 'REFRESH_FAILED' })
+    expect(onRefreshed).not.toHaveBeenCalled()
+    expect(await SecureTokenStore.getAccessToken()).toBeNull()
+  })
 })
