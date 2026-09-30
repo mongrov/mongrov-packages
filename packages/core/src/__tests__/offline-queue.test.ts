@@ -251,4 +251,79 @@ describe('OfflineQueue', () => {
     // After destroy, the listener should be removed (no crash on further notifications)
     networkMock.__notifyListeners()
   })
+
+  /**
+   * 2026-09-26 review, finding 8 (P2).
+   *
+   * `flush` snapshotted the queue, awaited delivery, then dropped
+   * `batch.length` entries from the CURRENT queue. While the send was
+   * pending, `enqueue` could trim the head to honour `maxSize`, so the queue
+   * no longer started with that batch — and slicing by its original length
+   * removed newly queued entries that were never sent.
+   */
+  it('keeps an entry enqueued mid-send when the queue was trimmed under it', async () => {
+    const storage = makeStorage()
+    let releaseSend: (() => void) | undefined
+    const sendFn = jest.fn(() => new Promise<void>((resolve) => {
+      releaseSend = resolve
+    }))
+
+    // Capacity two, and full.
+    const queue = new OfflineQueue(sendFn, { maxSize: 2, storage })
+    const a = makeEntry({ message: 'a' })
+    const b = makeEntry({ message: 'b' })
+    queue.enqueue([a, b])
+
+    const flushing = queue.flush()
+    await Promise.resolve()
+    expect(sendFn).toHaveBeenCalledTimes(1)
+
+    // A new entry arrives mid-send. At capacity, this trims the head, so the
+    // queue is now [b, c] — it no longer starts with the in-flight batch.
+    const c = makeEntry({ message: 'c' })
+    queue.enqueue([c])
+
+    releaseSend?.()
+    await flushing
+
+    // [a, b] were delivered. `c` was not, so `c` must survive.
+    expect(sendFn.mock.calls[0]![0]).toEqual([a, b])
+    expect(queue.getQueueSize()).toBe(1)
+    const persisted = JSON.parse(storage.__data['@mongrov/log-queue']!) as LogEntry[]
+    expect(persisted.map(e => e.message)).toEqual(['c'])
+  })
+
+  /**
+   * The control for the test above, not a second regression test: with no
+   * trimming (maxSize 500) identity removal and the old length-slicing agree,
+   * and it passes either way. It is here to show the fix does not change
+   * behaviour in the ordinary case — only in the one where the queue moved
+   * under the in-flight batch.
+   */
+  it('removes exactly the delivered entries, leaving later ones in order', async () => {
+    const storage = makeStorage()
+    let releaseSend: (() => void) | undefined
+    const sendFn = jest.fn(() => new Promise<void>((resolve) => {
+      releaseSend = resolve
+    }))
+
+    const queue = new OfflineQueue(sendFn, { maxSize: 500, storage })
+    const a = makeEntry({ message: 'a' })
+    const b = makeEntry({ message: 'b' })
+    queue.enqueue([a, b])
+
+    const flushing = queue.flush()
+    await Promise.resolve()
+
+    const c = makeEntry({ message: 'c' })
+    const d = makeEntry({ message: 'd' })
+    queue.enqueue([c, d])
+
+    releaseSend?.()
+    await flushing
+
+    expect(queue.getQueueSize()).toBe(2)
+    const persisted = JSON.parse(storage.__data['@mongrov/log-queue']!) as LogEntry[]
+    expect(persisted.map(e => e.message)).toEqual(['c', 'd'])
+  })
 })
