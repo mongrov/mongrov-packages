@@ -75,8 +75,21 @@ export class OfflineQueue {
       const batch = [...this.queue]
       await this.sendWithRetry(batch)
 
-      // On success, remove sent entries (preserving any enqueued during send)
-      this.queue = this.queue.slice(batch.length)
+      // Remove the delivered entries BY ID, not by slicing off `batch.length`
+      // from the head.
+      //
+      // The queue can be rewritten while the send is pending: `enqueue` trims
+      // the head to honour `maxSize`, so the queue no longer starts with this
+      // batch. Slicing by the batch's original length then removed entries
+      // that were never sent. Measured at capacity two: send [a, b], enqueue
+      // `c` mid-send, complete — [a, b] were delivered, but the queue ended up
+      // EMPTY instead of holding `c` (2026-09-26 review, finding 8).
+      //
+      // Identity is exact regardless of how the queue was reordered or
+      // trimmed underneath: entries that were delivered go, entries that were
+      // not stay.
+      const deliveredIds = new Set(batch.map(entry => entry.id))
+      this.queue = this.queue.filter(entry => !deliveredIds.has(entry.id))
       this.saveToStorage()
     }
     catch {
