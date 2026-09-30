@@ -59,9 +59,11 @@ describe('R2Fetcher.prefetchOnAttach', () => {
     expect(insertCalls).toHaveLength(2)
     expect(insertCalls[0]!.sql).toContain('main.hrv')
     expect(insertCalls[0]!.sql).toContain('zone_fam_A.default.hrv')
-    // hrv declares no PRIMARY KEY → no ON CONFLICT clause (DuckDB ≥1.5
-    // rejects it on key-less tables); watermark advancement is the guard.
-    expect(insertCalls[0]!.sql).not.toContain('ON CONFLICT')
+    // The clause tracks the DESTINATION. `SCHEMAS` (remote) leaves hrv
+    // key-less, but the insert targets the LOCAL table, and `LOCAL_SCHEMAS`
+    // gives it the identity primary key — so the clause belongs here, and its
+    // absence is what made a re-fetch throw (finding 4).
+    expect(insertCalls[0]!.sql).toContain('ON CONFLICT DO NOTHING')
     expect(insertCalls[1]!.sql).toContain('main.hr')
   })
 
@@ -142,9 +144,8 @@ describe('R2Fetcher.fetchOnDemand', () => {
     // contiguous prefix (SY-1).
     expect(fake.calls[0]!.sql).toContain('ORDER BY ts ASC LIMIT 100')
     expect(fake.calls[0]!.sql).toContain('ts <= $until')
-    // hrv declares no PRIMARY KEY → no ON CONFLICT clause (DuckDB ≥1.5
-    // rejects it on key-less tables).
-    expect(fake.calls[0]!.sql).not.toContain('ON CONFLICT')
+    // Destination, not source: the local hrv carries the identity key.
+    expect(fake.calls[0]!.sql).toContain('ON CONFLICT DO NOTHING')
     // Un-truncated → the full range was covered → watermark = `until`
     // (must be after default watermark to move).
     expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))

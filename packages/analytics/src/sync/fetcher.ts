@@ -23,7 +23,7 @@ import type { HybridDuckDB } from '../core/engine'
 import type { TableName } from '../core/schemas'
 import type { AttachContext } from '../core/types'
 import type { WatermarkStore } from './watermark'
-import { SCHEMAS } from '../core/schemas'
+import { LOCAL_SCHEMAS } from '../core/schemas'
 import { timeColumnFor } from '../core/table_metadata'
 import { SyncError } from './errors'
 
@@ -34,8 +34,27 @@ import { SyncError } from './errors'
  * that refer to this table"); for those, watermark advancement is the
  * dedupe guard.
  */
+/**
+ * `ON CONFLICT DO NOTHING`, when the DESTINATION has a key to conflict on.
+ *
+ * Every caller here does `INSERT INTO {local} SELECT * FROM {remote}`, so the
+ * constraint that can fire belongs to the local table — but this read
+ * `SCHEMAS`, the REMOTE definitions. `LOCAL_SCHEMAS` adds the declared
+ * identity tuple as a primary key to the sensor tables (`withIdentityKey`),
+ * and those are exactly the tables `SCHEMAS` leaves keyless. So the clause was
+ * omitted precisely where it was needed: re-fetching a range holding an
+ * already-local heart-rate or SpO2 row threw a duplicate-key error instead of
+ * being idempotent. That hits overlapping fetch-on-demand ranges and any
+ * prefetch of data already held (2026-09-26 review, finding 4).
+ *
+ * Open, and deliberately not settled here: whether a corrected source row
+ * should UPDATE the local row rather than be skipped. `DO NOTHING` keeps the
+ * existing semantics for the tables that already had a key; choosing
+ * `DO UPDATE` is part of the sync-contract decision tracked on
+ * mongrov-packages#10 and #35.
+ */
 function conflictClause(table: string): string {
-  const ddl = (SCHEMAS as Record<string, string>)[table as TableName]
+  const ddl = (LOCAL_SCHEMAS as Record<string, string>)[table as TableName]
   return ddl?.includes('PRIMARY KEY') ? ' ON CONFLICT DO NOTHING' : ''
 }
 
