@@ -139,6 +139,17 @@ export interface RetentionSweepInput {
    * it reaches R2).
    */
   getPushWatermark?: PushWatermarkAccessor
+  /**
+   * The attach context's tenant. Required, and bound into every DELETE.
+   *
+   * Without it the sweep deleted by timestamp alone: one family's successful
+   * push watermark removed ANOTHER family's unsynced historical readings,
+   * because the generated DELETE carried no `brand`, `family_id` or user
+   * predicate. Reproduced against real DuckDB in the 2026-09-26 review
+   * (finding 2). The spec was complicit — techspec T-14's acceptance criterion
+   * specified exactly that unscoped DELETE, so the code passed its own AC.
+   */
+  tenant: RetentionTenant
 }
 
 export interface RetentionSweepEntry {
@@ -162,11 +173,16 @@ export interface RetentionSweepResult {
  * -- pushed (syncable) tables, r2 mode:
  * DELETE FROM {catalog}.{table}
  *  WHERE {tsCol} < LEAST(now() - INTERVAL '{days} days',
- *                        CAST($pushWatermark AS TIMESTAMP));
+ *                        CAST($pushWatermark AS TIMESTAMP))
+ *    AND brand = $brand AND family_id = $familyId AND user_id = $userId;
  * -- non-pushed tables, and every table in local mode:
  * DELETE FROM {catalog}.{table}
- *  WHERE {tsCol} < now() - INTERVAL '{days} days';
+ *  WHERE {tsCol} < now() - INTERVAL '{days} days'
+ *    AND brand = $brand AND family_id = $familyId AND user_id = $userId;
  * ```
+ *
+ * The tenant predicate is not optional. `tool_call_audit` is scoped by brand
+ * and family only — it has no `user_id`.
  *
  * Failure at any table surfaces as `AnalyticsError('retention_failed', …)`;
  * the caller decides whether to swallow-and-log or bubble.
@@ -187,7 +203,10 @@ export async function runRetentionSweep(
 
     const days = daysForKind(cfg.kind, input.effectiveDays)
     const guarded = mode !== 'local' && isSyncable(table)
-    let params: Record<string, unknown> | undefined
+    const tenantColumns = tenantColumnsFor(table)
+    // Bound on EVERY sweep, guarded or not: the scope is not an optimisation,
+    // it is what keeps the delete inside this tenant.
+    let params: Record<string, unknown> = tenantParamsFor(tenantColumns, input.tenant)
     if (guarded) {
       const watermark = (await input.getPushWatermark?.(table)) ?? null
       if (!watermark) {
@@ -196,10 +215,10 @@ export async function runRetentionSweep(
         skipped.push(table)
         continue
       }
-      params = { pushWatermark: watermark.toISOString() }
+      params = { ...params, pushWatermark: watermark.toISOString() }
     }
 
-    const sql = buildDeleteSql({ catalog, table, tsCol: cfg.tsColumn, days, watermarkBound: guarded })
+    const sql = buildDeleteSql({ catalog, table, tsCol: cfg.tsColumn, days, watermarkBound: guarded, tenantColumns })
     try {
       await db.execute(sql, params)
       swept.push({ table, days })
@@ -226,6 +245,50 @@ function daysForKind(kind: TableRetention['kind'], effective: number): number {
   }
 }
 
+/** The attach context's tenant, bound into every retention DELETE. */
+export interface RetentionTenant {
+  brand: string
+  /** `AttachContext.tenantId` — the `family_id` column. */
+  familyId: string
+  userId: string
+}
+
+const TENANT_PARAM_FOR: Readonly<Record<string, string>> = Object.freeze({
+  brand: 'brand',
+  family_id: 'familyId',
+  user_id: 'userId',
+})
+
+/**
+ * The tenant columns present on a swept table.
+ *
+ * Every swept table carries `brand` and `family_id`. `tool_call_audit` is the
+ * one without `user_id` — it records calls at family scope, under
+ * `requester_user_id` — so scoping it by `user_id` would not compile into
+ * valid SQL at all.
+ */
+function tenantColumnsFor(table: TableName): readonly string[] {
+  return table === 'tool_call_audit'
+    ? ['brand', 'family_id']
+    : ['brand', 'family_id', 'user_id']
+}
+
+/**
+ * Params for exactly the scope columns a table has — no more.
+ *
+ * DuckDB rejects a named parameter the statement never references, so binding
+ * `$userId` for `tool_call_audit` fails the sweep on that table. The params
+ * therefore follow `tenantColumnsFor`, not a fixed shape.
+ */
+function tenantParamsFor(columns: readonly string[], tenant: RetentionTenant): Record<string, unknown> {
+  const value: Readonly<Record<string, string>> = {
+    brand: tenant.brand,
+    family_id: tenant.familyId,
+    user_id: tenant.userId,
+  }
+  return Object.fromEntries(columns.map(col => [TENANT_PARAM_FOR[col], value[col]]))
+}
+
 interface DeleteSqlInput {
   catalog: string
   table: TableName
@@ -233,6 +296,13 @@ interface DeleteSqlInput {
   days: number
   /** Bound by `$pushWatermark` (ISO string param, cast to TIMESTAMP). */
   watermarkBound?: boolean
+  /**
+   * Tenant columns to scope the delete by, from `tenantColumnsFor`. Required:
+   * an unscoped retention DELETE deletes other tenants' rows using THIS
+   * tenant's watermark, and the app shares one persistent `memory.duckdb`
+   * across accounts, so their rows genuinely coexist.
+   */
+  tenantColumns: readonly string[]
 }
 
 /**
@@ -240,10 +310,13 @@ interface DeleteSqlInput {
  * the exact SQL issued without a live engine.
  */
 export function buildDeleteSql(input: DeleteSqlInput): string {
-  const { catalog, table, tsCol, days, watermarkBound } = input
+  const { catalog, table, tsCol, days, watermarkBound, tenantColumns } = input
   const cutoff = `now() - INTERVAL '${days} days'`
   const bound = watermarkBound
     ? `LEAST(${cutoff}, CAST($pushWatermark AS TIMESTAMP))`
     : cutoff
-  return `DELETE FROM ${quoteQualifier(catalog)}.${table} WHERE ${tsCol} < ${bound};`
+  const scope = tenantColumns
+    .map(col => ` AND ${col} = $${TENANT_PARAM_FOR[col]}`)
+    .join('')
+  return `DELETE FROM ${quoteQualifier(catalog)}.${table} WHERE ${tsCol} < ${bound}${scope};`
 }

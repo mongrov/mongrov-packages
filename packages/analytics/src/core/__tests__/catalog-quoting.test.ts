@@ -72,6 +72,7 @@ describe('catalog quoting across every SQL builder', () => {
       catalog: HOSTILE,
       table: 'hrv',
       cutoffDays: 30,
+      tenantColumns: ['brand', 'family_id', 'user_id'],
     } as never)
     expect(hasUnquoted(sql)).toBe(false)
   })

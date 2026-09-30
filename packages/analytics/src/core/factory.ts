@@ -405,6 +405,10 @@ export function createAnalytics(
       // Local mode: no push exists (or ever will) — data is local-forever
       // by design, so the plain retention cutoff applies unguarded.
       getPushWatermark: isLocal ? undefined : table => readPushWatermark(ctx, table),
+      // Scope the sweep to the attaching tenant. The app shares one persistent
+      // `memory.duckdb` across accounts, so without this the delete reached
+      // other families' rows (2026-09-26 review, finding 2).
+      tenant: { brand: ctx.brand, familyId: ctx.tenantId, userId: ctx.userId },
     })
   }
 
