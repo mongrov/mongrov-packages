@@ -27,7 +27,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import * as React from 'react'
 import { useDataAccessRuntime } from './context'
 import { extractInputDays, resolveAsyncFetch } from './define'
-import { executeQuery, runAuthorize } from './dispatcher'
+import { executeQuery, prepareQuery, runAuthorize } from './dispatcher'
 import { DataAccessError } from './errors'
 import { compileGlob } from './invalidation'
 
@@ -129,37 +129,20 @@ export function useAppQuery<TInput, TOutput>(
       return
     }
 
-    const observable = (def.config as RxdbQueryConfig<TInput, TOutput>).query(
-      rxEngine.db,
-      input as TInput,
-    ) as MinimalObservable<unknown>
-
     let cancelled = false
-    const sub = observable.subscribe({
-      next: (value) => {
-        if (cancelled)
-          return
-        const parsed = def.config.output.safeParse(value)
-        if (parsed.success) {
-          setRxState({
-            data: parsed.data as TOutput,
-            loading: false,
-            error: null,
-          })
-        }
-        else {
-          setRxState({
-            data: undefined,
-            loading: false,
-            error: new DataAccessError(
-              'zod_parse_failed',
-              `query "${name}" output failed schema validation: ${parsed.error.message}`,
-              parsed.error,
-            ),
-          })
-        }
-      },
-      error: (err) => {
+    let sub: { unsubscribe: () => void } | undefined
+
+    // Input parse + authorize BEFORE the observable exists. The RxDB branch
+    // used to call `config.query(db, input)` straight from here, so a query
+    // with `authorize: () => false` still read and emitted (2026-09-26 review,
+    // finding 1). Output validation is not a substitute: it checks the shape
+    // of data the caller was never entitled to receive.
+    void (async () => {
+      let parsedInput: TInput
+      try {
+        parsedInput = await prepareQuery(def, input as TInput, runtime.getContext())
+      }
+      catch (err) {
         if (cancelled)
           return
         setRxState({
@@ -167,12 +150,64 @@ export function useAppQuery<TInput, TOutput>(
           loading: false,
           error: err instanceof Error ? err : new Error(String(err)),
         })
-      },
-    })
+        return
+      }
+
+      // The effect can be torn down while authorize is pending. Subscribing
+      // now would outlive the cleanup that already ran, leaking the
+      // subscription and emitting into an unmounted consumer.
+      if (cancelled)
+        return
+
+      const observable = (def.config as RxdbQueryConfig<TInput, TOutput>).query(
+        rxEngine.db,
+        parsedInput,
+      ) as MinimalObservable<unknown>
+
+      sub = observable.subscribe({
+        next: (value) => {
+          if (cancelled)
+            return
+          const parsed = def.config.output.safeParse(value)
+          if (parsed.success) {
+            setRxState({
+              data: parsed.data as TOutput,
+              loading: false,
+              error: null,
+            })
+          }
+          else {
+            setRxState({
+              data: undefined,
+              loading: false,
+              error: new DataAccessError(
+                'zod_parse_failed',
+                `query "${name}" output failed schema validation: ${parsed.error.message}`,
+                parsed.error,
+              ),
+            })
+          }
+        },
+        error: (err) => {
+          if (cancelled)
+            return
+          setRxState({
+            data: undefined,
+            loading: false,
+            error: err instanceof Error ? err : new Error(String(err)),
+          })
+        },
+      })
+
+      // Cleanup may have run between the guard above and `subscribe`
+      // returning; honour it rather than leaving the subscription open.
+      if (cancelled)
+        sub.unsubscribe()
+    })()
 
     return () => {
       cancelled = true
-      sub.unsubscribe()
+      sub?.unsubscribe()
     }
   }, [runtime, def, input, isRxdb, name])
 

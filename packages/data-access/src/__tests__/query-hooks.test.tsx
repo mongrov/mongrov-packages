@@ -296,6 +296,9 @@ describe('T-12 · useAppQuery (rxdb)', () => {
     })
 
     expect(result.current.loading).toBe(true)
+    // The subscription is created AFTER input parse + authorize resolve, so
+    // it is a microtask behind the render rather than synchronous with it.
+    await act(async () => {})
     expect(subject.subscriberCount()).toBe(1)
 
     await act(async () => {
@@ -311,7 +314,7 @@ describe('T-12 · useAppQuery (rxdb)', () => {
     expect(result.current.data).toBe(42)
   })
 
-  it('unsubscribes on unmount', () => {
+  it('unsubscribes on unmount', async () => {
     const subject = makeSubject<number>()
     const q = defineQuery({
       engine: 'rxdb',
@@ -325,6 +328,7 @@ describe('T-12 · useAppQuery (rxdb)', () => {
         engines: { rxdb: { db: {}, execute: async () => 0 } },
       }),
     })
+    await act(async () => {})
     expect(subject.subscriberCount()).toBe(1)
     unmount()
     expect(subject.subscriberCount()).toBe(0)
@@ -348,11 +352,87 @@ describe('T-12 · useAppQuery (rxdb)', () => {
       },
     )
 
+    await act(async () => {})
     await act(async () => {
       subject.emit({ n: 'not-a-number' })
     })
     expect(result.current.error).toBeInstanceOf(DataAccessError)
     expect((result.current.error as DataAccessError).code).toBe('zod_parse_failed')
+  })
+
+  /**
+   * 2026-09-26 review, finding 1 (P1). The RxDB branch called
+   * `config.query(db, input)` straight from the effect, so `authorize` never
+   * ran on this path: the harness measured `authCalls: 0, queryCalls: 1` and
+   * an emission of `restricted-data`.
+   */
+  it('does not read or emit when authorize denies', async () => {
+    const subject = makeSubject<number>()
+    let queryCalls = 0
+    let authCalls = 0
+    const q = defineQuery({
+      engine: 'rxdb',
+      output: z.number(),
+      authorize: () => {
+        authCalls += 1
+        return false
+      },
+      query: () => {
+        queryCalls += 1
+        return subject.observable
+      },
+    }) as unknown as QueryDefinition<unknown, unknown>
+
+    const { result } = renderHook(() => useAppQuery<undefined, number>('live'), {
+      wrapper: wrapperWith({
+        registry: makeRegistry({ queries: { live: q } }),
+        engines: { rxdb: { db: {}, execute: async () => 0 } },
+      }),
+    })
+
+    await waitFor(() => expect(result.current.error).not.toBeNull())
+
+    expect(authCalls).toBe(1)
+    // The gate is upstream of the read, not a filter on its output.
+    expect(queryCalls).toBe(0)
+    expect(subject.subscriberCount()).toBe(0)
+    expect(result.current.data).toBeUndefined()
+    expect(result.current.error?.name).toBe('AuthorizationError')
+
+    // A later emission must not revive it either.
+    await act(async () => {
+      subject.emit(7)
+    })
+    expect(result.current.data).toBeUndefined()
+  })
+
+  it('rejects input that fails its schema before touching the engine', async () => {
+    const subject = makeSubject<number>()
+    let queryCalls = 0
+    const q = defineQuery({
+      engine: 'rxdb',
+      input: z.object({ id: z.string() }),
+      output: z.number(),
+      query: () => {
+        queryCalls += 1
+        return subject.observable
+      },
+    }) as unknown as QueryDefinition<unknown, unknown>
+
+    const { result } = renderHook(
+      () => useAppQuery<unknown, number>('live', { id: 42 } as never),
+      {
+        wrapper: wrapperWith({
+          registry: makeRegistry({ queries: { live: q } }),
+          engines: { rxdb: { db: {}, execute: async () => 0 } },
+        }),
+      },
+    )
+
+    await waitFor(() => expect(result.current.error).not.toBeNull())
+    expect((result.current.error as DataAccessError).code).toBe('zod_parse_failed')
+    expect(queryCalls).toBe(0)
+    expect(subject.subscriberCount()).toBe(0)
   })
 
   it('surfaces engine_missing when rxdb engine is not wired', async () => {

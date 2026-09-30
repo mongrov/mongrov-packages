@@ -131,9 +131,7 @@ export async function executeQuery<TInput, TOutput>(
   engines: EngineAdapters,
   options: ExecuteQueryOptions = {},
 ): Promise<TOutput> {
-  const parsedInput = parseInput(def.config.input, input)
-
-  await runAuthorize(def.config.authorize, parsedInput, ctx)
+  const parsedInput = await prepareQuery(def, input, ctx)
 
   // Only the engine round-trip is timed. Input parse, authorize and output
   // parse are ours and roughly constant; folding them in would blur the
@@ -212,6 +210,31 @@ function parseOutput<TOutput>(
     )
   }
   return result.data
+}
+
+/**
+ * The gate every dispatch path must pass before it touches an engine: parse
+ * the input against its schema, then authorize the PARSED input.
+ *
+ * Shared rather than inlined because it drifted. `executeQuery` ran both, but
+ * the hook's RxDB branch called `config.query(db, input)` straight from the
+ * effect — so a query with `authorize: () => false` still read and emitted,
+ * and an input schema that rejected the input was ignored. Output validation
+ * does not stand in for either: it checks the shape of data the caller was
+ * never entitled to see. Reproduced as `authCalls: 0, queryCalls: 1` emitting
+ * `restricted-data` (2026-09-26 review, finding 1).
+ *
+ * Authorization is awaited BEFORE the observable is created, not raced with
+ * it: subscribing first and revoking later still emits.
+ */
+export async function prepareQuery<TInput, TOutput>(
+  def: QueryDefinition<TInput, TOutput>,
+  input: TInput,
+  ctx: RequestContext,
+): Promise<TInput> {
+  const parsedInput = parseInput(def.config.input, input)
+  await runAuthorize(def.config.authorize, parsedInput, ctx)
+  return parsedInput
 }
 
 /**
