@@ -1,7 +1,7 @@
 {
   "name": "@mongrov/core",
-  "version": "0.4.1",
-  "description": "Structured logging for React Native / Expo — ring buffer, file, and webhook transports with offline queue. Includes dev-tools UI components.",
+  "version": "0.5.0",
+  "description": "Structured logging for React Native / Expo \u2014 ring buffer, file, and webhook transports with offline queue. Includes dev-tools UI components.",
   "license": "MIT",
   "repository": {
     "type": "git",
