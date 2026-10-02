@@ -64,6 +64,7 @@ function referenceStill(source: string): string {
        COALESCE((
          SELECT sum(a.steps) FROM v_activity a
          WHERE a.user_id = m.user_id AND a.brand = m.brand AND a.family_id = m.family_id
+           AND a.device_id = m.device_id
            AND a.ts >= m.ts - INTERVAL ${W} MINUTE
            AND a.ts <  m.ts + INTERVAL ${W} MINUTE
        ), 0) < ${STILL_FLOOR} AS still
@@ -153,18 +154,20 @@ describe('`still` is the movement floor, and the shipped view computes it', () =
     await db.close()
   }, 900_000)
 
-  it('is tenant-scoped, not device-scoped: a second ring\'s steps silence the first ring\'s readings', async () => {
-    // `still` keys on the tenant triple while `worn` keys on device. If the
-    // motion view or its joins were ever device-scoped, steps from a second
-    // ring on the same family would stop silencing the first ring's readings
-    // — and only this shape catches it.
+  it('is device-scoped: a second ring\'s steps do not silence the first ring\'s readings (zivaone_app#366)', async () => {
+    // Until 0.36 `still` keyed on the tenant triple, so steps from a second
+    // ring on the same family marked the first ring's still readings MOVING
+    // and dropped them. Two rings with overlapping activity on one account is
+    // real (a replacement ring's own history, QA rings, the QA seed's mock
+    // ring), and activity only ever comes from the ring that took the
+    // readings. Ring 1 here is motionless; ring 2 walks over the same week.
     const db = await openSeeded()
     const D2 = 'ring_2'
 
-    // Readings on ring_1 only; every step on ring_2 only. Device-scoped would
-    // call EVERY reading still, because ring_1 never records a step.
     await db.execute(`INSERT INTO heart_rate SELECT (TIMESTAMP '${iso(day0)}' + INTERVAL (g*5) MINUTE), '${B}','${F}','${U}','${D}', 70
       FROM generate_series(0, ${7 * 288 - 1}) AS t(g)`)
+    await db.execute(`INSERT INTO activity SELECT (TIMESTAMP '${iso(day0)}' + INTERVAL (g) MINUTE), '${B}','${F}','${U}','${D}', 0
+      FROM generate_series(0, ${7 * 1440 - 1}) AS t(g)`)
     await db.execute(`INSERT INTO activity SELECT (TIMESTAMP '${iso(day0)}' + INTERVAL (g) MINUTE), '${B}','${F}','${U}','${D2}',
         CASE WHEN (g % 53) < 7 THEN 30 ELSE 0 END
       FROM generate_series(0, ${7 * 1440 - 1}) AS t(g)`)
@@ -174,15 +177,15 @@ describe('`still` is the movement floor, and the shipped view computes it', () =
     const [{ n }] = await db.execute<{ n: number }>(disagreementSql())
     expect(n).toBe(0)
 
-    // Prove the cross-device silencing actually happens, and that the case is
-    // not vacuous in the other direction either.
+    // Ring 2's walking is not ring 1's: every ring-1 reading stays still.
+    // Under the tenant-scoped gate most of them read MOVING.
     const [{ t, f }] = await db.execute<{ t: number, f: number }>(
       `SELECT count(*) FILTER (WHERE still)::INTEGER AS t,
               count(*) FILTER (WHERE NOT still)::INTEGER AS f
          FROM (${SHIPPED}) WHERE device_id = '${D}'`,
     )
-    expect(f).toBeGreaterThan(0)
-    expect(t).toBeGreaterThan(0)
+    expect(f).toBe(0)
+    expect(t).toBe(7 * 288)
 
     await db.close()
   }, 900_000)

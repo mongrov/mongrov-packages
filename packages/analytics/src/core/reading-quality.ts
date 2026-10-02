@@ -188,14 +188,24 @@ const WARM_UP = `COALESCE(w.onset AND m.ts < w.ts + INTERVAL ${WARM_UP_MINUTES} 
  * of stillness and must contribute a row, or the running total has gaps
  * exactly where the user was motionless.
  *
- * Tenant-scoped, not device-scoped: a step recorded by one ring silences a
- * reading taken by another on the same family, which is what the rules'
- * `resting` join does and what `still` has always meant here.
+ * Two totals. `cum_steps` is per tenant, as it has always been: the app's day
+ * grids difference it to describe the USER's day, and every one of them
+ * relies on its shape. `cum_steps_device` restarts per ring, and is what
+ * `still` reads (zivaone_app#366). A reading is judged by the steps of the
+ * ring that took it: tenant-wide, a second ring's activity in the same
+ * minutes (a replacement ring carrying its own history, a QA ring passed
+ * between testers, the QA seed's mock ring) marked a still reading MOVING
+ * and dropped it from the clean view. Measured on real DuckDB: another
+ * ring's 60 steps in the window flipped an idle ring's SpO2 reading to
+ * MOVING. The two totals must never be mixed in one difference; the
+ * device-scoped one is only meaningful between two rows of the same ring,
+ * which is why `motionJoin` matches `device_id`.
  */
 function motionViewDdl(): string {
   return `CREATE OR REPLACE VIEW ${MOTION_VIEW} AS
-SELECT user_id, brand, family_id, ts,
-       SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
+SELECT user_id, brand, family_id, device_id, ts,
+       SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps,
+       SUM(steps) OVER (PARTITION BY user_id, brand, family_id, device_id ORDER BY ts) AS cum_steps_device
 FROM v_activity WHERE steps IS NOT NULL;`
 }
 
@@ -217,9 +227,11 @@ FROM v_activity WHERE steps IS NOT NULL;`
 function motionJoin(source: string): string {
   return `ASOF LEFT JOIN ${source} mp
     ON mp.user_id = m.user_id AND mp.brand = m.brand AND mp.family_id = m.family_id
+   AND mp.device_id = m.device_id
    AND m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mp.ts
   ASOF LEFT JOIN ${source} mn
     ON mn.user_id = m.user_id AND mn.brand = m.brand AND mn.family_id = m.family_id
+   AND mn.device_id = m.device_id
    AND m.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mn.ts`
 }
 
@@ -282,7 +294,7 @@ const MOTION_EVIDENCE = `(mn.ts IS NOT NULL AND mn.ts >= m.ts - INTERVAL ${STILL
  * `STILL_ENOUGH`.
  */
 const STILL = `CASE WHEN ${MOTION_EVIDENCE}
-           THEN (COALESCE(mn.cum_steps, 0) - COALESCE(mp.cum_steps, 0)) < ${STILL_FLOOR}
+           THEN (COALESCE(mn.cum_steps_device, 0) - COALESCE(mp.cum_steps_device, 0)) < ${STILL_FLOOR}
            ELSE NULL END`
 
 /**
@@ -521,8 +533,9 @@ export function cleanMacroFor(table: QualityTable): string {
  * disagree about what "steps in a window" means.
  */
 function motionSlice(from: string, to: string): string {
-  return `  SELECT user_id, brand, family_id, ts,
-         SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
+  return `  SELECT user_id, brand, family_id, device_id, ts,
+         SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps,
+         SUM(steps) OVER (PARTITION BY user_id, brand, family_id, device_id ORDER BY ts) AS cum_steps_device
   FROM v_activity
   WHERE steps IS NOT NULL
     AND ts >= ${from}
