@@ -66,16 +66,19 @@ export function buildHrPhaseBandsSql(): string {
               AND h.ts >= ss.ts_start AND h.ts < ss.ts_end
           ) THEN 'asleep'
           -- Steps in [ts - 15, ts + 15) from v_motion running totals, by two
-          -- ASOF lookups rather than a scan per reading.
-          WHEN COALESCE(mn.cum_steps, 0) - COALESCE(mp.cum_steps, 0) >= ${STILL_FLOOR} THEN 'active'
+          -- ASOF lookups rather than a scan per reading. The reading's own
+          -- ring only, as the still gate (zivaone_app#366).
+          WHEN COALESCE(mn.cum_steps_device, 0) - COALESCE(mp.cum_steps_device, 0) >= ${STILL_FLOOR} THEN 'active'
           ELSE 'awake'
         END AS phase
       FROM ${view} h
       ASOF LEFT JOIN v_motion mp
         ON mp.user_id = h.user_id AND mp.brand = h.brand AND mp.family_id = h.family_id
+       AND mp.device_id = h.device_id
        AND h.ts - INTERVAL 15 MINUTE > mp.ts
       ASOF LEFT JOIN v_motion mn
         ON mn.user_id = h.user_id AND mn.brand = h.brand AND mn.family_id = h.family_id
+       AND mn.device_id = h.device_id
        AND h.ts + INTERVAL 15 MINUTE > mn.ts
       WHERE h.user_id = $userId AND h.brand = $brand AND h.family_id = $familyId
         AND h.ts > now() - ${scanBind}
