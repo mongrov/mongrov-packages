@@ -185,6 +185,49 @@ describe('T-06 · executeQuery — kv path', () => {
     expect(out).toEqual({ theme: 'light' })
   })
 
+  it('resolves an unwritten key as null, never undefined', async () => {
+    // `kvEngine.get` answers `undefined` for a key nobody has written, a schema
+    // that admits it passes it through, and React Query rejects `undefined` as
+    // query data — so the query errors on every read for every user who has not
+    // touched that setting (zivaone_app#386, #353). Normalised once here rather
+    // than per query, which is how the first three were patched.
+    const nullable = defineQuery({
+      engine: 'kv',
+      input: z.object({ userId: z.string() }),
+      output: z.boolean().nullish(),
+      keyBuilder: input => `user:${input.userId}:spo2Notify`,
+    })
+    const engines: EngineAdapters = { kv: { get: () => undefined } }
+    const out = await executeQuery(nullable, { userId: 'u1' }, ctx, engines)
+    expect(out).toBeNull()
+    expect(out).not.toBeUndefined()
+  })
+
+  it('leaves a schema default to the schema', async () => {
+    // The normalisation runs after the parse, so `.default()` keeps its meaning:
+    // the registry's declared value, not null. This is what every settings query
+    // built by `kvBooleanOutput` relies on.
+    const withDefault = defineQuery({
+      engine: 'kv',
+      input: z.object({ userId: z.string() }),
+      output: z.boolean().default(true),
+      keyBuilder: input => `user:${input.userId}:tempNotify`,
+    })
+    const engines: EngineAdapters = { kv: { get: () => undefined } }
+    expect(await executeQuery(withDefault, { userId: 'u1' }, ctx, engines)).toBe(true)
+  })
+
+  it('keeps a written false, which is not the same as unset', async () => {
+    const nullable = defineQuery({
+      engine: 'kv',
+      input: z.object({ userId: z.string() }),
+      output: z.boolean().nullish(),
+      keyBuilder: input => `user:${input.userId}:spo2Notify`,
+    })
+    const engines: EngineAdapters = { kv: { get: () => false } }
+    expect(await executeQuery(nullable, { userId: 'u1' }, ctx, engines)).toBe(false)
+  })
+
   it('throws engine_missing when kv engine absent', async () => {
     await expect(
       executeQuery(kvDef, { userId: 'u1' }, ctx, {}),

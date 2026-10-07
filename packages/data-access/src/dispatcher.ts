@@ -197,6 +197,30 @@ function parseInput<TInput>(
   return result.data
 }
 
+/**
+ * Validate what the engine returned — and never hand back `undefined`.
+ *
+ * A KV read of a key nobody has written resolves to `undefined`. A schema that
+ * permits it (`.nullish()`, `.optional()`) passes it straight through, and
+ * React Query rejects `undefined` as query data: "Query data cannot be
+ * undefined", every read, for every user who has not touched that setting —
+ * which is the default state. Seen on `user.notifySwitchRaw` for all four
+ * notify switches (zivaone_app#386) and on `user.birthYear` /
+ * `user.currentTenant` before it (zivaone_app#353).
+ *
+ * Fixed here rather than in each query. Three queries had already been patched
+ * one at a time with `.transform(v => v ?? null)`, which leaves the next one to
+ * be written with the same defect and found the same way — on a device.
+ *
+ * The normalisation runs AFTER the parse, so Zod's `.default()` keeps its own
+ * meaning: a schema built by `kvBooleanOutput` still sees `undefined` and still
+ * substitutes the key's registry default. Only a value the schema deliberately
+ * let through as `undefined` becomes `null`.
+ *
+ * BREAKING in 0.6.0 for any consumer that distinguishes the two. The declared
+ * `TOutput` is what a caller holds; `?? null` widens it for exactly the schemas
+ * that admit `undefined`, and those are the ones that cannot resolve today.
+ */
 function parseOutput<TOutput>(
   schema: z.ZodType<TOutput>,
   raw: unknown,
@@ -209,7 +233,7 @@ function parseOutput<TOutput>(
       result.error,
     )
   }
-  return result.data
+  return result.data === undefined ? (null as TOutput) : result.data
 }
 
 /**

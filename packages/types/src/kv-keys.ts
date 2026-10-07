@@ -52,12 +52,24 @@ export const KV_KEY_REGISTRY = {
     defaultValue: 90,
     range: [86, 94],
   },
-  /** Whether SpO₂ violations raise a notification. UX state, not a threshold. */
+  /**
+   * Whether SpO₂ violations raise a notification. UX state, not a threshold.
+   *
+   * `defaultValue: true` like its five siblings (temp, HR, stress, activity,
+   * battery). This key alone declared none, so every reader had to supply the
+   * `true` itself: the settings query as a hand-written fallback, the push
+   * bridge as its own `raw !== false` rule. Two statements of one fact, agreeing
+   * because someone kept them agreeing — and they had already disagreed once,
+   * which is zivaone_app#370 ("an untouched SpO2 alert switch is on, as Settings
+   * now shows"). An untouched switch is ON for every vital (ruled 2026-10-01);
+   * that ruling belongs here, where both readers can see it.
+   */
   'user:spo2Notify': {
     kind: 'ux_state',
     valueType: 'boolean',
     description: 'User opted in to SpO₂ notifications',
     usedBy: [],
+    defaultValue: true,
   },
   /** One-time banner dismissal. Deliberately NOT an insight row. */
   'user:spo2Day30BannerDismissed': {

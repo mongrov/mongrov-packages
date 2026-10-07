@@ -45,6 +45,19 @@ describe('KV_KEY_REGISTRY', () => {
     ])
   })
 
+  it('every notify switch declares the same default — unset is ON', () => {
+    // An untouched switch is on for every vital (ruled 2026-10-01). Five keys
+    // declared `defaultValue: true` and `user:spo2Notify` declared nothing, so
+    // its readers each stated the `true` themselves — the settings query as a
+    // fallback, the push bridge as `raw !== false`. They had already drifted
+    // apart once (zivaone_app#370). One declaration here, pinned.
+    const offenders = Object.entries(KV_KEY_REGISTRY)
+      .filter(([key]) => key.endsWith('Notify'))
+      .filter(([, e]) => e.defaultValue !== true)
+      .map(([key]) => key)
+    expect(offenders).toEqual([])
+  })
+
   it('numeric thresholds declare a default inside their own range', () => {
     // The pairing matters more than either value: sprint6 specified a
     // temperature flag of 37.5 over 37.2-38.1 against a column that could
