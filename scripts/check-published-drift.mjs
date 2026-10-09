@@ -21,6 +21,16 @@
  *   the direct symptom, checked independently of check 1 so a hand-edited
  *   range is caught too.
  *
+ * CHECK 4 — a sibling range the workspace itself cannot satisfy.
+ *   Caret on a 0.x pins the MINOR: `^0.10.0` means `>=0.10.0 <0.11.0`. So
+ *   every time @mongrov/types took a minor, five packages went on declaring
+ *   ranges that the types in this very repo no longer satisfied —
+ *   analytics `^0.10.0`, data-access `^0.5.1`, device `^0.5.0`, collab and
+ *   ui `^0.2.0`, against types 0.14.0. Nothing failed here for the reason
+ *   this whole file exists: in the workspace the dependency is a symlink,
+ *   so the range is never consulted. A consumer with strict peers, or on
+ *   npm/yarn, gets an unmet peer or a second copy of types installed.
+ *
  * CHECK 3 — ambient declarations shadowing real types.
  *   Same class of mistake, different surface: @mongrov/ai carried a
  *   hand-written `declare module 'react-native-gifted-chat'` ending in
@@ -35,6 +45,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { satisfies } from 'semver'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PACKAGES = join(ROOT, 'packages')
@@ -247,10 +258,42 @@ for (const { dir, pkg } of localPackages) {
   }
 }
 
+// ---------------------------------------------------------------- check 4
+// Does the workspace satisfy the ranges it publishes?
+//
+// `workspace:*` / `workspace:^` are rewritten to a real range by pnpm at
+// publish time (verified: analytics@0.36.0 ships `@mongrov/db@^0.3.0`), so
+// they are not declarations to check — skip them.
+const WORKSPACE_VERSION = new Map(localPackages.map(({ pkg }) => [pkg.name, pkg.version]))
+const DEP_FIELDS = ['dependencies', 'peerDependencies', 'optionalDependencies']
+
+for (const { pkg } of localPackages) {
+  for (const field of DEP_FIELDS) {
+    for (const [name, range] of Object.entries(pkg[field] ?? {})) {
+      const local = WORKSPACE_VERSION.get(name)
+      if (!local || range.startsWith('workspace:'))
+        continue
+
+      if (!satisfies(local, range)) {
+        violations.push(
+          `${red('UNSATISFIABLE RANGE')} ${pkg.name} declares `
+          + `${field}["${name}"] = "${range}", but this workspace builds `
+          + `${name}@${local}, which does not satisfy it.\n`
+          + `        ${dim('Nothing fails here — the workspace dep is a symlink, so the range')}\n`
+          + `        ${dim('is never consulted. A consumer gets an unmet peer, or a SECOND copy')}\n`
+          + `        ${dim('of the package installed beside the one you tested.')}\n`
+          + `        ${dim('Note `^0.x.y` pins the MINOR, so it expires on every 0.x bump;')}\n`
+          + `        ${dim(`prefer an explicit \`>=<floor> <1.0.0\` bound.`)}`,
+        )
+      }
+    }
+  }
+}
+
 if (violations.length) {
   console.error(`\n${red(`${violations.length} publish-safety violation(s):`)}\n`)
   for (const v of violations) console.error(`  ${v}\n`)
   process.exit(1)
 }
 
-console.log('✓ no published-version drift, all @mongrov subpath imports resolvable')
+console.log('✓ no published-version drift, all @mongrov subpath imports resolvable, all sibling ranges satisfiable')
