@@ -1,6 +1,6 @@
 {
   "name": "@mongrov/collab",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Collaboration adapter for real-time messaging — supports RocketChat DDP and custom backends",
   "license": "MIT",
   "repository": {
@@ -38,13 +38,14 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@mongrov/types": "^0.2.0",
     "xstate": "^5.18.0"
   },
   "peerDependencies": {
+    "@mongrov/types": ">=0.2.0 <1.0.0",
     "react": ">=18"
   },
   "devDependencies": {
+    "@mongrov/types": "workspace:*",
     "@testing-library/react": "^14.0.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^25.6.0",
