@@ -19,6 +19,136 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
   error: 3,
 }
 
+function isLogLevel(value: unknown): value is LogLevel {
+  return typeof value === 'string' && value in LEVEL_ORDER
+}
+
+/**
+ * `minLevel` arrives from env in practice (`EXPO_PUBLIC_LOG_LEVEL`), where
+ * `'INFO'` or a typo is easy. An unknown level used to index LEVEL_ORDER to
+ * `undefined`, every comparison came out false, and nothing was filtered.
+ */
+function resolveMinLevel(configured: unknown, fallback: LogLevel): LogLevel {
+  if (configured == null || configured === '')
+    return fallback
+  const normalized = typeof configured === 'string' ? configured.trim().toLowerCase() : configured
+  if (isLogLevel(normalized))
+    return normalized
+  if (isDev())
+    console.warn(`[Logger] unknown minLevel ${JSON.stringify(configured)}; using '${fallback}'`)
+  return fallback
+}
+
+const MAX_DEPTH = 6
+const MAX_CAUSE_DEPTH = 3
+
+function serializeError(error: Error, seen: WeakSet<object>, depth: number, causeDepth: number): Record<string, unknown> {
+  const out: Record<string, unknown> = { name: error.name, message: error.message }
+  if (error.stack)
+    out.stack = error.stack
+  // Own enumerable fields (`code`, `status`, ...) carry the useful detail on
+  // native and DB errors.
+  for (const [key, value] of Object.entries(error)) {
+    if (!(key in out))
+      out[key] = sanitizeValue(value, seen, depth + 1)
+  }
+  const cause = (error as { cause?: unknown }).cause
+  if (cause !== undefined) {
+    out.cause = causeDepth >= MAX_CAUSE_DEPTH
+      ? '[Cause depth exceeded]'
+      : cause instanceof Error
+        ? serializeError(cause, seen, depth + 1, causeDepth + 1)
+        : sanitizeValue(cause, seen, depth + 1)
+  }
+  return out
+}
+
+function sanitizeValue(value: unknown, seen: WeakSet<object>, depth: number): unknown {
+  if (value === null || value === undefined)
+    return value
+  switch (typeof value) {
+    case 'string':
+    case 'number':
+    case 'boolean':
+      return value
+    case 'bigint':
+      return value.toString()
+    case 'function':
+      return `[Function ${value.name || 'anonymous'}]`
+    case 'symbol':
+      return value.toString()
+  }
+  const obj = value as object
+  if (seen.has(obj))
+    return '[Circular]'
+  if (depth >= MAX_DEPTH)
+    return '[Depth exceeded]'
+  seen.add(obj)
+  try {
+    if (obj instanceof Error)
+      return serializeError(obj, seen, depth, 0)
+    if (obj instanceof Date)
+      return Number.isNaN(obj.getTime()) ? 'Invalid Date' : obj.toISOString()
+    if (Array.isArray(obj))
+      return obj.map(item => sanitizeValue(item, seen, depth + 1))
+    const out: Record<string, unknown> = {}
+    for (const [key, item] of Object.entries(obj))
+      out[key] = sanitizeValue(item, seen, depth + 1)
+    return out
+  }
+  finally {
+    // Only ancestors count as circular; the same object twice side by side
+    // is a repeat, not a cycle.
+    seen.delete(obj)
+  }
+}
+
+/**
+ * A JSON-safe snapshot of `data`, taken when the line is logged.
+ *
+ * Entries used to hold the caller's object by reference, so the export showed
+ * whatever it had been mutated into later; an `Error` exported as `{}` (its
+ * fields are non-enumerable); and one circular reference or BigInt made
+ * `exportLogs` throw, which emptied the whole export.
+ */
+export function sanitizeLogData(data?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (data === undefined || data === null)
+    return undefined
+  try {
+    const out = sanitizeValue(data, new WeakSet(), 0)
+    return out !== null && typeof out === 'object' && !Array.isArray(out)
+      ? out as Record<string, unknown>
+      : { value: out }
+  }
+  catch (error) {
+    return { unserializable: String(error) }
+  }
+}
+
+function stringifyEntries(entries: LogEntry[]): string {
+  try {
+    return JSON.stringify(entries, null, 2)
+  }
+  catch {
+    // Per entry, so one bad line cannot empty the export.
+    const parts = entries.map((entry) => {
+      try {
+        return JSON.stringify(entry, null, 2)
+      }
+      catch (error) {
+        return JSON.stringify({
+          id: entry.id,
+          timestamp: entry.timestamp,
+          level: entry.level,
+          message: entry.message,
+          data: { unserializable: String(error) },
+        }, null, 2)
+      }
+    })
+    return `[\n${parts.join(',\n')}\n]`
+  }
+}
+
 let counter = 0
 function generateId(): string {
   return `${Date.now()}-${++counter}`
@@ -60,6 +190,12 @@ export interface Logger {
 
   getLogs: (filter?: LogFilter) => LogEntry[]
   exportLogs: (filter?: LogFilter) => string
+  /**
+   * Every line the file transport has kept (all retained days, oldest first,
+   * one JSON entry per line). Survives restarts and crashes, unlike the ring
+   * buffer. Rejects when the file transport is not configured.
+   */
+  exportFileLogs: () => Promise<string>
 
   flush: () => Promise<void>
   destroy: () => Promise<void>
@@ -67,7 +203,7 @@ export interface Logger {
 
 export function createLogger(config: LoggerConfig): Logger {
   const dev = isDev()
-  const minLevel = config.minLevel ?? (dev ? 'debug' : 'info')
+  const minLevel = resolveMinLevel(config.minLevel, dev ? 'debug' : 'info')
   const minLevelNum = LEVEL_ORDER[minLevel]
 
   const sessionId = generateSessionId()
@@ -86,6 +222,7 @@ export function createLogger(config: LoggerConfig): Logger {
   // Initialize transports
   const transports: LogTransport[] = []
   let ringBuffer: RingBufferTransport | null = null
+  let fileTransport: FileTransport | null = null
   let webhookTransport: WebhookTransport | null = null
 
   // Ring buffer
@@ -100,7 +237,15 @@ export function createLogger(config: LoggerConfig): Logger {
   if (config.file) {
     const fileConfig: FileConfig
       = typeof config.file === 'boolean' ? {} : config.file
-    transports.push(new FileTransport(fileConfig))
+    try {
+      fileTransport = new FileTransport(fileConfig)
+      transports.push(fileTransport)
+    }
+    catch (error) {
+      // expo-file-system missing: logging still works without the file.
+      if (dev)
+        console.warn('[Logger] file transport unavailable:', error)
+    }
   }
 
   // Webhook transport
@@ -120,7 +265,7 @@ export function createLogger(config: LoggerConfig): Logger {
       timestamp: new Date().toISOString(),
       level,
       message,
-      data,
+      data: sanitizeLogData(data),
       context: { ...ctx, ...extraContext } as unknown as LogContext,
     }
   }
@@ -191,11 +336,18 @@ export function createLogger(config: LoggerConfig): Logger {
       if (!ringBuffer) {
         throw new Error('Ring buffer not configured. Enable ringBuffer in LoggerConfig.')
       }
-      const entries = ringBuffer.getEntries(filter)
-      return JSON.stringify(entries, null, 2)
+      return stringifyEntries(ringBuffer.getEntries(filter))
+    },
+
+    async exportFileLogs() {
+      if (!fileTransport) {
+        throw new Error('File transport not configured. Enable file in LoggerConfig.')
+      }
+      return fileTransport.readAll()
     },
 
     async flush() {
+      await fileTransport?.flush()
       if (webhookTransport) {
         await webhookTransport.flush()
       }

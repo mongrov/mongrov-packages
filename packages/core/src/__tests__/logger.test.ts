@@ -333,3 +333,93 @@ describe('Logger', () => {
     await logger.destroy()
   })
 })
+
+describe('Logger data is a JSON-safe snapshot', () => {
+  it('exports an Error with its name, message, own fields and cause', () => {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true })
+    const cause = new Error('disk full')
+    const error = Object.assign(new Error('write failed', { cause }), { code: 'E_IO' })
+
+    logger.error('flush failed', { error })
+
+    const [entry] = JSON.parse(logger.exportLogs())
+    expect(entry.data.error).toMatchObject({
+      name: 'Error',
+      message: 'write failed',
+      code: 'E_IO',
+      cause: { name: 'Error', message: 'disk full' },
+    })
+  })
+
+  it('never lets a circular reference or a BigInt empty the export', () => {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true })
+    const loop: Record<string, unknown> = { name: 'loop' }
+    loop.self = loop
+
+    logger.info('before')
+    logger.info('bad', { loop, big: BigInt(10) })
+    logger.info('after')
+
+    const entries = JSON.parse(logger.exportLogs())
+    expect(entries.map((e: { message: string }) => e.message)).toEqual(['after', 'bad', 'before'])
+    expect(entries[1].data).toEqual({ loop: { name: 'loop', self: '[Circular]' }, big: '10' })
+  })
+
+  it('keeps the value as it was when logged, not as later mutated', () => {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true })
+    const state = { phase: 'connecting' }
+
+    logger.info('transition', { state })
+    state.phase = 'ready'
+
+    expect(logger.getLogs()[0].data).toEqual({ state: { phase: 'connecting' } })
+  })
+
+  it('does not mark a repeated (non-circular) object as circular', () => {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true })
+    const shared = { id: 1 }
+
+    logger.info('pair', { a: shared, b: shared })
+
+    expect(logger.getLogs()[0].data).toEqual({ a: { id: 1 }, b: { id: 1 } })
+  })
+})
+
+describe('Logger minLevel validation', () => {
+  it('normalizes an upper-case level from env', () => {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true, minLevel: 'INFO' as never })
+
+    logger.debug('dropped')
+    logger.info('kept')
+
+    expect(logger.getLogs().map(e => e.message)).toEqual(['kept'])
+  })
+
+  it('falls back to the default for an unknown level instead of disabling filtering', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation()
+    // __DEV__ is true here, so the default is 'debug' — the point is that
+    // the logger filters by a real level rather than comparing to undefined.
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true, minLevel: 'verbose' as never })
+
+    logger.debug('kept at the dev default')
+
+    expect(logger.getLogs()).toHaveLength(1)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown minLevel'))
+  })
+})
+
+describe('Logger file export', () => {
+  it('exports what the file transport kept', async () => {
+    const logger = createLogger({ appVersion: '1.0.0', file: true })
+
+    logger.info('persisted')
+    const content = await logger.exportFileLogs()
+
+    expect(content).toContain('"message":"persisted"')
+  })
+
+  it('rejects when no file transport is configured', async () => {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true })
+    await expect(logger.exportFileLogs()).rejects.toThrow('File transport not configured')
+  })
+})
