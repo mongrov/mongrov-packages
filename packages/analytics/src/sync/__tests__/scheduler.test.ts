@@ -164,3 +164,58 @@ describe('SyncScheduler.triggerNow (T-24)', () => {
     expect(seen).toEqual(['running', 'idle'])
   })
 })
+
+describe('SyncScheduler cycle logging', () => {
+  function spyLogger() {
+    return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  }
+
+  function withLogger(coordinator: SyncCoordinator, logger: ReturnType<typeof spyLogger>) {
+    return new SyncScheduler({
+      backgroundTask: makeBackgroundTask(),
+      constraints: makeConstraints(),
+      coordinator,
+      tables: ['hrv', 'hr'],
+      ctx,
+      constraintPolicy: { requireWifi: false, requireCharging: false },
+      logger,
+    })
+  }
+
+  it('logs a clean cycle at info, with its duration', async () => {
+    const logger = spyLogger()
+    const coordinator = makeCoordinator()
+    coordinator.flushAll.mockResolvedValue({ failedTables: [], rowsFlushed: 12 })
+
+    await withLogger(coordinator, logger).triggerNow()
+
+    expect(logger.info).toHaveBeenCalledWith('scheduler.cycle.ok', expect.objectContaining({
+      rowsFlushed: 12,
+      failedTables: [],
+      durationMs: expect.any(Number),
+    }))
+  })
+
+  it('does not report ok when a table failed to flush', async () => {
+    const logger = spyLogger()
+    const coordinator = makeCoordinator()
+    coordinator.flushAll.mockResolvedValue({ failedTables: ['hr'], rowsFlushed: 3 })
+
+    await withLogger(coordinator, logger).triggerNow()
+
+    expect(logger.warn).toHaveBeenCalledWith('scheduler.cycle.partial', expect.objectContaining({ failedTables: ['hr'] }))
+    expect(logger.info).not.toHaveBeenCalledWith('scheduler.cycle.ok', expect.anything())
+  })
+
+  it('logs a failed cycle at error with the whole cause chain', async () => {
+    const logger = spyLogger()
+    const coordinator = makeCoordinator()
+    coordinator.flushAll.mockRejectedValue(new Error('outer', { cause: new Error('duckdb: disk full') }))
+
+    await withLogger(coordinator, logger).triggerNow()
+
+    expect(logger.error).toHaveBeenCalledWith('scheduler.cycle.error', expect.objectContaining({
+      error: expect.stringContaining('duckdb: disk full'),
+    }))
+  })
+})

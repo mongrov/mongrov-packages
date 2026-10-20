@@ -194,6 +194,37 @@ describe('createEvaluator', () => {
       expect(logger.error).toHaveBeenCalled()
       void h
     })
+    it('reports execute failures once per pass, not once per rule × user', async () => {
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      const storage = createFakeStorage()
+      const clock = createFakeClock('2025-01-01T00:00:00Z')
+      const analytics = createFakeEngine()
+      const registry = createRulesRegistry({ storage })
+      const evaluator = createEvaluator({
+        registry,
+        cache: createCompilerCache(),
+        throttle: createThrottleStore({ storage, clock }),
+        emitter: createEmitter(),
+        analytics,
+        brand: 'ziva',
+        familyId: 'fam1',
+        familyMembersProvider: async () => ['u1', 'u2'],
+        clock,
+        logger,
+      })
+      await registry.register([hrvRule, { ...hrvRule, id: 'test.spo2.second' }])
+      analytics.__setError(new Error('duckdb blew up'))
+
+      await evaluator.evaluateOnBatch({ affectedUserIds: ['u1', 'u2'], affectedTables: ['spo2'] })
+
+      expect(logger.error).toHaveBeenCalledTimes(1)
+      expect(logger.error).toHaveBeenCalledWith('rules.evaluator: execute failed', expect.objectContaining({
+        trigger: 'batch',
+        failures: 4,
+        ruleIds: ['test.hrv.drop', 'test.spo2.second'],
+        firstError: expect.stringContaining('duckdb blew up'),
+      }))
+    })
   })
 
   describe('evaluateScheduled', () => {

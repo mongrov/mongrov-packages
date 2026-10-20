@@ -282,8 +282,24 @@ export function createAnalytics(
   const internalSub = actor.subscribe(() => {
     const s = currentState(actor)
     if (s !== lastLoggedState) {
+      const from = lastLoggedState
       lastLoggedState = s
-      log.debug('analytics.state', { value: s })
+      // `info`: a handful of transitions per session, and the only record
+      // of whether the warehouse opened and attached. An `error` carries the
+      // machine's `lastError` — the open/attach/refresh failures otherwise
+      // only set it, and nothing logged why.
+      if (s === 'error') {
+        const lastError = actor.getSnapshot().context.lastError
+        log.error('analytics.state', {
+          value: s,
+          from,
+          code: lastError?.code,
+          error: lastError ? describeError(lastError) : undefined,
+        })
+      }
+      else {
+        log.info('analytics.state', { value: s, from })
+      }
     }
     for (const fn of publicSubscribers) fn(s)
   })
@@ -465,13 +481,13 @@ export function createAnalytics(
         await saveLastAttach(config.storage, ctx)
       }
       catch (cause) {
-        log.warn('analytics.persist.last_attach_failed', { cause })
+        log.warn('analytics.persist.last_attach_failed', { error: describeError(cause) })
       }
       try {
         await sweep(ctx)
       }
       catch (cause) {
-        log.warn('analytics.retention.sweep_failed', { cause })
+        log.warn('analytics.retention.sweep_failed', { error: describeError(cause) })
       }
     },
     async detach() {
@@ -492,7 +508,7 @@ export function createAnalytics(
           await clearLastAttach(config.storage, ctxAtDetach.brand)
         }
         catch (cause) {
-          log.warn('analytics.persist.clear_last_attach_failed', { cause })
+          log.warn('analytics.persist.clear_last_attach_failed', { error: describeError(cause) })
         }
       }
     },

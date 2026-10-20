@@ -13,6 +13,7 @@
  */
 
 import type { AttachContext } from '../core/types'
+import { describeError } from '../core/errors'
 import { SyncError } from './errors'
 
 /**
@@ -33,7 +34,11 @@ export interface ConstraintPort {
 
 /** Sync operations the scheduler drives per cycle. */
 export interface SyncCoordinator {
-  flushAll: () => Promise<void>
+  /**
+   * May report which tables failed to flush; the scheduler logs it. A
+   * failed table keeps its rows buffered, so the cycle carries on.
+   */
+  flushAll: () => Promise<void | FlushAllSummary>
   pushAll: (tables: string[], ctx: AttachContext) => Promise<Array<{ ok: boolean }>>
   /**
    * SCD-2 close directives (`device_config.valid_to = now()`) pending
@@ -53,11 +58,20 @@ export interface SyncCoordinator {
   onCycleComplete?: () => Promise<void>
 }
 
-/** Debug/info logger — matches `@mongrov/core` shape narrowly. */
+export interface FlushAllSummary {
+  failedTables: string[]
+  rowsFlushed: number
+}
+
+/**
+ * Matches `@mongrov/core`'s logger shape narrowly. `error` is optional so
+ * existing three-method loggers still fit; without it errors log at `warn`.
+ */
 export interface SchedulerLogger {
   debug: (msg: string, meta?: Record<string, unknown>) => void
   info: (msg: string, meta?: Record<string, unknown>) => void
   warn: (msg: string, meta?: Record<string, unknown>) => void
+  error?: (msg: string, meta?: Record<string, unknown>) => void
 }
 
 export interface SchedulerConstraints {
@@ -172,8 +186,9 @@ export class SyncScheduler {
     }
 
     this.#setState('running')
+    const startedAt = Date.now()
     try {
-      await this.#config.coordinator.flushAll()
+      const flushed = await this.#config.coordinator.flushAll()
       await this.#config.coordinator.pushAll(this.#config.tables, this.#config.ctx)
       await this.#config.coordinator.pushClosesForDeviceConfig?.(this.#config.ctx)
       await this.#config.coordinator.fetchIncremental(this.#config.ctx)
@@ -187,17 +202,32 @@ export class SyncScheduler {
         }
         catch (cause) {
           this.#config.logger.warn('scheduler.cycle.baselines_failed', {
-            error: String(cause),
+            error: describeError(cause),
           })
         }
       }
       await this.#config.coordinator.onCycleComplete?.()
-      this.#config.logger.debug('scheduler.cycle.ok')
+      // `info`, once per cycle: the only record that a scheduled sync ran.
+      // It used to say `ok` at debug even when every table failed to flush.
+      const failedTables = flushed?.failedTables ?? []
+      const summary = {
+        durationMs: Date.now() - startedAt,
+        rowsFlushed: flushed?.rowsFlushed,
+        failedTables,
+      }
+      if (failedTables.length > 0)
+        this.#config.logger.warn('scheduler.cycle.partial', summary)
+      else
+        this.#config.logger.info('scheduler.cycle.ok', summary)
       this.#setState('idle')
       return { ok: true, skipped: false }
     }
     catch (cause) {
-      this.#config.logger.warn('scheduler.cycle.error', { error: String(cause) })
+      const log = this.#config.logger.error ?? this.#config.logger.warn
+      log.call(this.#config.logger, 'scheduler.cycle.error', {
+        durationMs: Date.now() - startedAt,
+        error: describeError(cause),
+      })
       this.#setState('error')
       return {
         ok: false,

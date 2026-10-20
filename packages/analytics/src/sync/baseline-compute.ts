@@ -25,7 +25,7 @@
 import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine, EventBus } from '../core/types'
 import type { SchedulerLogger } from './scheduler'
-import { AnalyticsError } from '../core/errors'
+import { AnalyticsError, describeError } from '../core/errors'
 import {
   BASELINE_MIN_DAYS,
   BASELINE_WINDOW_DAYS,
@@ -491,6 +491,11 @@ export function createBaselineComputer(
       let computed = 0
       let skipped = 0
       let failed = 0
+      // Collected, then logged once at the end of the cycle: a sick warehouse
+      // fails every metric × window, and one warn each was dozens of lines a
+      // cycle in a 1000-entry export buffer.
+      const failures: string[] = []
+      let firstError: string | undefined
 
       for (const metric of metrics) {
         for (const windowDays of windows) {
@@ -503,12 +508,8 @@ export function createBaselineComputer(
           catch (err) {
             // One metric's failure must not abort the other twenty.
             failed += 1
-            logger?.warn('baseline: compute failed', {
-              metric,
-              windowDays,
-              userId: ctx.userId,
-              err: err instanceof Error ? err.message : String(err),
-            })
+            failures.push(`${metric}/${windowDays}d`)
+            firstError ??= describeError(err)
           }
         }
       }
@@ -522,21 +523,23 @@ export function createBaselineComputer(
           }
           catch (err) {
             failed += 1
-            logger?.warn('baseline: hr phase bands failed', {
-              windowDays,
-              userId: ctx.userId,
-              err: err instanceof Error ? err.message : String(err),
-            })
+            failures.push(`hr_phase_bands/${windowDays}d`)
+            firstError ??= describeError(err)
           }
         }
       }
 
-      logger?.debug('baseline: compute cycle complete', {
-        userId: ctx.userId,
-        computed,
-        skipped,
-        failed,
-      })
+      const summary = { userId: ctx.userId, computed, skipped, failed }
+      if (failed > 0) {
+        logger?.warn('baseline: compute cycle complete', {
+          ...summary,
+          failures: failures.slice(0, 10),
+          firstError,
+        })
+      }
+      else {
+        logger?.info('baseline: compute cycle complete', summary)
+      }
       return { computed, skipped, failed }
     },
   }

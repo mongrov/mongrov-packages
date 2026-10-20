@@ -252,9 +252,35 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     }
   }
 
+  // Problems seen during one evaluateOnBatch / evaluateScheduled pass. They
+  // are per rule × user, so logging each one put 13+ identical lines into the
+  // export on every evaluation; one summary per pass says the same thing.
+  interface PassIssues { noTimezone: Set<string>, failedRules: Set<string>, failures: number, firstError?: string }
+  function newPass(): PassIssues {
+    return { noTimezone: new Set(), failedRules: new Set(), failures: 0 }
+  }
+
+  function logPass(pass: PassIssues, trigger: 'batch' | 'scheduled'): void {
+    if (pass.noTimezone.size > 0) {
+      logger?.warn('rules.evaluator: skipped day-cadence rules, no user timezone', {
+        trigger,
+        userIds: [...pass.noTimezone],
+      })
+    }
+    if (pass.failures > 0) {
+      logger?.error('rules.evaluator: execute failed', {
+        trigger,
+        failures: pass.failures,
+        ruleIds: [...pass.failedRules],
+        firstError: pass.firstError,
+      })
+    }
+  }
+
   async function evaluateRule(
     rule: Rule,
     ctx: { userId: string, familyId: string },
+    pass: PassIssues,
   ): Promise<RuleViolation | null> {
     const throttled = await throttle.isThrottled(rule.id, ctx.userId, rule.throttle)
     if (throttled) {
@@ -294,10 +320,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       if (compiled.cadence === 'day' || compiled.minDays !== undefined) {
         const tz = await resolveTimezone(ctx.userId)
         if (tz === undefined) {
-          logger?.warn('rules.evaluator: skipping day-cadence rule, no user timezone', {
-            ruleId: rule.id,
-            userId: ctx.userId,
-          })
+          pass.noTimezone.add(ctx.userId)
           return null
         }
         params.tz = tz
@@ -331,11 +354,9 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       rows = await analytics.execute<EvaluationRow>(compiled.sql, params)
     }
     catch (err) {
-      logger?.error('rules.evaluator: execute failed', {
-        ruleId: rule.id,
-        userId: ctx.userId,
-        err: describeError(err),
-      })
+      pass.failures += 1
+      pass.failedRules.add(rule.id)
+      pass.firstError ??= `${rule.id}: ${describeError(err)}`
       return null
     }
 
@@ -426,13 +447,15 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
         return []
       }
       const violations: RuleViolation[] = []
+      const pass = newPass()
       for (const rule of relevant) {
         for (const userId of batch.affectedUserIds) {
-          const v = await evaluateRule(rule, { userId, familyId })
+          const v = await evaluateRule(rule, { userId, familyId }, pass)
           if (v)
             violations.push(v)
         }
       }
+      logPass(pass, 'batch')
       return violations
     },
 
@@ -460,13 +483,15 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
         return []
       }
       const violations: RuleViolation[] = []
+      const pass = newPass()
       for (const rule of active) {
         for (const userId of members) {
-          const v = await evaluateRule(rule, { userId, familyId })
+          const v = await evaluateRule(rule, { userId, familyId }, pass)
           if (v)
             violations.push(v)
         }
       }
+      logPass(pass, 'scheduled')
       return violations
     },
   }

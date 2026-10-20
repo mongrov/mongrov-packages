@@ -36,6 +36,7 @@ import type { BackgroundTaskPort, ConstraintPort, SchedulerLogger, SchedulerStat
 import type { SleepDeriver } from './sleep-derive'
 import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
 import { z } from 'zod'
+import { describeError } from '../core/errors'
 import { createBaselineComputer } from './baseline-compute'
 import { SensorBuffer } from './buffer'
 import { bindFlushEvents, bindPushEvents } from './events'
@@ -207,12 +208,31 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       .catch((err: unknown) => {
         rulesLogger?.warn('sync.factory: rulesEngine.evaluateOnBatch threw', {
           trigger: label,
-          err: err instanceof Error ? err.message : String(err),
+          err: describeError(err),
         })
       })
   }
 
   const flushEmitter: SyncEmitter = (event) => {
+    // The flusher's failures and dropped rows were emitted but never logged:
+    // `bindFlushEvents` forwards only successes, so a table that failed to
+    // land, or rows rejected for good, left no trace in an exported log.
+    if (event.type === 'flush-failed') {
+      config.logger?.warn('sync.flush.failed', {
+        table: event.payload.table,
+        code: event.payload.error.code,
+        error: describeError(event.payload.error),
+      })
+    }
+    if (event.type === 'flushed' && (event.payload.rowsRejected ?? 0) > 0) {
+      config.logger?.warn('sync.flush.rows_rejected', {
+        table: event.payload.table,
+        reason: event.payload.reason,
+        rowsRejected: event.payload.rowsRejected,
+        rowsFlushed: event.payload.rowsFlushed,
+        sample: event.payload.rejectedSample,
+      })
+    }
     if (event.type === 'flushed') {
       progress.pendingByTable[event.payload.table] = 0
       progress.lastFlushAt = Date.now()
@@ -366,12 +386,19 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         // as a single unit rather than one wake-up per table.
         const batchId = flusher.beginBatch('scheduled')
         try {
-          await Promise.all(
+          const results = await Promise.all(
             config.tables.map(t => flusher.flush(t, 'scheduled', batchId)),
           )
           // After the raw tables land, before endBatch: corrected nights
           // are written into this batch so rules see them (never throws).
           await sleepDeriver?.derive(batchId, 'scheduled')
+          // Reported, not thrown: a failed table keeps its rows buffered for
+          // the next cycle, and the rest of the cycle (push, fetch,
+          // baselines) should still run. The scheduler logs the summary.
+          return {
+            failedTables: results.filter(r => !r.ok).map(r => r.table),
+            rowsFlushed: results.reduce((sum, r) => sum + r.rowsFlushed, 0),
+          }
         }
         finally {
           // `finally` so a partial failure still closes the batch — the
@@ -404,7 +431,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
             await pendingClosesStore.requeue(ctx, pending)
             rulesLogger?.warn('sync.factory: pushCloses threw; requeued', {
               count: pending.length,
-              err: err instanceof Error ? err.message : String(err),
+              err: describeError(err),
             })
           }
         },
@@ -446,7 +473,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
           }
           catch (err) {
             rulesLogger?.warn('sync.factory: rulesEngine.evaluateScheduled threw', {
-              err: err instanceof Error ? err.message : String(err),
+              err: describeError(err),
             })
           }
         }
