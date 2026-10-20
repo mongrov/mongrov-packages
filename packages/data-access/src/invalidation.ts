@@ -29,7 +29,23 @@ interface PatternEntry {
 
 type MittEvents = Record<string, unknown>
 
-export function createEventBus(): EventBus {
+/** Narrow logger shape — `@mongrov/core`'s logger satisfies it. */
+export interface EventBusLogger {
+  error: (message: string, data?: Record<string, unknown>) => void
+}
+
+export interface EventBusOptions {
+  /**
+   * Where a throwing handler is reported. Without it the report goes to
+   * `console.error`, which a release build does not keep: a handler that
+   * throws (and so leaves a screen stale) left no trace in an exported log.
+   */
+  logger?: EventBusLogger
+}
+
+export function createEventBus(options: EventBusOptions = {}): EventBus {
+  const reportHandlerError = (err: unknown, name: string): void =>
+    reportError(err, name, options.logger)
   const exact: Emitter<MittEvents> = mitt<MittEvents>()
   const patterns = new Set<PatternEntry>()
 
@@ -135,9 +151,15 @@ function escapeRegex(literal: string): string {
   return literal.replace(REGEX_METACHARS_RE, '\\$&')
 }
 
-function reportHandlerError(err: unknown, name: string): void {
-  // Use console.error so the failure is surfaced but does not propagate.
-  // A structured DeviceLogger-style injection is a v0.2.0 concern.
-
+function reportError(err: unknown, name: string, logger?: EventBusLogger): void {
+  // Surfaced but never propagated: one throwing subscriber must not stop
+  // the rest (T-10).
+  if (logger) {
+    logger.error('[@mongrov/data-access] event handler threw', {
+      event: name,
+      error: err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : String(err),
+    })
+    return
+  }
   console.error(`[@mongrov/data-access] handler for "${name}" threw:`, err)
 }
