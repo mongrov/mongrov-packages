@@ -381,6 +381,11 @@ export async function createViews(
      * is how the failure stays loud.
      */
     onMacroFailed?: (name: string, cause: unknown) => void
+    /**
+     * The macro's plain stand-in failed too, so the macro does not exist.
+     * `cause` is the stand-in's error — why `boundedReads` will be off.
+     */
+    onMacroUnavailable?: (name: string, cause: unknown) => void
   } = {},
 ): Promise<CreateViewsResult> {
   for (const table of VIEWED_TABLES) {
@@ -433,8 +438,9 @@ export async function createViews(
       try {
         await db.execute(fallbackMacroDdl(macro.name))
       }
-      catch {
+      catch (fallbackCause) {
         unavailableMacros.push(macro.name)
+        opts.onMacroUnavailable?.(macro.name, rootCause(fallbackCause))
       }
     }
   }

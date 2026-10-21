@@ -187,6 +187,13 @@ export interface AnalyticsEngine {
    * false, and the package's readers then use the views, which always exist.
    */
   readonly boundedReads?: boolean
+  /**
+   * A reader's bounded statement threw at run time (mongrov-packages#44).
+   * After `BOUNDED_FAILURE_LIMIT` reports in one attach, `boundedReads` turns
+   * false until the next attach: a shape that fails on this build fails every
+   * time, and each failure costs a retry. Optional, like `boundedReads`.
+   */
+  reportBoundedReadFailure?: () => void
   subscribe: (listener: (s: AnalyticsState) => void) => Unsubscribe
   /**
    * Family member userIds for the current attach context (principle 39 —

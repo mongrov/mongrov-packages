@@ -1,6 +1,7 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
-import { daysInterval, readRelation, SPARE_DAYS } from '../../core/bounded-read'
+import { daysInterval, SPARE_DAYS } from '../../core/bounded-read'
+import { toolRead } from '../bounded'
 import { assertNoBanTerms, formatBytes, popStddev } from '../formatters'
 import { localDay, tzParam } from '../local-day'
 
@@ -66,14 +67,18 @@ export const detectAnomaly: ToolImpl<DetectAnomalyInput> = async (
   ctx,
 ) => {
   const spec = METRIC_SPECS[input.metric]
-  const sql = spec.sql(input.lookbackDays, (view, lookbackDays) =>
-    readRelation(ctx.analytics, view, { back: daysInterval(lookbackDays + SPARE_DAYS) }))
-  const rows = await ctx.analytics.execute<Row>(sql, {
-    userId: input.userId,
-    brand: ctx.brand,
-    familyId: ctx.familyId,
-    ...tzParam(ctx, sql),
-  })
+  const rows = await toolRead<Row>(
+    ctx,
+    'detectAnomaly',
+    relation => spec.sql(input.lookbackDays, (view, lookbackDays) =>
+      relation(view, { back: daysInterval(lookbackDays + SPARE_DAYS) })),
+    sql => ({
+      userId: input.userId,
+      brand: ctx.brand,
+      familyId: ctx.familyId,
+      ...tzParam(ctx, sql),
+    }),
+  )
 
   if (rows.length === 0) {
     return finalize(

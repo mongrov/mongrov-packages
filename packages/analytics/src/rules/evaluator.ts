@@ -30,6 +30,7 @@ import type { Rule } from './schema'
 import type { createThrottleStore } from './throttle'
 import type { Clock, CompiledRule, FlushSummary, RulesLogger, RuleViolation } from './types'
 import { nanoid } from 'nanoid'
+import { executeBounded } from '../core/bounded-read'
 import { AnalyticsError, describeError } from '../core/errors'
 import { METRIC_METADATA } from '../core/metric_metadata'
 import { BAND_SCALE_PARAM, BASELINE_OFFSET_PARAM, USER_SETTING_PARAM } from './compiler'
@@ -371,11 +372,16 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       if (compiled.bandScaleKey !== undefined)
         params[BAND_SCALE_PARAM] = await resolveBandScale(ctx.userId, compiled, rule.id)
       // mongrov-packages#44 — the bounded form when every macro exists for
-      // this attach; the views otherwise. Same rows either way.
-      const sql = analytics.boundedReads === true && compiled.boundedSql !== undefined
-        ? compiled.boundedSql
-        : compiled.sql
-      rows = await analytics.execute<EvaluationRow>(sql, params)
+      // this attach; the views otherwise. Same rows either way. A bounded
+      // statement that throws is retried as the view form in this same pass,
+      // so a shape the device's build rejects costs speed, never the rule.
+      const ruleId = rule.id
+      rows = await executeBounded<EvaluationRow>(
+        analytics,
+        { bounded: compiled.boundedSql, view: compiled.sql },
+        params,
+        cause => logger?.warn('rules.bounded_failed', { ruleId, error: describeError(cause) }),
+      )
     }
     catch (err) {
       pass.failures += 1

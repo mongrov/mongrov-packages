@@ -1,9 +1,10 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
-import { daysInterval, readRelation, SPARE_DAYS } from '../../core/bounded-read'
+import { daysInterval, SPARE_DAYS } from '../../core/bounded-read'
 import { describeError } from '../../core/errors'
 
 import { precisionFor } from '../../core/metric_metadata'
+import { toolRead } from '../bounded'
 import { assertNoBanTerms, formatBytes } from '../formatters'
 import { localDay, tzParam } from '../local-day'
 
@@ -45,23 +46,21 @@ interface BaselineRow {
 export const getTemperature: ToolImpl<GetTemperatureInput> = async (input, ctx) => {
   // mongrov-packages#44 — the bounded macro covers `ts >= now() - $days days`
   // (plus the spare day) when the engine has it; the view otherwise.
-  const relation = readRelation(ctx.analytics, 'v_temperature_clean', { back: daysInterval(`(CAST($days AS BIGINT) + ${SPARE_DAYS})`) })
-  const sql = `SELECT ${localDay()} AS day,
+  const rows = await toolRead<DayRow>(ctx, 'getTemperature', relation => `SELECT ${localDay()} AS day,
             AVG(temp_c)::DOUBLE AS avg_temp,
             MAX(temp_c)::DOUBLE AS hi_temp,
             MIN(temp_c)::DOUBLE AS lo_temp
-     FROM ${relation}
+     FROM ${relation('v_temperature_clean', { back: daysInterval(`(CAST($days AS BIGINT) + ${SPARE_DAYS})`) })}
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
        AND temp_c IS NOT NULL
-     GROUP BY 1 ORDER BY 1`
-  const rows = await ctx.analytics.execute<DayRow>(sql, {
+     GROUP BY 1 ORDER BY 1`, sql => ({
     userId: input.userId,
     brand: ctx.brand,
     familyId: ctx.familyId,
     days: input.days,
     ...tzParam(ctx, sql),
-  })
+  }))
 
   if (rows.length === 0)
     return finalize('No temperature data for the requested window.', 0)

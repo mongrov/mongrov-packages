@@ -40,6 +40,12 @@ import type { AnalyticsEngine } from './types'
 /** How far past now an open-ended window reaches. Same as the app's `bounded()`. */
 export const FORWARD_DAYS = 32
 
+/**
+ * Run-time failures of bounded statements, in one attach, after which the
+ * engine stops offering them (`AnalyticsEngine.reportBoundedReadFailure`).
+ */
+export const BOUNDED_FAILURE_LIMIT = 3
+
 /** Spare whole days on every lookback; see the module doc. */
 export const SPARE_DAYS = 1
 
@@ -67,15 +73,73 @@ export function boundedRelation(view: string, window: NowWindow): string {
   return `${view}_between(${NOW_UTC} - ${window.back}, ${NOW_UTC} + ${ahead})`
 }
 
+/** Picks a relation: the view itself, or its bounded macro over `window`. */
+export type RelationFor = (view: string, window: NowWindow) => string
+
+const VIEW_FORM: RelationFor = view => view
+
 /**
- * `view` itself, or its bounded macro when the engine says every macro
- * exists. An engine that does not report the capability gets the view: it
- * always exists, and a missing macro would fail the read.
+ * Run a read in its bounded form, falling back to the view form if that
+ * throws (mongrov-packages#44).
+ *
+ * `boundedReads` says every macro was CREATED at attach. That is not proof
+ * a statement naming one runs on this device's build — principle 68 records
+ * three shapes that passed desktop and failed only natively. So a failure of
+ * the bounded form is never the reader's failure:
+ *
+ *   1. `onBoundedFailed` is told (callers log a distinct `*.bounded_failed`).
+ *   2. The engine is told (`reportBoundedReadFailure`), which turns
+ *      `boundedReads` off for the rest of the attach after a few failures —
+ *      a shape that fails once will fail every pass.
+ *   3. One throwaway `SELECT 1` absorbs the aborted transaction a failed
+ *      prepare can leave on the react-native-duckdb build (zivaone_app#195),
+ *      so the retry is not the statement that pays for it. On a healthy
+ *      connection it simply succeeds.
+ *   4. The view form runs, and ITS failure is the caller's, as before.
+ *
+ * Without the capability the view form runs directly: an engine that does
+ * not report it may not have the macros at all.
  */
-export function readRelation(
-  analytics: Pick<AnalyticsEngine, 'boundedReads'>,
-  view: string,
-  window: NowWindow,
-): string {
-  return analytics.boundedReads === true ? boundedRelation(view, window) : view
+export async function executeBounded<T>(
+  analytics: Pick<AnalyticsEngine, 'boundedReads' | 'execute' | 'reportBoundedReadFailure'>,
+  forms: { bounded?: string, view: string },
+  params: Record<string, unknown>,
+  onBoundedFailed?: (cause: unknown) => void,
+): Promise<T[]> {
+  if (analytics.boundedReads === true && forms.bounded !== undefined) {
+    try {
+      return await analytics.execute<T>(forms.bounded, params)
+    }
+    catch (cause) {
+      onBoundedFailed?.(cause)
+      analytics.reportBoundedReadFailure?.()
+      try {
+        await analytics.execute('SELECT 1')
+      }
+      catch {
+        // expected when the failure poisoned the connection: this absorbs it.
+      }
+    }
+  }
+  return analytics.execute<T>(forms.view, params)
+}
+
+/**
+ * `executeBounded` for a query that names its relations through `build`:
+ * called once with the bounded macros and once with the plain views, so the
+ * two forms differ ONLY in the relations.
+ */
+export function executeBoundedRead<T>(
+  analytics: Pick<AnalyticsEngine, 'boundedReads' | 'execute' | 'reportBoundedReadFailure'>,
+  build: (relation: RelationFor) => string,
+  params: (sql: string) => Record<string, unknown>,
+  onBoundedFailed?: (cause: unknown) => void,
+): Promise<T[]> {
+  const view = build(VIEW_FORM)
+  return executeBounded<T>(
+    analytics,
+    { bounded: analytics.boundedReads === true ? build(boundedRelation) : undefined, view },
+    params(view),
+    onBoundedFailed,
+  )
 }

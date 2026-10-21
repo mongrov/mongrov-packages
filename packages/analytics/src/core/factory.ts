@@ -24,6 +24,7 @@ import type {
   Unsubscribe,
 } from './types'
 import { createActor } from 'xstate'
+import { BOUNDED_FAILURE_LIMIT } from './bounded-read'
 import { HybridDuckDB } from './engine'
 import { AnalyticsError, describeError, NotImplementedError } from './errors'
 import { bootstrapExtensions } from './extensions'
@@ -218,6 +219,7 @@ export function createAnalytics(
       // family_id (see generateViewDdl), which is why they are recreated
       // on every attach rather than created once: a brand switch that
       // reused the previous views would serve the previous tenant's rows.
+      const unavailableCauses: Record<string, string> = {}
       const views = await createViews(db, {
         brand: ctx.brand,
         familyId: ctx.tenantId,
@@ -227,11 +229,15 @@ export function createAnalytics(
         // Non-fatal by design (see createViews) — so it must be LOUD here.
         onMacroFailed: (name, cause) =>
           log.error('analytics.attach.macro_failed', { macro: name, error: describeError(cause) }),
+        onMacroUnavailable: (name, cause) => {
+          unavailableCauses[name] = describeError(cause)
+        },
       })
       // A macro failed in its plain form too: readers stay on the views.
       boundedReads = views.unavailableMacros.length === 0
+      boundedFailures = 0
       if (!boundedReads)
-        log.error('analytics.attach.bounded_reads_off', { macros: views.unavailableMacros })
+        log.error('analytics.attach.bounded_reads_off', { macros: views.unavailableMacros, errors: unavailableCauses })
       return {
         warehouseSecret: attach.warehouseSecret,
         tokenExpiresAt: attach.tokenExpiresAt.getTime(),
@@ -337,6 +343,8 @@ export function createAnalytics(
    * Set by `attachEngine` from what `createViews` managed to create.
    */
   let boundedReads = false
+  /** Run-time failures of a bounded statement this attach (`executeBounded`). */
+  let boundedFailures = 0
 
   /**
    * Family-membership cache backing `engine.getFamilyMembers()`
@@ -565,7 +573,12 @@ export function createAnalytics(
       return mode
     },
     get boundedReads(): boolean {
-      return boundedReads && currentState(actor) === 'attached'
+      return boundedReads && boundedFailures < BOUNDED_FAILURE_LIMIT && currentState(actor) === 'attached'
+    },
+    reportBoundedReadFailure() {
+      boundedFailures += 1
+      if (boundedFailures === BOUNDED_FAILURE_LIMIT)
+        log.warn('analytics.bounded_reads_downgraded', { failures: boundedFailures })
     },
     subscribe(listener): Unsubscribe {
       publicSubscribers.add(listener)

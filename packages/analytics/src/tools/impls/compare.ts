@@ -1,6 +1,7 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
-import { daysInterval, readRelation, SPARE_DAYS } from '../../core/bounded-read'
+import { daysInterval, SPARE_DAYS } from '../../core/bounded-read'
+import { toolRead } from '../bounded'
 import { assertNoBanTerms, deltaPct, formatBytes } from '../formatters'
 import { localDay, tzParam } from '../local-day'
 
@@ -84,15 +85,18 @@ export const compareTrend: ToolImpl<CompareTrendInput> = async (
     familyId: ctx.familyId,
   }
 
-  const relation: Relation = (view, windowDays, offsetDays) => readRelation(ctx.analytics, view, {
-    back: daysInterval(windowDays + offsetDays + SPARE_DAYS),
-    // Negative for a window that ends in the past: hi = now - offset + spare.
-    ahead: daysInterval(SPARE_DAYS - offsetDays),
-  })
-  const currentSql = spec.sql(input.currentWindowDays, 0, relation)
-  const priorSql = spec.sql(input.priorWindowDays, input.currentWindowDays, relation)
-  const currentRows = await ctx.analytics.execute<Row>(currentSql, { ...params, ...tzParam(ctx, currentSql) })
-  const priorRows = await ctx.analytics.execute<Row>(priorSql, { ...params, ...tzParam(ctx, priorSql) })
+  const read = (windowDays: number, offsetDays: number) => toolRead<Row>(
+    ctx,
+    'compareTrend',
+    relation => spec.sql(windowDays, offsetDays, (view, w, o) => relation(view, {
+      back: daysInterval(w + o + SPARE_DAYS),
+      // Negative for a window that ends in the past: hi = now - offset + spare.
+      ahead: daysInterval(SPARE_DAYS - o),
+    })),
+    sql => ({ ...params, ...tzParam(ctx, sql) }),
+  )
+  const currentRows = await read(input.currentWindowDays, 0)
+  const priorRows = await read(input.priorWindowDays, input.currentWindowDays)
 
   const current = currentRows[0]?.value ?? null
   const prior = priorRows[0]?.value ?? null

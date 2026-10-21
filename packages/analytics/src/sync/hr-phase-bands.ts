@@ -50,7 +50,7 @@ export const PHASE_MIN_READINGS = 6
  *
  * ## `bounded` (mongrov-packages#44)
  *
- * By default the readings come from `v_heart_rate_clean_between` and the step
+ * Bounded, the readings come from `v_heart_rate_clean_between` and the step
  * totals from `v_motion_between`, not the full-history views: identical rows,
  * a fraction of the cost. What each bound has to cover:
  *
@@ -69,13 +69,13 @@ export const PHASE_MIN_READINGS = 6
  * The motion macro is read once, in a CTE, and the CTE is what the ASOF joins
  * see: no table macro sits inside a join condition (principle 68).
  *
- * `bounded: false` gives the view form, for an engine whose macros are not
- * all present (`AnalyticsEngine.boundedReads`). `createViews` installs a plain
- * fallback for any macro whose real body fails, so the default is safe on an
- * attach that reported a macro failure.
+ * The VIEW form is the default, as everywhere else a reader cannot know the
+ * engine's capability: the views always exist. `baseline-compute` asks for
+ * `bounded: true` when `analytics.boundedReads` is, and falls back to the
+ * view form if that statement throws (`executeBounded`).
  */
 export function buildHrPhaseBandsSql(opts: { bounded?: boolean } = {}): string {
-  const bounded = opts.bounded ?? true
+  const bounded = opts.bounded ?? false
   const back = daysInterval(`(CAST($windowDays AS BIGINT) + ${1 + SPARE_DAYS})`)
   const view = bounded
     ? boundedRelation(readViewFor('heart_rate'), { back })
