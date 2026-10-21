@@ -37,8 +37,9 @@
 import type { TableName } from '../core/schemas'
 import type { Aggregation, Compare, Rule, RuleContext, Target, Window } from './schema'
 import type { CompiledRule } from './types'
+import { boundedRelation, daysInterval, hoursInterval, SPARE_DAYS } from '../core/bounded-read'
 import { METRIC_METADATA } from '../core/metric_metadata'
-import { isQualityTable, qualityViewFor, readViewFor, stillEnoughSql } from '../core/reading-quality'
+import { cleanViewFor, isQualityTable, qualityViewFor, readViewFor, stillEnoughSql } from '../core/reading-quality'
 import {
 
   RuleValidationError,
@@ -84,6 +85,16 @@ function windowInterval(window: Window): string {
   }
 }
 
+/** A rule window in hours, for the bounded read's lookback. */
+const WINDOW_HOURS: Record<Window, number> = {
+  '1h': 1,
+  '6h': 6,
+  '24h': 24,
+  '3d': 72,
+  '7d': 168,
+  '30d': 720,
+}
+
 /** SQL fragment mapping an aggregation to its call over `<column>`. */
 function aggExpr(agg: Aggregation, column: string, ts: string): string {
   switch (agg) {
@@ -119,7 +130,7 @@ function compareClause(compare: Compare, lhs: string, rhs: string): string {
  * another brand's sleep sessions for the same person on a multi-brand
  * install.
  */
-export function emitContextJoin(context: RuleContext, table?: string): string {
+export function emitContextJoin(context: RuleContext, table?: string, qualityRelation?: string): string {
   switch (context) {
     case 'any':
       return ''
@@ -185,7 +196,7 @@ INNER JOIN ${viewFor('sleep_session')} s
        */
       if (table !== undefined && isQualityTable(table)) {
         return `
-INNER JOIN ${qualityViewFor(table)} rq
+INNER JOIN ${qualityRelation ?? qualityViewFor(table)} rq
    ON rq.user_id = m.user_id
   AND rq.brand = m.brand
   AND rq.family_id = m.family_id
@@ -249,9 +260,10 @@ export function compileRule(rule: Rule): CompiledRule {
   const meta = METRIC_METADATA[rule.metric]
   const rawTable = meta.table
   const column = sanitizeIdent(meta.column)
+  const table = sanitizeIdent(rawTable)
   // A rule is a claim, so it reads the vital's clean view (T-25 consume
   // rule): a clamped, spiked or off-wrist reading can never fire an alert.
-  const view = readViewFor(sanitizeIdent(rawTable))
+  const view = readViewFor(table)
 
   if (rule.rawSql) {
     return compileRawSql(rule, rule.rawSql)
@@ -259,7 +271,6 @@ export function compileRule(rule: Rule): CompiledRule {
 
   const ts = tsColumn(rawTable as TableName)
   const interval = windowInterval(rule.window)
-  const join = emitContextJoin(rule.context, sanitizeIdent(rawTable))
 
   const description
     = `${rule.metric} ${rule.aggregation} over ${rule.window} ${rule.compare} `
@@ -268,9 +279,34 @@ export function compileRule(rule: Rule): CompiledRule {
       }${rule.consecutive && rule.consecutive > 1 ? ` x${rule.consecutive} consecutive` : ''}${
         rule.minDays !== undefined ? ` [>=${rule.minDays} days of data]` : ''}`
 
+  /*
+   * The FROM clause, per scope and per form (mongrov-packages#44).
+   *
+   * `view`: the full-history views, as always — `CompiledRule.sql`.
+   * `bounded`: the same relations through their `_between` macros —
+   * `CompiledRule.boundedSql`. Every WHERE stays as it is, so the bounds only
+   * have to cover the rows each scope's own `ts >` predicate selects:
+   *
+   *   window    `ts > NOW() - <rule.window>`
+   *   baseline  `ts > NOW() - $baselineDays days`
+   *
+   * Nothing downstream reads outside its scope's rows: consecutive runs,
+   * day cadence, min-days and the phase band all work on the filtered
+   * samples, and the resting gate joins `rq.ts = m.ts`. So the window is the
+   * whole lookback, plus the spare day for the session zone (bounded-read).
+   */
+  const fromFor = (form: 'view' | 'bounded') => (scope: Scope): string => {
+    if (form === 'view' || !isQualityTable(table))
+      return `FROM ${view} m${emitContextJoin(rule.context, table)}`
+    const back = scope === 'window'
+      ? hoursInterval(WINDOW_HOURS[rule.window] + 24 * SPARE_DAYS)
+      : daysInterval(`(CAST($baselineDays AS BIGINT) + ${SPARE_DAYS})`)
+    const rq = boundedRelation(qualityViewFor(table), { back })
+    return `FROM ${boundedRelation(cleanViewFor(table), { back })} m${emitContextJoin(rule.context, table, rq)}`
+  }
+
   const args: BuildArgs = {
-    view,
-    join,
+    from: fromFor('view'),
     ts,
     interval,
     column,
@@ -282,16 +318,21 @@ export function compileRule(rule: Rule): CompiledRule {
     minDays: rule.minDays,
   }
 
-  const { sql, params } = rule.cadence === 'day'
-    ? buildDayCadence(args)
+  const build = (a: BuildArgs) => rule.cadence === 'day'
+    ? buildDayCadence(a)
     : rule.consecutive && rule.consecutive > 1
-      ? buildConsecutive(args)
-      : buildForTarget(args)
+      ? buildConsecutive(a)
+      : buildForTarget(a)
+  const { sql, params } = build(args)
+  const boundedSql = isQualityTable(table)
+    ? build({ ...args, from: fromFor('bounded') }).sql
+    : undefined
 
   return {
     ruleId: rule.id,
     metric: rule.metric,
     sql,
+    boundedSql,
     params: rule.minDays !== undefined ? { ...params, minDays: rule.minDays } : params,
     description,
     /** Evaluator binds `$userSettingValue` from this key when present. */
@@ -328,9 +369,12 @@ function describeTarget(target: Target): string {
   }
 }
 
+/** Which predicate a FROM serves: the rule's window, or a baseline CTE's. */
+type Scope = 'window' | 'baseline'
+
 interface BuildArgs {
-  view: string
-  join: string
+  /** `FROM <relation> m<context join>` for that scope. */
+  from: (scope: Scope) => string
   ts: string
   interval: string
   column: string
@@ -377,9 +421,9 @@ function buildForTarget(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>
 } {
-  const { view, join, ts, interval, column, agg, target, compare, metricId } = args
+  const { ts, interval, column, agg, target, compare, metricId } = args
   const where = whereClause(ts, interval)
-  const from = `FROM ${view} m${join}`
+  const from = args.from('window')
   // QA #108 — a window aggregate over too few days of wear measures the wear,
   // not the user. Local days, so a late-evening reading counts for its day.
   const floor = args.minDays !== undefined
@@ -475,7 +519,7 @@ HAVING ${compareClause(operator, 'observed_value', 'threshold_value')}${floor};`
   // multiply a static unit interval by a bound integer — BIGINT, because an
   // INTEGER operand widens ambiguously and fails to bind on device (#70).
   const baselineDaysBind = `(INTERVAL 1 DAY) * CAST($baselineDays AS BIGINT)`
-  const baselineFrom = `FROM ${view} m${join}`
+  const baselineFrom = args.from('baseline')
   const baselineWhere
     = `WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId\n`
       + `    AND m.${ts} > NOW() - ${baselineDaysBind}`
@@ -571,7 +615,7 @@ function buildDayCadence(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>
 } {
-  const { view, join, ts, interval, target, consecutive, metricId, agg } = args
+  const { ts, interval, target, consecutive, metricId, agg } = args
 
   if (target.type !== 'baseline_offset' && target.type !== 'absolute'
     && target.type !== 'user_setting') {
@@ -634,7 +678,7 @@ function buildDayCadence(args: BuildArgs): {
   const sql = `WITH ${baselineCte}daily AS (
   SELECT ${localDay} AS day,
          ${dailyAgg} AS value
-  FROM ${view} m${join}
+  ${args.from('window')}
   WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId
     AND m.${ts} > NOW() - ${interval}
   GROUP BY day
@@ -697,7 +741,7 @@ function buildConsecutive(args: BuildArgs): {
   sql: string
   params: Record<string, string | number>
 } {
-  const { view, join, ts, interval, column, target, compare, consecutive, metricId } = args
+  const { ts, interval, column, target, compare, consecutive, metricId } = args
 
   // Cadence in minutes, for slot adjacency below. `sampling_minutes` is the
   // metric's nominal grid; `per_session` metrics have no reading cadence and
@@ -712,7 +756,7 @@ function buildConsecutive(args: BuildArgs): {
   }
   const cadenceMinutes = sampling
   const where = whereClause(ts, interval)
-  const from = `FROM ${view} m${join}`
+  const from = args.from('window')
 
   if (target.type === 'phase_band')
     return buildConsecutiveBand({ from, where, ts, column, cadenceMinutes, target, consecutive: consecutive as number })

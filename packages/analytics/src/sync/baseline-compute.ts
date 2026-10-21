@@ -25,6 +25,7 @@
 import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine, EventBus } from '../core/types'
 import type { SchedulerLogger } from './scheduler'
+import { executeBounded } from '../core/bounded-read'
 import { AnalyticsError, describeError } from '../core/errors'
 import {
   BASELINE_MIN_DAYS,
@@ -219,8 +220,12 @@ export function buildBaselineSql(
     //     and is left for its own decision.
     //   - A BOUNDED running total, inlined rather than `v_motion` (whose
     //     window spans the whole activity history) or the `v_motion_between`
-    //     macro (whose creation is non-fatal at attach, so a baseline must not
-    //     depend on it). The slice starts STILL_WINDOW_MINUTES before the
+    //     macro. Readers that use the macros (the phase bands below, rules,
+    //     tools) gate on `analytics.boundedReads` and keep a view-form
+    //     fallback (`executeBounded`, mongrov-packages#44); this query has no
+    //     view form to fall back to that is not the full-history scan, so it
+    //     stays self-contained rather than depending on a macro whose
+    //     creation is non-fatal at attach. The slice starts STILL_WINDOW_MINUTES before the
     //     earliest reading the scan admits, which is exact by the same
     //     argument as `v_motion_between`: rows before `mp` cancel, and when
     //     the slice has no `mp` every row up to `mn` is inside the window.
@@ -509,13 +514,23 @@ export function createBaselineComputer(
     ctx: BaselineComputeContext,
     onUpdated: (update: BaselineUpdate) => void = update => announce(ctx, update),
   ): Promise<number> {
-    const rows = await analytics.execute<BaselineRow & { metric: string }>(buildHrPhaseBandsSql(), {
-      userId: ctx.userId,
-      brand: ctx.brand,
-      familyId: ctx.familyId,
-      tz: ctx.userTimezone,
-      windowDays,
-    })
+    // mongrov-packages#44 — the bounded form when the engine has every macro,
+    // retried as the view form if it throws. Same rails either way.
+    const rows = await executeBounded<BaselineRow & { metric: string }>(
+      analytics,
+      {
+        bounded: analytics.boundedReads === true ? buildHrPhaseBandsSql({ bounded: true }) : undefined,
+        view: buildHrPhaseBandsSql(),
+      },
+      {
+        userId: ctx.userId,
+        brand: ctx.brand,
+        familyId: ctx.familyId,
+        tz: ctx.userTimezone,
+        windowDays,
+      },
+      cause => logger?.warn('baseline.bounded_failed', { metric: 'hr_phase_bands', windowDays, error: describeError(cause) }),
+    )
     for (const row of rows) {
       await analytics.execute(UPSERT_SQL, {
         brand: ctx.brand,

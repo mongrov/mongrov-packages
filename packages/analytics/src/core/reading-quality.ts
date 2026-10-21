@@ -640,6 +640,29 @@ export function qualityMacroDdls(): QualityView[] {
   ]
 }
 
+/**
+ * The PLAIN form of a bounded macro: the view it bounds, filtered to
+ * `[lo, hi)`. Same name, same rows, none of the speed.
+ *
+ * `createViews` installs this when a macro's real body fails to create (the
+ * device-only binder failure of zivaone_app#191), so a reader that names the
+ * macro still gets the right answer — at the view's cost — instead of a
+ * missing-function error. The rows are the same by the equivalence the real
+ * macros are tested to: each returns exactly its view's rows with
+ * `lo <= ts < hi`. For `v_motion_between` the absolute `cum_steps` differs,
+ * but only differences of it mean anything, and those agree.
+ *
+ * Comparisons only, no arithmetic on `lo`/`hi`: the shape `v_motion_between`
+ * already had when every other macro failed on device.
+ */
+const BETWEEN_SUFFIX_RE = /_between$/
+
+export function fallbackMacroDdl(name: string): string {
+  const view = name.replace(BETWEEN_SUFFIX_RE, '')
+  return `CREATE OR REPLACE MACRO ${name}(lo, hi) AS TABLE
+SELECT * FROM ${view} WHERE ts >= ${LO} AND ts < ${HI};`
+}
+
 /** Reverse creation order, for `DROP MACRO TABLE`. */
 export function qualityMacroNames(): string[] {
   return qualityMacroDdls().map(m => m.name).reverse()

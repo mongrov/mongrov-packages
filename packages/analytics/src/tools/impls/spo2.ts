@@ -15,6 +15,8 @@
 
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { daysInterval, SPARE_DAYS } from '../../core/bounded-read'
+import { toolRead } from '../bounded'
 import { formatBytes } from '../formatters'
 import { formatSpO2 } from '../formatters/spo2'
 
@@ -59,12 +61,14 @@ export const getSpO2: ToolImpl<GetSpO2Input> = async (input, ctx) => {
     days: input.days,
   }
 
-  const nights = await ctx.analytics.execute<SpO2NightRow>(
-    `SELECT s.night_of::VARCHAR AS night_of,
+  const nights = await toolRead<SpO2NightRow>(
+    ctx,
+    'getSpO2',
+    relation => `SELECT s.night_of::VARCHAR AS night_of,
             AVG(m.spo2)::DOUBLE AS avg_spo2,
             MIN(m.spo2)::DOUBLE AS min_spo2,
             COUNT(*) FILTER (WHERE m.spo2 < ${LOW_MOMENT_THRESHOLD})::INTEGER AS low_moment_count
-     FROM v_spo2_clean m
+     FROM ${relation('v_spo2_clean', { back: daysInterval(`(CAST($days AS BIGINT) + ${SPARE_DAYS})`) })} m
      INNER JOIN v_sleep_session s
         ON s.user_id = m.user_id
        AND s.brand = m.brand
@@ -74,7 +78,7 @@ export const getSpO2: ToolImpl<GetSpO2Input> = async (input, ctx) => {
        AND m.ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
      GROUP BY s.night_of
      ORDER BY s.night_of`,
-    params,
+    () => params,
   )
 
   // Reference range comes from the shared baseline table so the narrative

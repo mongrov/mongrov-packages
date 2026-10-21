@@ -1,5 +1,7 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { daysInterval, SPARE_DAYS } from '../../core/bounded-read'
+import { toolRead } from '../bounded'
 import { assertNoBanTerms, deltaPct, formatBytes } from '../formatters'
 import { localDay, tzParam } from '../local-day'
 
@@ -16,19 +18,20 @@ interface Row {
 }
 
 export const getHRV: ToolImpl<GetHRVInput> = async (input, ctx) => {
-  const sql = `SELECT ${localDay()} AS day, AVG(hrv_ms)::DOUBLE AS avg_hrv
-     FROM v_hrv_clean
+  // mongrov-packages#44 — the bounded macro covers `ts >= now() - $days days`
+  // (plus the spare day) when the engine has it; the view otherwise.
+  const rows = await toolRead<Row>(ctx, 'getHRV', relation => `SELECT ${localDay()} AS day, AVG(hrv_ms)::DOUBLE AS avg_hrv
+     FROM ${relation('v_hrv_clean', { back: daysInterval(`(CAST($days AS BIGINT) + ${SPARE_DAYS})`) })}
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
        AND hrv_ms IS NOT NULL
-     GROUP BY 1 ORDER BY 1`
-  const rows = await ctx.analytics.execute<Row>(sql, {
+     GROUP BY 1 ORDER BY 1`, sql => ({
     userId: input.userId,
     brand: ctx.brand,
     familyId: ctx.familyId,
     days: input.days,
     ...tzParam(ctx, sql),
-  })
+  }))
 
   if (rows.length === 0) {
     return finalize('No HRV data for the requested window.', 0)

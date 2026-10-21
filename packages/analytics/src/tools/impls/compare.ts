@@ -1,5 +1,7 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { daysInterval, SPARE_DAYS } from '../../core/bounded-read'
+import { toolRead } from '../bounded'
 import { assertNoBanTerms, deltaPct, formatBytes } from '../formatters'
 import { localDay, tzParam } from '../local-day'
 
@@ -16,17 +18,23 @@ interface Row {
   value: number
 }
 
+/**
+ * `view`, or its bounded macro covering `[now - (window + offset) days,
+ * now - offset days)` with the spare day either side (mongrov-packages#44).
+ */
+type Relation = (view: string, windowDays: number, offsetDays: number) => string
+
 interface MetricSpec {
-  sql: (windowDays: number, offsetDays: number) => string
+  sql: (windowDays: number, offsetDays: number, relation: Relation) => string
   unit: string
   label: string
 }
 
 const METRIC_SPECS: Record<CompareTrendInput['metric'], MetricSpec> = {
   hrv_ms: {
-    sql: (windowDays, offsetDays) =>
+    sql: (windowDays, offsetDays, relation) =>
       `SELECT AVG(hrv_ms)::DOUBLE AS value
-       FROM v_hrv_clean
+       FROM ${relation('v_hrv_clean', windowDays, offsetDays)}
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND hrv_ms IS NOT NULL
          AND ts >= now() - INTERVAL (${windowDays + offsetDays}) DAY
@@ -77,10 +85,18 @@ export const compareTrend: ToolImpl<CompareTrendInput> = async (
     familyId: ctx.familyId,
   }
 
-  const currentSql = spec.sql(input.currentWindowDays, 0)
-  const priorSql = spec.sql(input.priorWindowDays, input.currentWindowDays)
-  const currentRows = await ctx.analytics.execute<Row>(currentSql, { ...params, ...tzParam(ctx, currentSql) })
-  const priorRows = await ctx.analytics.execute<Row>(priorSql, { ...params, ...tzParam(ctx, priorSql) })
+  const read = (windowDays: number, offsetDays: number) => toolRead<Row>(
+    ctx,
+    'compareTrend',
+    relation => spec.sql(windowDays, offsetDays, (view, w, o) => relation(view, {
+      back: daysInterval(w + o + SPARE_DAYS),
+      // Negative for a window that ends in the past: hi = now - offset + spare.
+      ahead: daysInterval(SPARE_DAYS - o),
+    })),
+    sql => ({ ...params, ...tzParam(ctx, sql) }),
+  )
+  const currentRows = await read(input.currentWindowDays, 0)
+  const priorRows = await read(input.priorWindowDays, input.currentWindowDays)
 
   const current = currentRows[0]?.value ?? null
   const prior = priorRows[0]?.value ?? null

@@ -1,7 +1,9 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { daysInterval, SPARE_DAYS } from '../../core/bounded-read'
 import { describeError } from '../../core/errors'
 
+import { toolRead } from '../bounded'
 import { assertNoBanTerms, formatBytes } from '../formatters'
 import { localDay, tzParam } from '../local-day'
 
@@ -34,21 +36,22 @@ interface BaselineRow {
  * user configures (`ziva.hr-flag-level`), not to the words a model repeats.
  */
 export const getHeartRate: ToolImpl<GetHeartRateInput> = async (input, ctx) => {
-  const sql = `SELECT ${localDay()} AS day,
+  // mongrov-packages#44 — the bounded macro covers `ts >= now() - $days days`
+  // (plus the spare day) when the engine has it; the view otherwise.
+  const rows = await toolRead<DayRow>(ctx, 'getHeartRate', relation => `SELECT ${localDay()} AS day,
             AVG(bpm)::DOUBLE AS avg_bpm,
             MIN(bpm)::DOUBLE AS lo_bpm,
             MAX(bpm)::DOUBLE AS hi_bpm
-     FROM v_heart_rate_clean
+     FROM ${relation('v_heart_rate_clean', { back: daysInterval(`(CAST($days AS BIGINT) + ${SPARE_DAYS})`) })}
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
-     GROUP BY 1 ORDER BY 1`
-  const rows = await ctx.analytics.execute<DayRow>(sql, {
+     GROUP BY 1 ORDER BY 1`, sql => ({
     userId: input.userId,
     brand: ctx.brand,
     familyId: ctx.familyId,
     days: input.days,
     ...tzParam(ctx, sql),
-  })
+  }))
 
   if (rows.length === 0)
     return finalize('No heart rate data for the requested window.', 0)

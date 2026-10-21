@@ -177,6 +177,23 @@ export interface AnalyticsEngine {
    * wiring the R2 pusher/fetcher in local mode.
    */
   readonly mode: AnalyticsMode
+  /**
+   * True when every bounded quality macro (`v_*_between`) exists for the
+   * current attach, so a reader may use them instead of the full-history
+   * views (mongrov-packages#44). False when not attached or when a macro
+   * could not be created in either form at attach.
+   *
+   * Optional so a hand-rolled engine need not know about it: absent reads as
+   * false, and the package's readers then use the views, which always exist.
+   */
+  readonly boundedReads?: boolean
+  /**
+   * A reader's bounded statement threw at run time (mongrov-packages#44).
+   * After `BOUNDED_FAILURE_LIMIT` reports in one attach, `boundedReads` turns
+   * false until the next attach: a shape that fails on this build fails every
+   * time, and each failure costs a retry. Optional, like `boundedReads`.
+   */
+  reportBoundedReadFailure?: () => void
   subscribe: (listener: (s: AnalyticsState) => void) => Unsubscribe
   /**
    * Family member userIds for the current attach context (principle 39 —

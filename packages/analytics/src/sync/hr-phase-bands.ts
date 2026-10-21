@@ -28,8 +28,9 @@
  * the metric enum would put `hr_active_hi` in every rule author's dropdown.
  */
 
+import { boundedRelation, daysInterval, FORWARD_DAYS, SPARE_DAYS } from '../core/bounded-read'
 import { BASELINE_MIN_DAYS } from '../core/metric_metadata'
-import { readViewFor, STILL_FLOOR } from '../core/reading-quality'
+import { readViewFor, STILL_FLOOR, STILL_WINDOW_MINUTES } from '../core/reading-quality'
 
 export const HR_PHASES = ['asleep', 'awake', 'active'] as const
 export type HrPhase = (typeof HR_PHASES)[number]
@@ -46,16 +47,54 @@ export const PHASE_MIN_READINGS = 6
  * columns over that rail's daily values. Binds `$userId $brand $familyId $tz
  * $windowDays`; every parameter is CAST for the react-native-duckdb prepare
  * path (zivaone_app#70/#72).
+ *
+ * ## `bounded` (mongrov-packages#44)
+ *
+ * Bounded, the readings come from `v_heart_rate_clean_between` and the step
+ * totals from `v_motion_between`, not the full-history views: identical rows,
+ * a fraction of the cost. What each bound has to cover:
+ *
+ *   readings  `h.ts > now() - (windowDays + 1) days`, the scan predicate
+ *             below; the lookback adds the spare day (bounded-read).
+ *   motion    each reading's two lookups, `[h.ts - 15m, h.ts + 15m)`. A
+ *             difference of two `cum_steps_device` values is the same from a
+ *             slice as from the whole history as long as the slice starts at
+ *             or before the earlier lookup's window and ends at or after the
+ *             later one (see `v_motion_between`). Same `lo` as the readings, a day
+ *             ahead of their earliest window; `hi` one day past theirs.
+ *
+ * Future-dated readings never reach a rail (`day < localToday`), so the
+ * forward bound cannot change a result here.
+ *
+ * The motion macro is read once, in a CTE, and the CTE is what the ASOF joins
+ * see: no table macro sits inside a join condition (principle 68).
+ *
+ * The VIEW form is the default, as everywhere else a reader cannot know the
+ * engine's capability: the views always exist. `baseline-compute` asks for
+ * `bounded: true` when `analytics.boundedReads` is, and falls back to the
+ * view form if that statement throws (`executeBounded`).
  */
-export function buildHrPhaseBandsSql(): string {
-  const view = readViewFor('heart_rate')
+export function buildHrPhaseBandsSql(opts: { bounded?: boolean } = {}): string {
+  const bounded = opts.bounded ?? false
+  const back = daysInterval(`(CAST($windowDays AS BIGINT) + ${1 + SPARE_DAYS})`)
+  const view = bounded
+    ? boundedRelation(readViewFor('heart_rate'), { back })
+    : readViewFor('heart_rate')
+  // The view form is the pre-#44 query, unchanged.
+  const motionCte = bounded
+    ? `motion AS (
+      SELECT * FROM ${boundedRelation('v_motion', { back, ahead: `INTERVAL ${FORWARD_DAYS + 1} DAY` })}
+    ),
+    `
+    : ''
+  const motion = bounded ? 'motion' : 'v_motion'
   const windowBind = `(INTERVAL 1 DAY) * CAST($windowDays AS BIGINT)`
   // One extra day of scan for the zone offset; the HAVING decides the days.
   const scanBind = `(INTERVAL 1 DAY) * (CAST($windowDays AS BIGINT) + 1)`
   const localToday = `date_trunc('day', timezone(CAST($tz AS VARCHAR), now()))`
   const v = 'CAST(value AS DOUBLE)'
   return `
-    WITH classified AS (
+    WITH ${motionCte}classified AS (
       SELECT
         date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', h.ts))) AS day,
         h.bpm,
@@ -72,14 +111,14 @@ export function buildHrPhaseBandsSql(): string {
           ELSE 'awake'
         END AS phase
       FROM ${view} h
-      ASOF LEFT JOIN v_motion mp
+      ASOF LEFT JOIN ${motion} mp
         ON mp.user_id = h.user_id AND mp.brand = h.brand AND mp.family_id = h.family_id
        AND mp.device_id = h.device_id
-       AND h.ts - INTERVAL 15 MINUTE > mp.ts
-      ASOF LEFT JOIN v_motion mn
+       AND h.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mp.ts
+      ASOF LEFT JOIN ${motion} mn
         ON mn.user_id = h.user_id AND mn.brand = h.brand AND mn.family_id = h.family_id
        AND mn.device_id = h.device_id
-       AND h.ts + INTERVAL 15 MINUTE > mn.ts
+       AND h.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mn.ts
       WHERE h.user_id = $userId AND h.brand = $brand AND h.family_id = $familyId
         AND h.ts > now() - ${scanBind}
     ),
