@@ -182,7 +182,19 @@ WHERE date >= ${num(windowStart)}
   AND CAST(quality AS INT) IN (1, 2, 3, 5);`
 }
 
-/** Phase 2 — envelope extension, gap recovery and session stitching. */
+/**
+ * Phase 2 — envelope extension, gap recovery and session stitching.
+ *
+ * ## One row per minute, chosen the same way every run (#52)
+ *
+ * v3.1's dedupe ordered by "firmware first" and nothing else, so between an
+ * `envelope` and a `gap` row at the same minute DuckDB picked either: the
+ * same night, rerun, could store a recovered minute as envelope/0.5 or as
+ * gap/0.4. Envelope now wins, then higher confidence, then the remaining
+ * columns, so the pick is total. Every result is one v3.1 could already
+ * produce for the same input, and quality, date and session are the same
+ * either way (both recovered sources are quality 2).
+ */
 export function correctNightSql(
   windowStart: number,
   windowEnd: number,
@@ -359,7 +371,8 @@ deduped AS (
         SELECT *,
             ROW_NUMBER() OVER (
                 PARTITION BY date
-                ORDER BY CASE source WHEN 'firmware' THEN 0 ELSE 1 END
+                ORDER BY CASE source WHEN 'firmware' THEN 0 WHEN 'envelope' THEN 1 ELSE 2 END,
+                         confidence DESC, quality, fw_start NULLS LAST, unit_length
             ) AS rn
         FROM combined_raw
     )
