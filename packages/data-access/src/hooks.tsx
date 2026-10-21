@@ -42,12 +42,14 @@ export const DEFAULT_GC_TIME = 300_000
  */
 export interface AppQueryRefetchOptions {
   /**
-   * Default `true`: a refetch while a read is in flight cancels it and
-   * starts a new one. Pass `false` to join the in-flight read instead.
-   * Use `false` when a read may already be running (for example right
-   * after a post-sync refresh). Engines like DuckDB take no abort
-   * signal, so a cancelled read still runs to completion and the restart
-   * is a wasted second read.
+   * Default `true`: once the query has data, a refetch while a read is in
+   * flight cancels it and starts a new one (during the initial load
+   * TanStack always joins). Pass `false` to join the in-flight read instead.
+   *
+   * Only join when the in-flight read is known to have STARTED AFTER the
+   * data you need was written: otherwise its result predates that write and
+   * becomes the last word. Engines like DuckDB take no abort signal, so a
+   * cancelled read still runs, which is what joining saves.
    */
   cancelRefetch?: boolean
 }
@@ -66,8 +68,10 @@ export interface UseAppQueryResult<TOutput> {
   error: Error | null
   /**
    * Re-run the query. With no argument, an in-flight read is cancelled
-   * and restarted (TanStack default). `{ cancelRefetch: false }` joins
-   * it instead. No-op for rxdb (the observable drives updates).
+   * and restarted once the query has data (TanStack default).
+   * `{ cancelRefetch: false }` joins it instead; see
+   * `AppQueryRefetchOptions` for when that is safe. No-op for rxdb (the
+   * observable drives updates).
    */
   refetch: (options?: AppQueryRefetchOptions) => Promise<void>
   isStale: boolean
@@ -314,11 +318,17 @@ export function useAppQuery<TInput, TOutput>(
     }
   }, [runtime.bus, runtime.queryClient, name, patterns, isRxdb])
 
+  // `query.refetch` is the observer's bound method, stable across renders;
+  // `query` itself is a new object every render, which made this callback
+  // (and every wrapper memoized on it) change identity each time. Only the
+  // documented field is forwarded, so a cast option (e.g. `throwOnError`)
+  // cannot change how `refetch` settles.
+  const queryRefetch = query.refetch
   const refetch = React.useCallback(async (options?: AppQueryRefetchOptions) => {
     if (isRxdb)
       return
-    await query.refetch(options)
-  }, [isRxdb, query])
+    await queryRefetch(options && { cancelRefetch: options.cancelRefetch })
+  }, [isRxdb, queryRefetch])
 
   if (isRxdb) {
     return {

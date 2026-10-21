@@ -264,6 +264,10 @@ describe('#43 · useAppQuery refetch({ cancelRefetch })', () => {
       resolveAll(value: number) {
         for (const r of pending.splice(0)) r(value)
       },
+      /** Resolve one pending read, oldest first. */
+      resolveNext(value: number) {
+        pending.shift()?.(value)
+      },
     }
   }
 
@@ -288,7 +292,7 @@ describe('#43 · useAppQuery refetch({ cancelRefetch })', () => {
     return hook
   }
 
-  it('{ cancelRefetch: false } joins an in-flight read (queryFn called once)', async () => {
+  it('{ cancelRefetch: false } joins an in-flight read (starts no second read)', async () => {
     const engine = makeDeferredEngine()
     const { result } = await mountWithData(engine)
 
@@ -330,11 +334,37 @@ describe('#43 · useAppQuery refetch({ cancelRefetch })', () => {
     // Cancelled the in-flight read and started a new one.
     expect(engine.execute).toHaveBeenCalledTimes(3)
 
+    // The cancelled read lands with 2, the restarted one with 3: only the
+    // restarted read's result may reach the hook.
     await act(async () => {
-      engine.resolveAll(3)
+      engine.resolveNext(2)
+      engine.resolveNext(3)
       await Promise.all([first, second])
     })
     await waitFor(() => expect(result.current.data).toBe(3))
+  })
+
+  it('{ cancelRefetch: true } behaves like the no-arg call', async () => {
+    const engine = makeDeferredEngine()
+    const { result } = await mountWithData(engine)
+    await act(async () => {
+      void result.current.refetch()
+    })
+    await act(async () => {
+      void result.current.refetch({ cancelRefetch: true })
+    })
+    expect(engine.execute).toHaveBeenCalledTimes(3)
+    await act(async () => {
+      engine.resolveAll(4)
+    })
+  })
+
+  it('returns the same refetch across re-renders', async () => {
+    const engine = makeDeferredEngine()
+    const { result, rerender } = await mountWithData(engine)
+    const before = result.current.refetch
+    rerender(undefined)
+    expect(result.current.refetch).toBe(before)
   })
 
   it('rxdb refetch accepts the same options and is a no-op', async () => {
