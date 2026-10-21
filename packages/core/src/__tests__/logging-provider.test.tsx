@@ -20,6 +20,7 @@ jest.mock('../network-state', () => ({
     isInternetReachable: true,
   })),
   addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
+  setNetworkStateLogger: jest.fn(),
 }))
 
 // @ts-expect-error global __DEV__

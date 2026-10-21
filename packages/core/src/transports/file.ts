@@ -1,4 +1,6 @@
+import type { InternalLogger } from '../internal-log'
 import type { FileConfig, LogEntry, LogTransport } from '../types'
+import { devConsoleLogger, FailureGate } from '../internal-log'
 
 // expo-file-system types (imported dynamically to keep as peer dep)
 interface FileSystem {
@@ -55,6 +57,8 @@ export class FileTransport implements LogTransport {
   private readonly directory: string
   private readonly maxSizeMB: number
   private readonly retentionDays: number
+  private readonly log: InternalLogger
+  private readonly writeFailures = new FailureGate()
   private initialized = false
 
   // Entries waiting for the next write, and the callers waiting on them.
@@ -71,7 +75,13 @@ export class FileTransport implements LogTransport {
   private lastCleanup = 0
   private readonly cleanupIntervalMs = 60_000
 
-  constructor(config?: FileConfig) {
+  /**
+   * `logger` receives this transport's own failures. `createLogger` passes
+   * one that skips this transport; standalone use falls back to the dev
+   * console.
+   */
+  constructor(config?: FileConfig, logger?: InternalLogger) {
+    this.log = logger ?? devConsoleLogger()
     const fs = getFileSystem()
     this.directory
       = config?.directory ?? `${fs.documentDirectory ?? ''}logs/`
@@ -131,10 +141,19 @@ export class FileTransport implements LogTransport {
       else {
         await fs.writeAsStringAsync(filePath, lines)
       }
+      const failed = this.writeFailures.recover()
+      if (failed > 0)
+        this.log.info('[FileTransport] writes recovered', { failedWrites: failed })
     }
     catch (error) {
-      // Logging should never crash the app
-      console.warn('[FileTransport] Write failed:', error)
+      // Logging must never crash the app. The lines are lost from the file
+      // (the ring buffer still has them); report once per run of failures.
+      if (this.writeFailures.fail()) {
+        this.log.error('[FileTransport] write failed; file log is missing lines', {
+          error: String(error),
+          lost: entries.length,
+        })
+      }
     }
   }
 
@@ -148,6 +167,7 @@ export class FileTransport implements LogTransport {
         .reverse()
     }
     catch {
+      // expected: no directory yet means no files have been written.
       return []
     }
   }
@@ -242,8 +262,10 @@ export class FileTransport implements LogTransport {
         await fs.writeAsStringAsync(path, firstBreak >= 0 ? tail.slice(firstBreak + 1) : '')
       }
     }
-    catch {
-      // Cleanup failures are non-critical
+    catch (error) {
+      // Non-critical: the next cleanup (a minute on) tries again, but a
+      // cleanup that keeps failing lets the log directory grow unbounded.
+      this.log.warn('[FileTransport] cleanup failed', { error: String(error) })
     }
   }
 }

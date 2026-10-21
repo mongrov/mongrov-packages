@@ -27,6 +27,10 @@ jest.mock('react-native-mmkv', () => {
 const mockFetch = jest.fn()
 global.fetch = mockFetch
 
+function fakeLogger() {
+  return { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+}
+
 function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
   const context: LogContext = {
     sessionId: 'test-session',
@@ -149,6 +153,30 @@ describe('WebhookTransport', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
 
     consoleSpy.mockRestore()
+    await transport.destroy()
+  })
+
+  it('reports a run of 4xx rejections once, with the dropped total on recovery', async () => {
+    const log = fakeLogger()
+    mockFetch
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+
+    const transport = new WebhookTransport({ url: 'https://example.com/logs', batchSize: 1 }, log)
+    await transport.send([makeEntry()])
+    await transport.send([makeEntry()])
+    expect(log.error).toHaveBeenCalledTimes(1)
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('rejected'),
+      { status: 401, entries: 1 },
+    )
+
+    await transport.send([makeEntry()])
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('accepted again'),
+      { rejectedBatches: 2, droppedEntries: 2 },
+    )
     await transport.destroy()
   })
 

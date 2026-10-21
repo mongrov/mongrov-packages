@@ -1,3 +1,4 @@
+import type { InternalLogger } from './internal-log'
 import type {
   FileConfig,
   LogContext,
@@ -8,6 +9,7 @@ import type {
   LogTransport,
   RingBufferConfig,
 } from './types'
+import { FailureGate } from './internal-log'
 import { FileTransport } from './transports/file'
 import { RingBufferTransport } from './transports/ring-buffer'
 import { WebhookTransport } from './transports/webhook'
@@ -219,11 +221,21 @@ export function createLogger(config: LoggerConfig): Logger {
 
   const extraContext: Record<string, string> = {}
 
+  // Per-transport failure runs, so a transport that rejects every entry
+  // reports once rather than once per line.
+  const sendFailures = new Map<string, FailureGate>()
+
+  // Set while a core part's report is being routed. A report raised from
+  // inside another report is dropped: core must never log about logging in
+  // a loop.
+  let reporting = false
+
   // Initialize transports
   const transports: LogTransport[] = []
   let ringBuffer: RingBufferTransport | null = null
   let fileTransport: FileTransport | null = null
   let webhookTransport: WebhookTransport | null = null
+  let fileUnavailable: string | null = null
 
   // Ring buffer
   if (config.ringBuffer) {
@@ -238,19 +250,19 @@ export function createLogger(config: LoggerConfig): Logger {
     const fileConfig: FileConfig
       = typeof config.file === 'boolean' ? {} : config.file
     try {
-      fileTransport = new FileTransport(fileConfig)
+      fileTransport = new FileTransport(fileConfig, internalLogger('file'))
       transports.push(fileTransport)
     }
     catch (error) {
       // expo-file-system missing: logging still works without the file.
-      if (dev)
-        console.warn('[Logger] file transport unavailable:', error)
+      // Reported once the other transports exist (below).
+      fileUnavailable = String(error)
     }
   }
 
   // Webhook transport
   if (config.webhook) {
-    webhookTransport = new WebhookTransport(config.webhook)
+    webhookTransport = new WebhookTransport(config.webhook, internalLogger('webhook'))
     transports.push(webhookTransport)
   }
 
@@ -258,6 +270,9 @@ export function createLogger(config: LoggerConfig): Logger {
   if (config.transports) {
     transports.push(...config.transports)
   }
+
+  if (fileUnavailable !== null)
+    log('warn', '[Logger] file transport unavailable; file log disabled', { error: fileUnavailable })
 
   function buildEntry(level: LogLevel, message: string, data?: Record<string, unknown>): LogEntry {
     return {
@@ -270,29 +285,75 @@ export function createLogger(config: LoggerConfig): Logger {
     }
   }
 
-  function log(level: LogLevel, message: string, data?: Record<string, unknown>): void {
-    if (LEVEL_ORDER[level] < minLevelNum)
-      return
-
-    const entry = buildEntry(level, message, data)
-
-    // Console output in dev
-    if (dev) {
-      const consoleFn = level === 'error'
-        ? console.error
-        : level === 'warn'
-          ? console.warn
-          : level === 'debug'
-            ? console.debug
-            : console.log
-      consoleFn(`[${level.toUpperCase()}] ${message}`, data ?? '')
-    }
-
-    // Route to all transports (non-blocking)
+  function route(entry: LogEntry, skip?: string): void {
     for (const transport of transports) {
-      transport.send([entry]).catch(() => {
-        // Transport errors are non-fatal
-      })
+      if (transport.name === skip)
+        continue
+      transport.send([entry]).then(
+        () => {
+          const failed = sendFailures.get(transport.name)?.recover() ?? 0
+          if (failed > 0)
+            report(transport.name, 'info', '[Logger] transport recovered', { transport: transport.name, failedSends: failed })
+        },
+        (error: unknown) => {
+          let gate = sendFailures.get(transport.name)
+          if (!gate) {
+            gate = new FailureGate()
+            sendFailures.set(transport.name, gate)
+          }
+          if (gate.fail())
+            report(transport.name, 'error', '[Logger] transport send failed', { transport: transport.name, error: String(error) })
+        },
+      )
+    }
+  }
+
+  function toConsole(level: LogLevel, message: string, data?: Record<string, unknown>): void {
+    const consoleFn = level === 'error'
+      ? console.error
+      : level === 'warn'
+        ? console.warn
+        : level === 'debug'
+          ? console.debug
+          : console.log
+    consoleFn(`[${level.toUpperCase()}] ${message}`, data ?? '')
+  }
+
+  /**
+   * `force` skips the `minLevel` filter. `error` is never filtered either:
+   * it is the top level, and stays recorded whatever the config says.
+   */
+  function log(level: LogLevel, message: string, data?: Record<string, unknown>, force = false): void {
+    if (!force && level !== 'error' && LEVEL_ORDER[level] < minLevelNum)
+      return
+    const entry = buildEntry(level, message, data)
+    if (dev)
+      toConsole(level, message, data)
+    route(entry)
+  }
+
+  /** A report from core's own `source` transport: routed everywhere else. */
+  function report(source: string, level: LogLevel, message: string, data?: Record<string, unknown>): void {
+    if (reporting || LEVEL_ORDER[level] < minLevelNum)
+      return
+    reporting = true
+    try {
+      const entry = buildEntry(level, message, data)
+      if (dev)
+        toConsole(level, message, data)
+      route(entry, source)
+    }
+    finally {
+      reporting = false
+    }
+  }
+
+  function internalLogger(source: string): InternalLogger {
+    return {
+      debug: (message, data) => report(source, 'debug', message, data),
+      info: (message, data) => report(source, 'info', message, data),
+      warn: (message, data) => report(source, 'warn', message, data),
+      error: (message, data) => report(source, 'error', message, data),
     }
   }
 
@@ -303,13 +364,22 @@ export function createLogger(config: LoggerConfig): Logger {
     error: (message, data) => log('error', message, data),
 
     captureException(error: Error, context?: Record<string, unknown>) {
-      log('error', error.message, {
-        stack: error.stack,
-        name: error.name,
+      // JS callers hand over whatever was thrown; a non-Error must not turn
+      // into an `undefined` message.
+      const err = error instanceof Error ? error : new Error(String(error))
+      // Recorded whatever `minLevel` says.
+      log('error', err.message, {
+        stack: err.stack,
+        name: err.name,
         ...context,
-      })
+      }, true)
       if (config.onException) {
-        config.onException(error, context)
+        try {
+          config.onException(err, context)
+        }
+        catch (hookError) {
+          log('error', '[Logger] onException hook threw', { error: String(hookError) }, true)
+        }
       }
     },
 

@@ -31,6 +31,10 @@ function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
   }
 }
 
+function fakeLogger() {
+  return { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+}
+
 function clearMockFiles() {
   const files = mockFs.__mockFiles
   Object.keys(files).forEach(k => delete files[k])
@@ -141,12 +145,31 @@ describe('FileTransport', () => {
 
   it('should not crash on write failure', async () => {
     mockFs.writeAsStringAsync.mockRejectedValueOnce(new Error('disk full'))
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
 
     const transport = new FileTransport()
     await expect(transport.send([makeEntry()])).resolves.not.toThrow()
 
     consoleSpy.mockRestore()
+  })
+
+  it('reports a run of write failures once, then the recovery', async () => {
+    const log = fakeLogger()
+    mockFs.writeAsStringAsync
+      .mockRejectedValueOnce(new Error('disk full'))
+      .mockRejectedValueOnce(new Error('disk full'))
+
+    const transport = new FileTransport(undefined, log)
+    await transport.send([makeEntry()])
+    await transport.send([makeEntry()])
+    expect(log.error).toHaveBeenCalledTimes(1)
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('write failed'),
+      expect.objectContaining({ error: 'Error: disk full', lost: 1 }),
+    )
+
+    await transport.send([makeEntry()])
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('recovered'), { failedWrites: 2 })
   })
 
   it('should delete oldest files when total size exceeds maxSizeMB', async () => {

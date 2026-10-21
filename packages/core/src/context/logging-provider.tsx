@@ -3,6 +3,7 @@ import type { LoggerConfig } from '../types'
 import * as React from 'react'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { createLogger } from '../logger'
+import { setNetworkStateLogger } from '../network-state'
 
 const LoggerContext = createContext<Logger | null>(null)
 
@@ -33,6 +34,9 @@ export function LoggingProvider({ config, children }: LoggingProviderProps) {
       return
     }
 
+    // Connectivity changes and polling failures land in this logger.
+    setNetworkStateLogger(logger)
+
     // Try to track screen via expo-router
     let unsubscribe: (() => void) | undefined
     try {
@@ -47,13 +51,18 @@ export function LoggingProvider({ config, children }: LoggingProviderProps) {
       }
     }
     catch {
-      // expo-router not available — screen tracking disabled
+      // expected: expo-router not available — screen tracking disabled
     }
 
     return () => {
       unsubscribe?.()
       destroyedRef.current = true
-      logger.destroy()
+      setNetworkStateLogger(null)
+      logger.destroy().catch((error: unknown) => {
+        // The logger is going away; its last batch may not reach the webhook.
+        if (__DEV__)
+          console.warn('[Logger] destroy failed', String(error))
+      })
     }
   }, [logger])
 

@@ -88,6 +88,41 @@ describe('Logger', () => {
     await logger.destroy()
   })
 
+  it('records error and captureException at the strictest minLevel', async () => {
+    const logger = createLogger({ appVersion: '1.0.0', minLevel: 'error', ringBuffer: true })
+
+    logger.warn('filtered')
+    logger.error('kept')
+    logger.captureException(new Error('boom'))
+    // A non-Error from a JS catch still gets a message.
+    logger.captureException('thrown string' as never)
+
+    await new Promise(r => setTimeout(r, 10))
+    expect(logger.getLogs().map(e => e.message)).toEqual(['thrown string', 'boom', 'kept'])
+    await logger.destroy()
+  })
+
+  it('reports a failing transport once, to the other transports only', async () => {
+    const send = jest.fn(async () => { throw new Error('sink down') })
+    const logger = createLogger({
+      appVersion: '1.0.0',
+      ringBuffer: true,
+      transports: [{ name: 'bad', send }],
+    })
+
+    logger.info('one')
+    logger.info('two')
+    await new Promise(r => setTimeout(r, 10))
+
+    const reports = logger.getLogs().filter(e => e.message === '[Logger] transport send failed')
+    expect(reports).toHaveLength(1)
+    expect(reports[0].level).toBe('error')
+    expect(reports[0].data).toEqual({ transport: 'bad', error: 'Error: sink down' })
+    // The report itself was never sent to the failing transport.
+    expect(send).toHaveBeenCalledTimes(2)
+    await logger.destroy()
+  })
+
   it('should route entries to custom transports', async () => {
     const sentEntries: LogEntry[] = []
     const customTransport: LogTransport = {
