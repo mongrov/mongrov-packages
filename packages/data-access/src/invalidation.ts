@@ -19,6 +19,9 @@ import type { EventBus, Unsubscribe } from './types'
 import mitt from 'mitt'
 import { DataAccessError } from './errors'
 
+// React Native global; undefined under Node / vitest.
+declare const __DEV__: boolean | undefined
+
 type ExactHandler = (payload: unknown) => void
 type PatternHandler = (name: string, payload: unknown) => void
 
@@ -32,6 +35,14 @@ type MittEvents = Record<string, unknown>
 /** Narrow logger shape — `@mongrov/core`'s logger satisfies it. */
 export interface EventBusLogger {
   error: (message: string, data?: Record<string, unknown>) => void
+}
+
+/**
+ * Logger for the provider and hooks (query / mutation failures, on-demand
+ * fetch failures). `@mongrov/core`'s logger satisfies it.
+ */
+export interface DataAccessLogger extends EventBusLogger {
+  warn: (message: string, data?: Record<string, unknown>) => void
 }
 
 export interface EventBusOptions {
@@ -161,5 +172,7 @@ function reportError(err: unknown, name: string, logger?: EventBusLogger): void 
     })
     return
   }
-  console.error(`[@mongrov/data-access] handler for "${name}" threw:`, err)
+  // Dev-only fallback; release has no console sink.
+  if (typeof __DEV__ === 'undefined' || __DEV__)
+    console.error(`[@mongrov/data-access] handler for "${name}" threw:`, err)
 }

@@ -13,6 +13,7 @@
  */
 
 import type { z } from 'zod'
+import type { DataAccessRuntime } from './context'
 import type { EngineAdapters } from './dispatcher'
 import type {
   EventBus,
@@ -28,7 +29,7 @@ import * as React from 'react'
 import { useDataAccessRuntime } from './context'
 import { extractInputDays, resolveAsyncFetch } from './define'
 import { executeQuery, prepareQuery, runAuthorize } from './dispatcher'
-import { DataAccessError } from './errors'
+import { AuthorizationError, DataAccessError } from './errors'
 import { compileGlob } from './invalidation'
 
 /** T-18 — cache defaults per spec §Cache. Per-query overrides win. */
@@ -99,7 +100,12 @@ export function useAppQuery<TInput, TOutput>(
   const query = useQuery<TOutput, Error>({
     queryKey,
     queryFn: () =>
-      executeQuery(def, input as TInput, runtime.getContext(), runtime.engines),
+      executeQuery(def, input as TInput, runtime.getContext(), runtime.engines)
+        .catch((err: unknown) => {
+          // Rethrown: the hook's `error` still carries it; this is the trace.
+          reportFailure(runtime, 'query', name, err)
+          throw err
+        }),
     enabled: !isRxdb,
     staleTime: def.config.staleTime ?? DEFAULT_STALE_TIME,
     gcTime: def.config.gcTime ?? DEFAULT_GC_TIME,
@@ -143,6 +149,7 @@ export function useAppQuery<TInput, TOutput>(
         parsedInput = await prepareQuery(def, input as TInput, runtime.getContext())
       }
       catch (err) {
+        reportFailure(runtime, 'query', name, err)
         if (cancelled)
           return
         setRxState({
@@ -177,18 +184,17 @@ export function useAppQuery<TInput, TOutput>(
             })
           }
           else {
-            setRxState({
-              data: undefined,
-              loading: false,
-              error: new DataAccessError(
-                'zod_parse_failed',
-                `query "${name}" output failed schema validation: ${parsed.error.message}`,
-                parsed.error,
-              ),
-            })
+            const error = new DataAccessError(
+              'zod_parse_failed',
+              `query "${name}" output failed schema validation: ${parsed.error.message}`,
+              parsed.error,
+            )
+            reportFailure(runtime, 'query', name, error)
+            setRxState({ data: undefined, loading: false, error })
           }
         },
         error: (err) => {
+          reportFailure(runtime, 'query', name, err)
           if (cancelled)
             return
           setRxState({
@@ -253,7 +259,12 @@ export function useAppQuery<TInput, TOutput>(
           setOnDemand({ fetching: false, error: null })
       })
       .catch((err: unknown) => {
-        // Failure surfaces via `error` while local data stays served.
+        // Failure surfaces via `error` while local data stays served —
+        // degraded, not lost, hence warn.
+        runtime.logger?.warn('[@mongrov/data-access] on-demand fetch failed; serving local data', {
+          query: name,
+          ...describeFailure(err),
+        })
         if (!cancelled) {
           setOnDemand({
             fetching: false,
@@ -390,6 +401,9 @@ export function useAppMutation<TInput, TOutput>(
         }
       }
     },
+    onError: (err) => {
+      reportFailure(runtime, 'mutation', name, err)
+    },
     onSettled: () => {
       // Clear the optimistic snapshot so subsequent mutations start
       // clean. On failure this achieves the "revert" — mutation.data
@@ -451,6 +465,32 @@ export function useRequestContext(): RequestContext {
 }
 
 // --- helpers ---------------------------------------------------------
+
+/** Error → log fields. Never the input: it can carry user values. */
+function describeFailure(err: unknown): Record<string, unknown> {
+  const error = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+  return err instanceof DataAccessError ? { code: err.code, error } : { error }
+}
+
+/**
+ * One line per failed query / mutation attempt. An authorize denial is an
+ * expected outcome (warn); anything else means data was not read or written.
+ */
+function reportFailure(
+  runtime: DataAccessRuntime,
+  kind: 'query' | 'mutation',
+  name: string,
+  err: unknown,
+): void {
+  const logger = runtime.logger
+  if (!logger)
+    return
+  const data = { [kind]: name, ...describeFailure(err) }
+  if (err instanceof AuthorizationError)
+    logger.warn(`[@mongrov/data-access] ${kind} denied`, data)
+  else
+    logger.error(`[@mongrov/data-access] ${kind} failed`, data)
+}
 
 /**
  * Assemble the MutationContext handed to `exec` from the provider's

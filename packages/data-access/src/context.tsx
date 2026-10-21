@@ -11,6 +11,7 @@
 
 import type { ReactNode } from 'react'
 import type { EngineAdapters } from './dispatcher'
+import type { DataAccessLogger } from './invalidation'
 import type {
   EventBus,
   Registry,
@@ -48,6 +49,13 @@ export interface DataAccessProviderConfig {
    * asyncFetch is never inferred (explicit per-query flags still apply).
    */
   brandRetentionDays?: number
+  /**
+   * Where query / mutation / on-demand fetch failures are reported, and the
+   * logger handed to the bus the provider mints when `bus` is omitted.
+   * Without it a failed query reaches only the hook's `error`, which no
+   * exported log ever shows.
+   */
+  logger?: DataAccessLogger
   children?: ReactNode
 }
 
@@ -64,6 +72,7 @@ export interface DataAccessRuntime {
   getContext: () => RequestContext
   /** T-34 — retention horizon for implicit asyncFetch inference. */
   brandRetentionDays?: number
+  logger?: DataAccessLogger
 }
 
 const DataAccessContext = React.createContext<DataAccessRuntime | null>(null)
@@ -80,6 +89,7 @@ export function DataAccessProvider(
     bus: suppliedBus,
     queryClient: suppliedClient,
     brandRetentionDays,
+    logger,
     children,
   } = props
 
@@ -88,7 +98,7 @@ export function DataAccessProvider(
   // unsupported.
   const busRef = React.useRef<EventBus | null>(null)
   if (busRef.current === null) {
-    busRef.current = suppliedBus ?? createEventBus()
+    busRef.current = suppliedBus ?? createEventBus({ logger })
   }
 
   const clientRef = React.useRef<QueryClient | null>(null)
@@ -104,8 +114,9 @@ export function DataAccessProvider(
       queryClient: clientRef.current as QueryClient,
       getContext: () => withUserAliases(context()),
       brandRetentionDays,
+      logger,
     }),
-    [registry, engines, context, brandRetentionDays],
+    [registry, engines, context, brandRetentionDays, logger],
   )
 
   return (
