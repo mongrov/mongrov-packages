@@ -4,10 +4,8 @@
  * Falls back to in-memory storage if MMKV native module isn't available.
  */
 
-import type { KVStore } from '../types'
-
-// React Native global
-declare const __DEV__: boolean | undefined
+import type { DBLogger, KVStore } from '../types'
+import { describeError, devConsoleLogger } from '../logger'
 
 // In-memory fallback storage
 interface StorageLike {
@@ -38,9 +36,11 @@ export class MMKVBackend implements KVStore {
   private instanceId: string
   private _storage: StorageLike | null = null
   private _mmkvAvailable: boolean | null = null
+  private readonly logger: DBLogger
 
-  constructor(instanceId: string = 'mongrov-kv') {
+  constructor(instanceId: string = 'mongrov-kv', logger: DBLogger = devConsoleLogger) {
     this.instanceId = instanceId
+    this.logger = logger
     // Don't initialize here - defer to first access
   }
 
@@ -55,14 +55,13 @@ export class MMKVBackend implements KVStore {
         this._mmkvAvailable = true
       }
       catch (e) {
-        // Native module not available - use in-memory fallback
-        // This can happen during JS bundle evaluation before native modules are ready
-        if (typeof __DEV__ !== 'undefined' && __DEV__) {
-          console.warn(
-            `[@mongrov/db] MMKV not available for instance "${this.instanceId}", using in-memory fallback:`,
-            e,
-          )
-        }
+        // Native module not available - use in-memory fallback. This can
+        // happen during JS bundle evaluation before native modules are ready.
+        // Nothing written to this store survives a restart.
+        this.logger.warn(
+          `[@mongrov/db] MMKV not available for instance "${this.instanceId}", using in-memory fallback`,
+          { instanceId: this.instanceId, error: describeError(e) },
+        )
         this._storage = createMemoryStorage()
         this._mmkvAvailable = false
       }
@@ -90,7 +89,13 @@ export class MMKVBackend implements KVStore {
     try {
       return JSON.parse(value) as T
     }
-    catch {
+    catch (error) {
+      this.logger.warn('[@mongrov/db] stored value is not JSON; treating as missing', {
+        instanceId: this.instanceId,
+        key,
+        // Name only: JSON.parse messages quote the stored value.
+        error: error instanceof Error ? error.name : 'unknown',
+      })
       return null
     }
   }

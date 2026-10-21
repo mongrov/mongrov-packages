@@ -12,16 +12,7 @@ import type {
 } from './types'
 
 import { replicateRxCollection } from 'rxdb/plugins/replication'
-
-/**
- * Default no-op logger for when none is provided.
- */
-const noopLogger: DBLogger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-}
+import { describeError, noopLogger } from './logger'
 
 /**
  * Creates a replication state for syncing a collection with a remote backend.
@@ -60,8 +51,9 @@ const noopLogger: DBLogger = {
  * })
  *
  * // Listen for sync events
+ * // Errors are already reported to `logger`; subscribe for UI state.
  * replication.error$.subscribe((error) => {
- *   console.error('Sync error:', error)
+ *   setSyncError(error)
  * })
  *
  * // Manual sync trigger
@@ -107,13 +99,17 @@ export function createReplicationState<T>(
     replicationOptions.push = {
       batchSize: push.batchSize ?? 100,
       handler: async (docs: T[]) => {
-        logger.debug('Pushing documents', { count: (docs as unknown[]).length })
         try {
           await push.handler(docs)
-          logger.debug('Push complete', { count: (docs as unknown[]).length })
+          logger.debug('Push complete', { replicationIdentifier, count: (docs as unknown[]).length })
         }
         catch (error) {
-          logger.error('Push failed', { error })
+          // Rethrown so RxDB retries and emits error$ (logged below).
+          logger.error('Push failed', {
+            replicationIdentifier,
+            count: (docs as unknown[]).length,
+            error: describeError(error),
+          })
           throw error
         }
       },
@@ -128,14 +124,14 @@ export function createReplicationState<T>(
         lastCheckpoint: Record<string, unknown> | null,
         batchSize: number,
       ) => {
-        logger.debug('Pulling documents', { checkpoint: lastCheckpoint, batchSize })
         try {
           const result = await pull.handler(lastCheckpoint, batchSize)
-          logger.debug('Pull complete', { count: result.documents.length })
+          logger.debug('Pull complete', { replicationIdentifier, count: result.documents.length })
           return result
         }
         catch (error) {
-          logger.error('Pull failed', { error })
+          // Rethrown so RxDB retries and emits error$ (logged below).
+          logger.error('Pull failed', { replicationIdentifier, batchSize, error: describeError(error) })
           throw error
         }
       },
@@ -146,11 +142,23 @@ export function createReplicationState<T>(
 
   // Log replication events
   replicationState.error$.subscribe((error: Error) => {
-    logger.error('Replication error', { error: error.message })
+    logger.error('Replication error', { replicationIdentifier, error: error?.message ?? String(error) })
   })
 
+  // One line per sync cycle (active → idle), not per batch.
+  let cycleStartedAt: number | null = null
   replicationState.active$.subscribe((active: boolean) => {
-    logger.debug('Replication active state changed', { active })
+    if (active) {
+      cycleStartedAt = Date.now()
+      logger.debug('Replication cycle started', { replicationIdentifier })
+    }
+    else if (cycleStartedAt !== null) {
+      logger.info('Replication cycle complete', {
+        replicationIdentifier,
+        durationMs: Date.now() - cycleStartedAt,
+      })
+      cycleStartedAt = null
+    }
   })
 
   return replicationState
@@ -160,12 +168,15 @@ export function createReplicationState<T>(
  * Cancels a replication state and cleans up resources.
  *
  * @param replicationState - The replication state to cancel
+ * @param logger - Optional logger for the cancel checkpoint
  */
 export async function cancelReplication(
   replicationState: RxReplicationStateType,
+  logger: DBLogger = noopLogger,
 ): Promise<void> {
   if (replicationState && typeof replicationState.cancel === 'function') {
     await replicationState.cancel()
+    logger.info('Replication cancelled', { replicationIdentifier: replicationState.replicationIdentifier })
   }
 }
 
