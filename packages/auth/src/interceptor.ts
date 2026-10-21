@@ -1,7 +1,13 @@
 import type { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios'
-import type { AuthClient } from './types'
+import type { AuthClient, AuthLogger } from './types'
 import { useEffect } from 'react'
 import { useAuthClient } from './auth-provider'
+import { describeError, noopLogger } from './log'
+
+export interface AuthInterceptorOptions {
+  /** Receives 401-retry failures. Default: no-op. */
+  logger?: AuthLogger
+}
 
 interface RetryableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean
@@ -19,7 +25,9 @@ interface RetryableConfig extends InternalAxiosRequestConfig {
 export function createAuthInterceptor(
   axiosInstance: AxiosInstance,
   authClient: AuthClient,
+  options: AuthInterceptorOptions = {},
 ): () => void {
+  const log = options.logger ?? noopLogger
   const requestId = axiosInstance.interceptors.request.use((config) => {
     const token = authClient.getAccessToken()
     if (token) {
@@ -44,8 +52,19 @@ export function createAuthInterceptor(
         originalRequest.headers.Authorization = `Bearer ${tokens.accessToken}`
         return axiosInstance(originalRequest)
       }
-      catch {
-        await authClient.signOut()
+      catch (refreshErr) {
+        // The refresh failure itself is logged by the auth client; this line
+        // ties it to the request that triggered it.
+        log.warn('[auth] 401 retry: refresh failed, signing out', {
+          status: 401,
+          error: describeError(refreshErr),
+        })
+        try {
+          await authClient.signOut()
+        }
+        catch (signOutErr) {
+          log.error('[auth] sign-out after failed refresh failed', { error: describeError(signOutErr) })
+        }
         return Promise.reject(error)
       }
     },
@@ -68,9 +87,10 @@ export function createAuthInterceptor(
  * useAuthInterceptor(axiosClient);
  * ```
  */
-export function useAuthInterceptor(axiosInstance: AxiosInstance): void {
+export function useAuthInterceptor(axiosInstance: AxiosInstance, options: AuthInterceptorOptions = {}): void {
   const authClient = useAuthClient()
+  const { logger } = options
   useEffect(() => {
-    return createAuthInterceptor(axiosInstance, authClient)
-  }, [axiosInstance, authClient])
+    return createAuthInterceptor(axiosInstance, authClient, { logger })
+  }, [axiosInstance, authClient, logger])
 }

@@ -22,6 +22,27 @@ const noopLogger: AILogger = {
  */
 const MAX_TOOL_STEPS = 5
 
+/**
+ * What a failed request logs: the error's kind and HTTP status, never its
+ * message. Provider messages can echo request content or part of the API key
+ * ("Incorrect API key provided: sk-...").
+ */
+export function describeAIError(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error))
+    return { name: typeof error }
+  const e = error as Error & { statusCode?: unknown, code?: unknown, isRetryable?: unknown, cause?: unknown }
+  const out: Record<string, unknown> = { name: e.name }
+  if (typeof e.statusCode === 'number')
+    out.statusCode = e.statusCode
+  if (typeof e.code === 'string' || typeof e.code === 'number')
+    out.code = e.code
+  if (typeof e.isRetryable === 'boolean')
+    out.isRetryable = e.isRetryable
+  if (e.cause instanceof Error)
+    out.causeName = e.cause.name
+  return out
+}
+
 export function createAIClient(config: AIConfig): AIClient {
   const { model, logger = noopLogger, systemPrompt, tools } = config
   let currentAbortController: AbortController | null = null
@@ -120,7 +141,7 @@ export function createAIClient(config: AIConfig): AIClient {
         logger.debug('Chat stream cancelled')
         return
       }
-      logger.error('Chat stream error', { error })
+      logger.error('[ai] chat request failed', { messageCount: messages.length, ...describeAIError(error) })
       throw error
     }
     finally {
@@ -157,7 +178,7 @@ export function createAIClient(config: AIConfig): AIClient {
         logger.debug('Completion cancelled')
         return ''
       }
-      logger.error('Completion error', { error })
+      logger.error('[ai] completion request failed', describeAIError(error))
       throw error
     }
     finally {

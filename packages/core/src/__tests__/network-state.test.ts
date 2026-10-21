@@ -1,6 +1,6 @@
 // We need to test the real network-state module, so mock only expo-network
 // Must import AFTER mocking
-import { addNetworkStateListener, getNetworkState } from '../network-state'
+import { addNetworkStateListener, getNetworkState, setNetworkStateLogger } from '../network-state'
 
 const mockGetNetworkStateAsync = jest.fn()
 
@@ -152,5 +152,31 @@ describe('NetworkState', () => {
     expect(listener).not.toHaveBeenCalled()
 
     sub.remove()
+  })
+
+  it('reports state changes at info and a run of poll failures once', async () => {
+    const log = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    setNetworkStateLogger(log)
+    const sub = addNetworkStateListener(jest.fn())
+    await Promise.resolve()
+    await Promise.resolve()
+
+    mockGetNetworkStateAsync.mockResolvedValueOnce({ isConnected: false, type: 0, isInternetReachable: false })
+    jest.advanceTimersByTime(15000)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(log.info).toHaveBeenCalledWith('[Network] state changed', expect.objectContaining({ isConnected: false }))
+
+    mockGetNetworkStateAsync.mockRejectedValueOnce(new Error('down')).mockRejectedValueOnce(new Error('down'))
+    for (let i = 0; i < 2; i++) {
+      jest.advanceTimersByTime(15000)
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('poll failed'), { error: 'Error: down' })
+
+    sub.remove()
+    setNetworkStateLogger(null)
   })
 })

@@ -33,6 +33,27 @@ describe('the ladder resolves top-down', () => {
     })).toBe('loading')
   })
 
+  it('a failed query resolves to error, not first-day', () => {
+    // Empty data left behind by a failure looks exactly like a ring never worn.
+    expect(resolveVitalStatus({
+      isLoading: false,
+      failed: true,
+      hasCadence: false,
+      daysWorn: 0,
+      baselineSampleCount: null,
+    })).toBe('error')
+    expect(rendersData('error')).toBe(false)
+    expect(allowsVerdict('error')).toBe(false)
+  })
+
+  it('loading still outranks a failure (a retry is in flight)', () => {
+    expect(resolveVitalStatus({ ...ready, isLoading: true, failed: true })).toBe('loading')
+  })
+
+  it('callers that omit failed keep the old ladder', () => {
+    expect(resolveVitalStatus({ ...ready, daysWorn: 0 })).toBe('first-day')
+  })
+
   it('no-sensor beats first-day — a sensorless ring also has zero days', () => {
     // The bug this prevents: a ring that cannot measure SpO2 showing a
     // checklist telling the user to wear it overnight and sync.

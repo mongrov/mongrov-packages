@@ -72,7 +72,10 @@ export async function loadLastAttach(
     try {
       await kv.delete(lastAttachKey(brand))
     }
-    catch { /* ignore */ }
+    catch {
+      // expected: the stale record is already ignored (null below); a KV
+      // delete miss only means it is checked again next read.
+    }
     return null
   }
   return record.ctx

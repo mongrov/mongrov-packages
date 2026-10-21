@@ -13,19 +13,10 @@ import type {
 import { addRxPlugin, createRxDatabase } from 'rxdb'
 
 import { RxDBMigrationPlugin } from 'rxdb/plugins/migration-schema'
+import { describeError, noopLogger } from './logger'
 
 // Add migration plugin for schema upgrades
 addRxPlugin(RxDBMigrationPlugin)
-
-/**
- * Default no-op logger for when none is provided.
- */
-const noopLogger: DBLogger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-}
 
 /**
  * Creates an RxDB database instance with configured collections.
@@ -64,43 +55,67 @@ export async function createDatabase(config: DatabaseConfig): Promise<RxDatabase
     ignoreDuplicate = true,
   } = config
 
+  const startedAt = Date.now()
   logger.info('Creating database', { name, collectionCount: collections.length })
 
-  // Create the database
-  const db = await createRxDatabase({
-    name,
-    storage,
-    multiInstance,
-    ignoreDuplicate,
-  })
+  let stage: 'open' | 'collections' = 'open'
+  try {
+    const db = await createRxDatabase({
+      name,
+      storage,
+      multiInstance,
+      ignoreDuplicate,
+    })
 
-  logger.debug('Database created', { name })
+    logger.debug('Database created', { name })
 
-  // Add collections
-  if (collections.length > 0) {
-    const collectionConfigs: Record<string, any> = {}
-
-    for (const col of collections) {
-      collectionConfigs[col.name] = {
-        schema: col.schema,
-        ...(col.migrationStrategies && { migrationStrategies: col.migrationStrategies }),
-      }
+    // Add collections (runs schema migrations)
+    if (collections.length > 0) {
+      stage = 'collections'
+      await db.addCollections(buildCollectionConfigs(collections))
+      logger.info('Collections added', {
+        names: collections.map(c => c.name),
+        durationMs: Date.now() - startedAt,
+      })
     }
 
-    await db.addCollections(collectionConfigs)
-    logger.info('Collections added', { names: collections.map(c => c.name) })
+    return db
   }
+  catch (error) {
+    logger.error('Database open failed', { name, stage, error: describeError(error) })
+    throw error
+  }
+}
 
-  return db
+function buildCollectionConfigs(collections: DatabaseConfig['collections']): Record<string, any> {
+  const collectionConfigs: Record<string, any> = {}
+  for (const col of collections) {
+    collectionConfigs[col.name] = {
+      schema: col.schema,
+      ...(col.migrationStrategies && { migrationStrategies: col.migrationStrategies }),
+    }
+  }
+  return collectionConfigs
 }
 
 /**
  * Destroys an RxDB database instance and cleans up resources.
  *
  * @param db - The database instance to destroy
+ * @param logger - Optional logger for the destroy checkpoint and failure
  */
-export async function destroyDatabase(db: RxDatabaseType): Promise<void> {
+export async function destroyDatabase(
+  db: RxDatabaseType,
+  logger: DBLogger = noopLogger,
+): Promise<void> {
   if (db && typeof db.destroy === 'function') {
-    await db.destroy()
+    try {
+      await db.destroy()
+      logger.info('Database destroyed', { name: db.name })
+    }
+    catch (error) {
+      logger.error('Database destroy failed', { name: db.name, error: describeError(error) })
+      throw error
+    }
   }
 }

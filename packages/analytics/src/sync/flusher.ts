@@ -567,7 +567,7 @@ export class BatchFlusher {
         )
       }
       catch {
-        // Already constrained, or the engine will not take it. The probe is
+        // expected: already constrained, or the engine will not take it. The probe is
         // then merely more permissive than the target, which is the
         // pre-existing behaviour — never less permissive, which would
         // discard writable rows.
@@ -632,6 +632,8 @@ export class BatchFlusher {
         return true
       }
       catch {
+        // expected: a rejected subset is the answer being sought; the count
+        // and a sample reach the log via the `flushed` event.
         return false
       }
     }
@@ -658,7 +660,9 @@ export class BatchFlusher {
       try {
         await this.#engine.execute(`DELETE FROM ${probe};`)
       }
-      catch {}
+      catch {
+        // expected: see above — the write error is what gets reported.
+      }
     }
   }
 
@@ -682,7 +686,7 @@ export class BatchFlusher {
         appender.close()
       }
       catch {
-        // Swallow close errors — the surfaced error should be the write.
+        // expected: swallow close errors — the surfaced error should be the write.
       }
     }
   }

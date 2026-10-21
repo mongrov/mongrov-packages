@@ -13,6 +13,7 @@
  */
 
 import type { z } from 'zod'
+import type { DataAccessRuntime } from './context'
 import type { EngineAdapters } from './dispatcher'
 import type {
   EventBus,
@@ -23,12 +24,12 @@ import type {
   RxdbQueryConfig,
 } from './types'
 
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { hashKey, useMutation, useQuery } from '@tanstack/react-query'
 import * as React from 'react'
 import { useDataAccessRuntime } from './context'
 import { extractInputDays, resolveAsyncFetch } from './define'
 import { executeQuery, prepareQuery, runAuthorize } from './dispatcher'
-import { DataAccessError } from './errors'
+import { AuthorizationError, DataAccessError } from './errors'
 import { compileGlob } from './invalidation'
 
 /** T-18 — cache defaults per spec §Cache. Per-query overrides win. */
@@ -105,6 +106,8 @@ export function useAppQuery<TInput, TOutput>(
     gcTime: def.config.gcTime ?? DEFAULT_GC_TIME,
   })
 
+  useReportSettledQueryFailure(runtime, name, queryKey, query.status === 'error' ? query.error : null, query.errorUpdatedAt)
+
   // rxdb path — external state driven by observable emissions.
   const [rxState, setRxState] = React.useState<{
     data: TOutput | undefined
@@ -143,6 +146,7 @@ export function useAppQuery<TInput, TOutput>(
         parsedInput = await prepareQuery(def, input as TInput, runtime.getContext())
       }
       catch (err) {
+        reportFailure(runtime, 'query', name, err)
         if (cancelled)
           return
         setRxState({
@@ -177,18 +181,17 @@ export function useAppQuery<TInput, TOutput>(
             })
           }
           else {
-            setRxState({
-              data: undefined,
-              loading: false,
-              error: new DataAccessError(
-                'zod_parse_failed',
-                `query "${name}" output failed schema validation: ${parsed.error.message}`,
-                parsed.error,
-              ),
-            })
+            const error = new DataAccessError(
+              'zod_parse_failed',
+              `query "${name}" output failed schema validation: ${parsed.error.message}`,
+              parsed.error,
+            )
+            reportFailure(runtime, 'query', name, error)
+            setRxState({ data: undefined, loading: false, error })
           }
         },
         error: (err) => {
+          reportFailure(runtime, 'query', name, err)
           if (cancelled)
             return
           setRxState({
@@ -253,7 +256,12 @@ export function useAppQuery<TInput, TOutput>(
           setOnDemand({ fetching: false, error: null })
       })
       .catch((err: unknown) => {
-        // Failure surfaces via `error` while local data stays served.
+        // Failure surfaces via `error` while local data stays served —
+        // degraded, not lost, hence warn.
+        runtime.logger?.warn('[@mongrov/data-access] on-demand fetch failed; serving local data', {
+          query: name,
+          ...describeFailure(err),
+        })
         if (!cancelled) {
           setOnDemand({
             fetching: false,
@@ -390,6 +398,9 @@ export function useAppMutation<TInput, TOutput>(
         }
       }
     },
+    onError: (err) => {
+      reportFailure(runtime, 'mutation', name, err)
+    },
     onSettled: () => {
       // Clear the optimistic snapshot so subsequent mutations start
       // clean. On failure this achieves the "revert" — mutation.data
@@ -451,6 +462,64 @@ export function useRequestContext(): RequestContext {
 }
 
 // --- helpers ---------------------------------------------------------
+
+/** Error → log fields. Never the input: it can carry user values. */
+function describeFailure(err: unknown): Record<string, unknown> {
+  const error = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+  return err instanceof DataAccessError ? { code: err.code, error } : { error }
+}
+
+/**
+ * The last `errorUpdatedAt` logged per query hash, per query client.
+ *
+ * A TanStack query logs ONCE per settled failure, not per attempt and not
+ * per mounted hook: logging inside `queryFn` wrote a line for every retry,
+ * and every component reading the same key would log the same error again.
+ */
+const loggedQueryErrors = new WeakMap<object, Map<string, number>>()
+
+function useReportSettledQueryFailure(
+  runtime: DataAccessRuntime,
+  name: string,
+  queryKey: readonly unknown[],
+  error: Error | null,
+  errorUpdatedAt: number,
+): void {
+  React.useEffect(() => {
+    if (!error || !runtime.logger)
+      return
+    let seen = loggedQueryErrors.get(runtime.queryClient)
+    if (!seen) {
+      seen = new Map()
+      loggedQueryErrors.set(runtime.queryClient, seen)
+    }
+    const hash = hashKey(queryKey)
+    if (seen.get(hash) === errorUpdatedAt)
+      return
+    seen.set(hash, errorUpdatedAt)
+    reportFailure(runtime, 'query', name, error)
+  }, [runtime, name, queryKey, error, errorUpdatedAt])
+}
+
+/**
+ * One line per failed query / mutation. An authorize denial is an
+ * expected outcome (warn); anything else means data was not read or written.
+ */
+function reportFailure(
+  runtime: DataAccessRuntime,
+  kind: 'query' | 'mutation',
+  name: string,
+  err: unknown,
+): void {
+  const logger = runtime.logger
+  if (!logger)
+    return
+  const data = { [kind]: name, ...describeFailure(err) }
+  if (err instanceof AuthorizationError)
+    logger.warn(`[@mongrov/data-access] ${kind} denied`, data)
+  else
+    logger.error(`[@mongrov/data-access] ${kind} failed`, data)
+}
 
 /**
  * Assemble the MutationContext handed to `exec` from the provider's

@@ -1,4 +1,6 @@
+import type { InternalLogger } from './internal-log'
 import type { LogEntry } from './types'
+import { devConsoleLogger, FailureGate } from './internal-log'
 import { addNetworkStateListener, getNetworkState } from './network-state'
 
 const QUEUE_KEY = '@mongrov/log-queue'
@@ -32,6 +34,10 @@ export class OfflineQueue {
   private storage: MMKVStorage
   private networkSubscription: { remove: () => void } | null = null
   private flushing = false
+  private readonly log: InternalLogger
+  // Entries trimmed off the head since the last report.
+  private overflowDropped = 0
+  private readonly storageFailures = new FailureGate()
 
   constructor(
     sendFn: (entries: LogEntry[]) => Promise<void>,
@@ -39,8 +45,11 @@ export class OfflineQueue {
       maxSize?: number
       maxRetries?: number
       storage?: MMKVStorage
+      /** Receives the queue's own failures; dev console when omitted. */
+      logger?: InternalLogger
     },
   ) {
+    this.log = options?.logger ?? devConsoleLogger()
     this.sendFn = sendFn
     this.maxSize = options?.maxSize ?? DEFAULT_MAX_SIZE
     this.maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES
@@ -54,7 +63,12 @@ export class OfflineQueue {
 
     // Drop oldest entries if over max size (FIFO)
     if (this.queue.length > this.maxSize) {
-      this.queue = this.queue.slice(this.queue.length - this.maxSize)
+      const dropped = this.queue.length - this.maxSize
+      this.queue = this.queue.slice(dropped)
+      // Once per overflow run; the total is reported when the queue drains.
+      if (this.overflowDropped === 0)
+        this.log.warn('[OfflineQueue] full; dropping oldest entries', { maxSize: this.maxSize })
+      this.overflowDropped += dropped
     }
 
     this.saveToStorage()
@@ -64,15 +78,24 @@ export class OfflineQueue {
     if (this.flushing || this.queue.length === 0)
       return
 
-    const networkState = await getNetworkState()
+    let networkState
+    try {
+      networkState = await getNetworkState()
+    }
+    catch (error) {
+      // No reading (expo-network missing or failing): keep the entries for
+      // the next attempt rather than throwing out of a background flush.
+      this.log.warn('[OfflineQueue] network state unavailable; flush skipped', { error: String(error) })
+      return
+    }
     if (!networkState.isConnected)
       return
 
     this.flushing = true
+    const batch = [...this.queue]
+    const startedAt = Date.now()
 
     try {
-      // Take a snapshot of entries to send
-      const batch = [...this.queue]
       await this.sendWithRetry(batch)
 
       // Remove the delivered entries BY ID, not by slicing off `batch.length`
@@ -91,9 +114,21 @@ export class OfflineQueue {
       const deliveredIds = new Set(batch.map(entry => entry.id))
       this.queue = this.queue.filter(entry => !deliveredIds.has(entry.id))
       this.saveToStorage()
+      this.log.info('[OfflineQueue] flushed', {
+        sent: batch.length,
+        remaining: this.queue.length,
+        droppedOnOverflow: this.overflowDropped,
+        durationMs: Date.now() - startedAt,
+      })
+      this.overflowDropped = 0
     }
-    catch {
+    catch (error) {
       // Retries exhausted — entries stay in queue for next flush attempt
+      this.log.warn('[OfflineQueue] flush failed; entries kept for next attempt', {
+        error: String(error),
+        attempts: this.maxRetries,
+        queued: this.queue.length,
+      })
       this.saveToStorage()
     }
     finally {
@@ -141,7 +176,9 @@ export class OfflineQueue {
         }
       }
     }
-    catch {
+    catch (error) {
+      // A corrupt saved queue is discarded: those entries are lost.
+      this.log.warn('[OfflineQueue] saved queue unreadable; discarded', { error: String(error) })
       this.queue = []
     }
   }
@@ -154,16 +191,24 @@ export class OfflineQueue {
       else {
         this.storage.set(QUEUE_KEY, JSON.stringify(this.queue))
       }
+      const failed = this.storageFailures.recover()
+      if (failed > 0)
+        this.log.info('[OfflineQueue] storage writes recovered', { failedWrites: failed })
     }
-    catch {
-      // Storage failures are non-critical
+    catch (error) {
+      // Non-critical while the app runs (the queue is in memory), but the
+      // queue will not survive a restart. Once per run of failures.
+      if (this.storageFailures.fail())
+        this.log.warn('[OfflineQueue] persist failed', { error: String(error) })
     }
   }
 
   private listenForConnectivity(): void {
     this.networkSubscription = addNetworkStateListener((state) => {
       if (state.isConnected) {
-        this.flush().catch(() => {})
+        this.flush().catch((error) => {
+          this.log.error('[OfflineQueue] flush on reconnect threw', { error: String(error) })
+        })
       }
     })
   }

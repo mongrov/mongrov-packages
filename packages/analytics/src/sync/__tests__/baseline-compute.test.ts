@@ -340,6 +340,13 @@ describe('computeAll · HR phase bands (D-H)', () => {
       logger: { debug: vi.fn(), info: vi.fn(), warn },
     }).computeAll(CTX)
     expect(result.failed).toBe(1)
-    expect(warn).toHaveBeenCalledWith('baseline: hr phase bands failed', expect.anything())
+    // One summary for the cycle, naming what failed and why — not a line
+    // per metric × window.
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('baseline: compute cycle complete', expect.objectContaining({
+      failed: 1,
+      failures: ['hr_phase_bands/90d'],
+      firstError: expect.stringContaining('boom'),
+    }))
   })
 })

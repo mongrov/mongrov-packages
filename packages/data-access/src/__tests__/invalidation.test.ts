@@ -198,3 +198,24 @@ describe('compileGlob (unit)', () => {
     expect(rx.test('sleep:stage:insert')).toBe(true)
   })
 })
+
+describe('createEventBus — injected logger', () => {
+  it('reports a throwing handler to the logger instead of the console', () => {
+    const logger = { error: vi.fn() }
+    const bus = createEventBus({ logger })
+    const later = vi.fn()
+    bus.subscribe('hr:insert', () => {
+      throw new Error('stale screen')
+    })
+    bus.subscribe('hr:insert', later)
+
+    bus.emit('hr:insert', {})
+
+    expect(logger.error).toHaveBeenCalledWith('[@mongrov/data-access] event handler threw', expect.objectContaining({
+      event: 'hr:insert',
+      error: expect.objectContaining({ message: 'stale screen' }),
+    }))
+    expect(consoleError).not.toHaveBeenCalled()
+    expect(later).toHaveBeenCalled()
+  })
+})

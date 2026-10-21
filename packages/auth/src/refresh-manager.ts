@@ -1,4 +1,5 @@
-import type { AuthAdapter, AuthError, AuthTokens, TokenStore } from './types'
+import type { AuthAdapter, AuthError, AuthLogger, AuthTokens, TokenStore } from './types'
+import { noopLogger } from './log'
 
 export interface RefreshManagerConfig {
   adapter: AuthAdapter
@@ -7,6 +8,8 @@ export interface RefreshManagerConfig {
   onRefreshFailed: (error: AuthError) => void
   proactiveRefresh: boolean
   refreshThreshold: number
+  /** Scheduling and abandoned-refresh checkpoints. Outcomes are logged by the owner's callbacks. */
+  logger?: AuthLogger
 }
 
 export interface RefreshManager {
@@ -16,8 +19,11 @@ export interface RefreshManager {
   destroy: () => void
 }
 
+const ABANDONED_MESSAGE = 'Token refresh abandoned: the session ended before it completed'
+
 export function createRefreshManager(config: RefreshManagerConfig): RefreshManager {
   const { adapter, tokenStore, onRefreshed, onRefreshFailed, proactiveRefresh, refreshThreshold } = config
+  const log = config.logger ?? noopLogger
 
   let timer: ReturnType<typeof setTimeout> | null = null
   let refreshPromise: Promise<AuthTokens> | null = null
@@ -106,16 +112,17 @@ export function createRefreshManager(config: RefreshManagerConfig): RefreshManag
    * different session that this one must not speak for.
    */
   function abandoned(): AuthError {
+    log.info('[auth] token refresh abandoned: session ended before it completed')
     return {
       code: 'REFRESH_FAILED',
-      message: 'Token refresh abandoned: the session ended before it completed',
+      message: ABANDONED_MESSAGE,
     }
   }
 
   function isAbandoned(err: unknown): boolean {
     return typeof err === 'object'
       && err !== null
-      && (err as AuthError).message === abandoned().message
+      && (err as AuthError).message === ABANDONED_MESSAGE
   }
 
   function scheduleRefresh(expiresIn: number): void {
@@ -125,9 +132,11 @@ export function createRefreshManager(config: RefreshManagerConfig): RefreshManag
     if (!proactiveRefresh || expiresIn <= 0)
       return
     const delayMs = expiresIn * refreshThreshold * 1000
+    log.info('[auth] proactive refresh scheduled', { inSec: Math.round(delayMs / 1000) })
     timer = setTimeout(() => {
       handleUnauthorized().catch(() => {
-        // Error already handled via onRefreshFailed callback
+        // expected: failures are logged and handled by onRefreshFailed; an
+        // abandoned refresh is logged where it is raised
       })
     }, delayMs)
   }

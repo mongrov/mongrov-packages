@@ -1,4 +1,6 @@
+import type { InternalLogger } from '../internal-log'
 import type { LogEntry, LogTransport, WebhookConfig } from '../types'
+import { devConsoleLogger, FailureGate } from '../internal-log'
 import { OfflineQueue } from '../offline-queue'
 
 export class WebhookTransport implements LogTransport {
@@ -13,8 +15,20 @@ export class WebhookTransport implements LogTransport {
   private timer: ReturnType<typeof setInterval> | null = null
   private offlineQueue: OfflineQueue
   private flushing = false
+  private readonly log: InternalLogger
+  // A 4xx usually means bad auth or a bad URL: every batch drops until it
+  // is fixed. Reported once per run, with the total dropped at its end.
+  private readonly rejections = new FailureGate()
+  private droppedEntries = 0
+  private readonly postFailures = new FailureGate()
 
-  constructor(config: WebhookConfig) {
+  /**
+   * `logger` receives this transport's own failures. `createLogger` passes
+   * one that skips this transport (a report about a failing webhook must not
+   * be posted to that webhook); standalone use falls back to the dev console.
+   */
+  constructor(config: WebhookConfig, logger?: InternalLogger) {
+    this.log = logger ?? devConsoleLogger()
     this.config = {
       url: config.url,
       batchSize: config.batchSize ?? 10,
@@ -26,7 +40,7 @@ export class WebhookTransport implements LogTransport {
 
     this.offlineQueue = new OfflineQueue(
       entries => this.postEntries(entries),
-      { maxRetries: this.config.maxRetries },
+      { maxRetries: this.config.maxRetries, logger: this.log },
     )
 
     this.startTimer()
@@ -55,7 +69,9 @@ export class WebhookTransport implements LogTransport {
   private startTimer(): void {
     this.timer = setInterval(() => {
       if (this.batch.length > 0) {
-        this.flushBatch().catch(() => {})
+        this.flushBatch().catch((error) => {
+          this.log.error('[WebhookTransport] timed flush threw', { error: String(error) })
+        })
       }
     }, this.config.batchIntervalMs)
   }
@@ -77,11 +93,19 @@ export class WebhookTransport implements LogTransport {
 
     try {
       await this.postEntries(entries)
+      const failed = this.postFailures.recover()
+      if (failed > 0)
+        this.log.info('[WebhookTransport] posts recovered', { failedPosts: failed })
     }
-    catch {
-      // Delegate to offline queue for retry. The error itself is deliberately
-      // not inspected — every failure mode here has the same remedy, and the
-      // queue is what carries the entries forward.
+    catch (error) {
+      // Delegate to offline queue for retry — every failure mode here has the
+      // same remedy, and the queue is what carries the entries forward.
+      if (this.postFailures.fail()) {
+        this.log.warn('[WebhookTransport] post failed; queued for retry', {
+          error: String(error),
+          entries: entries.length,
+        })
+      }
       this.offlineQueue.enqueue(entries)
     }
     finally {
@@ -105,15 +129,28 @@ export class WebhookTransport implements LogTransport {
 
     if (response.status >= 400 && response.status < 500) {
       // Client error — drop entries, retrying won't help
-      console.warn(
-        `[WebhookTransport] HTTP ${response.status}: dropping ${entries.length} entries`,
-      )
+      this.droppedEntries += entries.length
+      if (this.rejections.fail()) {
+        this.log.error('[WebhookTransport] rejected by server; dropping entries', {
+          status: response.status,
+          entries: entries.length,
+        })
+      }
       return
     }
 
     if (!response.ok) {
       // 5xx — throw to trigger offline queue retry
       throw new Error(`HTTP ${response.status}`)
+    }
+
+    const rejected = this.rejections.recover()
+    if (rejected > 0) {
+      this.log.warn('[WebhookTransport] accepted again after rejections', {
+        rejectedBatches: rejected,
+        droppedEntries: this.droppedEntries,
+      })
+      this.droppedEntries = 0
     }
   }
 }

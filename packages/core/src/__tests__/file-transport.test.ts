@@ -31,6 +31,10 @@ function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
   }
 }
 
+function fakeLogger() {
+  return { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+}
+
 function clearMockFiles() {
   const files = mockFs.__mockFiles
   Object.keys(files).forEach(k => delete files[k])
@@ -53,9 +57,9 @@ describe('FileTransport', () => {
     await transport.send([entry])
 
     const today = new Date()
-    const y = today.getFullYear()
-    const m = String(today.getMonth() + 1).padStart(2, '0')
-    const d = String(today.getDate()).padStart(2, '0')
+    const y = today.getUTCFullYear()
+    const m = String(today.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(today.getUTCDate()).padStart(2, '0')
     const expectedFile = `/mock/documents/logs/logs-${y}-${m}-${d}.txt`
 
     expect(mockFs.writeAsStringAsync).toHaveBeenCalled()
@@ -72,9 +76,9 @@ describe('FileTransport', () => {
     await transport.send([makeEntry({ message: 'second' })])
 
     const today = new Date()
-    const y = today.getFullYear()
-    const m = String(today.getMonth() + 1).padStart(2, '0')
-    const d = String(today.getDate()).padStart(2, '0')
+    const y = today.getUTCFullYear()
+    const m = String(today.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(today.getUTCDate()).padStart(2, '0')
     const expectedFile = `/mock/documents/logs/logs-${y}-${m}-${d}.txt`
 
     const content = mockFs.__mockFiles[expectedFile]
@@ -93,9 +97,9 @@ describe('FileTransport', () => {
     ])
 
     const today = new Date()
-    const y = today.getFullYear()
-    const m = String(today.getMonth() + 1).padStart(2, '0')
-    const d = String(today.getDate()).padStart(2, '0')
+    const y = today.getUTCFullYear()
+    const m = String(today.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(today.getUTCDate()).padStart(2, '0')
     const expectedFile = `/mock/documents/logs/logs-${y}-${m}-${d}.txt`
 
     const content = mockFs.__mockFiles[expectedFile]
@@ -141,7 +145,7 @@ describe('FileTransport', () => {
 
   it('should not crash on write failure', async () => {
     mockFs.writeAsStringAsync.mockRejectedValueOnce(new Error('disk full'))
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
 
     const transport = new FileTransport()
     await expect(transport.send([makeEntry()])).resolves.not.toThrow()
@@ -149,18 +153,37 @@ describe('FileTransport', () => {
     consoleSpy.mockRestore()
   })
 
+  it('reports a run of write failures once, then the recovery', async () => {
+    const log = fakeLogger()
+    mockFs.writeAsStringAsync
+      .mockRejectedValueOnce(new Error('disk full'))
+      .mockRejectedValueOnce(new Error('disk full'))
+
+    const transport = new FileTransport(undefined, log)
+    await transport.send([makeEntry()])
+    await transport.send([makeEntry()])
+    expect(log.error).toHaveBeenCalledTimes(1)
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('write failed'),
+      expect.objectContaining({ error: 'Error: disk full', lost: 1 }),
+    )
+
+    await transport.send([makeEntry()])
+    expect(log.info).toHaveBeenCalledWith(expect.stringContaining('recovered'), { failedWrites: 2 })
+  })
+
   it('should delete oldest files when total size exceeds maxSizeMB', async () => {
     // Use recent dates so they don't get cleaned up by retention (default 7 days)
     const today = new Date()
     const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1)
     const twoDaysAgo = new Date(today)
-    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2)
+    twoDaysAgo.setUTCDate(twoDaysAgo.getUTCDate() - 2)
 
     const fmtDate = (d: Date) => {
-      const y = d.getFullYear()
-      const m = String(d.getMonth() + 1).padStart(2, '0')
-      const day = String(d.getDate()).padStart(2, '0')
+      const y = d.getUTCFullYear()
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(d.getUTCDate()).padStart(2, '0')
       return `${y}-${m}-${day}`
     }
 
@@ -207,9 +230,9 @@ describe('FileTransport', () => {
     ])
 
     const today = new Date()
-    const y = today.getFullYear()
-    const m = String(today.getMonth() + 1).padStart(2, '0')
-    const d = String(today.getDate()).padStart(2, '0')
+    const y = today.getUTCFullYear()
+    const m = String(today.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(today.getUTCDate()).padStart(2, '0')
     const expectedFile = `/mock/documents/logs/logs-${y}-${m}-${d}.txt`
 
     const content = mockFs.__mockFiles[expectedFile]
@@ -224,5 +247,67 @@ describe('FileTransport', () => {
     const transport = new FileTransport()
     const files = await transport.getLogFiles()
     expect(files).toEqual(['logs-2024-06-02.txt', 'logs-2024-06-01.txt'])
+  })
+
+  describe('batched writes', () => {
+    const todayPath = () => {
+      const t = new Date()
+      const y = t.getUTCFullYear()
+      const m = String(t.getUTCMonth() + 1).padStart(2, '0')
+      const d = String(t.getUTCDate()).padStart(2, '0')
+      return `/mock/documents/logs/logs-${y}-${m}-${d}.txt`
+    }
+
+    it('coalesces lines sent during a write into one rewrite of the day file', async () => {
+      const transport = new FileTransport()
+
+      await Promise.all(
+        Array.from({ length: 50 }, (_, i) => transport.send([makeEntry({ message: `line ${i}` })])),
+      )
+
+      const lines = mockFs.__mockFiles[todayPath()].trim().split('\n')
+      expect(lines).toHaveLength(50)
+      expect(JSON.parse(lines[0]).message).toBe('line 0')
+      expect(JSON.parse(lines[49]).message).toBe('line 49')
+      // One write for the first line, one for the 49 that queued behind it.
+      expect(mockFs.writeAsStringAsync.mock.calls.length).toBeLessThanOrEqual(2)
+    })
+
+    it('flush resolves once everything sent has been written', async () => {
+      const transport = new FileTransport()
+      void transport.send([makeEntry({ message: 'a' })])
+      void transport.send([makeEntry({ message: 'b' })])
+
+      await transport.flush()
+
+      expect(mockFs.__mockFiles[todayPath()].trim().split('\n')).toHaveLength(2)
+    })
+
+    it('never deletes today\'s file in size cleanup; trims its oldest lines instead', async () => {
+      const old = 'x'.repeat(100)
+      mockFs.__mockFiles[todayPath()] = `${Array.from({ length: 20_000 }, (_, i) => `${old}${i}`).join('\n')}\n`
+
+      const transport = new FileTransport({ maxSizeMB: 1 })
+      await transport.send([makeEntry({ message: 'newest' })])
+
+      const content = mockFs.__mockFiles[todayPath()]
+      expect(content).toBeDefined()
+      expect(content.length).toBeLessThan(1024 * 1024)
+      expect(content).toContain('"message":"newest"')
+      expect(content).not.toContain(`${old}0\n`)
+      expect(mockFs.deleteAsync).not.toHaveBeenCalledWith(todayPath(), expect.anything())
+    })
+
+    it('readAll returns every day file, oldest first, including pending lines', async () => {
+      mockFs.__mockFiles['/mock/documents/logs/logs-2099-01-01.txt'] = 'future\n'
+      const transport = new FileTransport({ retentionDays: 100_000 })
+      mockFs.__mockFiles['/mock/documents/logs/logs-2000-01-01.txt'] = 'past\n'
+      void transport.send([makeEntry({ message: 'pending' })])
+
+      const all = await transport.readAll()
+
+      expect(all.indexOf('past')).toBeLessThan(all.indexOf('pending'))
+      expect(all.indexOf('pending')).toBeLessThan(all.indexOf('future'))
+    })
   })
 })

@@ -139,6 +139,7 @@ export function createAnalyticsTools(
     = config.authorize
       ?? familyScopeAuthorize(config.analytics, {
         familyMembersProvider: config.familyMembersProvider,
+        logger: config.logger,
       })
 
   const audit = createAuditWriter({

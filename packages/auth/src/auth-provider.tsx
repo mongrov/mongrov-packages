@@ -2,6 +2,7 @@ import type { AuthClient, AuthClientConfig, AuthState } from './types'
 import * as React from 'react'
 import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { createAuthClient } from './auth-client'
+import { describeError } from './log'
 
 interface AuthActions {
   signIn: (credentials: Record<string, unknown>) => Promise<void>
@@ -21,7 +22,11 @@ export function AuthProvider(props: {
 }): JSX.Element {
   const { config, children } = props
 
-  const client = useMemo(() => createAuthClient(config), [])
+  // Config is read once: later changes are not applied to the live client.
+  const { client, logger } = useMemo(
+    () => ({ client: createAuthClient(config), logger: config.logger }),
+    [],
+  )
   // Stable action references — never change across renders
   const actions = useRef<AuthActions>({
     signIn: client.signIn,
@@ -29,9 +34,13 @@ export function AuthProvider(props: {
   }).current
 
   useEffect(() => {
-    client.hydrate()
+    // hydrate handles and logs its own failures; this only catches a throw
+    // from the machine itself.
+    client.hydrate().catch((err: unknown) => {
+      logger?.error('[auth] hydrate threw', { error: describeError(err) })
+    })
     return () => client.destroy()
-  }, [client])
+  }, [client, logger])
 
   return (
     <AuthContext.Provider value={{ client, actions }}>

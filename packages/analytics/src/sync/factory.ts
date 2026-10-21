@@ -23,7 +23,7 @@ import type { TableName } from '../core/schemas'
 import type { AnalyticsEngine, AttachContext, KVStore } from '../core/types'
 import type { RulesEngine } from '../rules/types'
 import type { EventBus } from './events'
-import type { PrefetchPolicy } from './fetcher'
+import type { FetchResult, PrefetchPolicy } from './fetcher'
 import type { SyncEmitter } from './flusher'
 import type { SensorSink, SyncManager, SyncManagerState, SyncProgress } from './manager'
 import type {
@@ -32,23 +32,22 @@ import type {
   MapperContext,
   RingConfigTranslator,
 } from './mapper/types'
+import type { PushResult } from './pusher'
 import type { BackgroundTaskPort, ConstraintPort, SchedulerLogger, SchedulerState } from './scheduler'
 import type { SleepDeriver } from './sleep-derive'
 import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
 import { z } from 'zod'
+import { describeError } from '../core/errors'
 import { createBaselineComputer } from './baseline-compute'
 import { SensorBuffer } from './buffer'
 import { bindFlushEvents, bindPushEvents } from './events'
 import { R2Fetcher } from './fetcher'
-import { BatchFlusher } from './flusher'
+import { BatchFlusher, MAX_CONSECUTIVE_FAILURES } from './flusher'
 import { mapFirmwareExport } from './mapper/firmware'
 import { OverflowStore } from './overflow'
 import { PendingClosesStore } from './pending_closes'
 import { R2Pusher } from './pusher'
-import {
-
-  SyncScheduler,
-} from './scheduler'
+import { logError, SyncScheduler } from './scheduler'
 import { createSleepDeriver } from './sleep-derive'
 
 import { FlushTriggers } from './triggers'
@@ -172,10 +171,22 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   })
 
   const overflow = new OverflowStore(config.storage)
+  // `drop-newest` discards whole pushes once the ring is full, and nothing
+  // was listening. One line on the first drop, then every 50th, so a stuck
+  // buffer shows up without flooding the export.
+  let droppedPushes = 0
+  let droppedRows = 0
   const buffer = new SensorBuffer({
     overflow,
     maxBufferBytes: config.overflow?.maxBufferBytes,
     policy: config.overflow?.policy,
+    onDrop: ({ table, droppedRowCount }) => {
+      droppedPushes += 1
+      droppedRows += droppedRowCount
+      if (droppedPushes % 50 === 1) {
+        config.logger?.warn('sync.buffer.dropped', { table, droppedRowCount, droppedPushes, droppedRows })
+      }
+    },
   })
 
   const progress: SyncProgress = { pendingByTable: {} }
@@ -205,14 +216,43 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     // (principle 35).
     rulesEngine.evaluateOnBatch({ affectedUserIds, affectedTables })
       .catch((err: unknown) => {
-        rulesLogger?.warn('sync.factory: rulesEngine.evaluateOnBatch threw', {
+        // The evaluator swallows its own per-rule failures, so reaching
+        // here is unexpected.
+        logError(rulesLogger, 'sync.factory: rulesEngine.evaluateOnBatch threw', {
           trigger: label,
-          err: err instanceof Error ? err.message : String(err),
+          err: describeError(err),
         })
       })
   }
 
   const flushEmitter: SyncEmitter = (event) => {
+    // The flusher's failures and dropped rows were emitted but never logged:
+    // `bindFlushEvents` forwards only successes, so a table that failed to
+    // land, or rows rejected for good, left no trace in an exported log.
+    if (event.type === 'flush-failed') {
+      // `warn` while the rows are kept for a retry; `error` once the table
+      // has used its retry budget and sits in `error` until a flush lands.
+      const failures = flusher.failureCountOf(event.payload.table)
+      const meta = {
+        table: event.payload.table,
+        code: event.payload.error.code,
+        failures,
+        error: describeError(event.payload.error),
+      }
+      if (failures >= MAX_CONSECUTIVE_FAILURES)
+        logError(config.logger, 'sync.flush.failed', meta)
+      else
+        config.logger?.warn('sync.flush.failed', meta)
+    }
+    if (event.type === 'flushed' && (event.payload.rowsRejected ?? 0) > 0) {
+      config.logger?.warn('sync.flush.rows_rejected', {
+        table: event.payload.table,
+        reason: event.payload.reason,
+        rowsRejected: event.payload.rowsRejected,
+        rowsFlushed: event.payload.rowsFlushed,
+        sample: event.payload.rejectedSample,
+      })
+    }
     if (event.type === 'flushed') {
       progress.pendingByTable[event.payload.table] = 0
       progress.lastFlushAt = Date.now()
@@ -247,6 +287,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
     }
     catch {
+      // expected: no Intl on a bare JS host (CI); UTC is the documented fallback.
       return 'UTC'
     }
   }
@@ -257,9 +298,12 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     try {
       return (await config.userTimezoneProvider(userId)) ?? deviceTimezone()
     }
-    catch {
+    catch (err) {
       // A profile lookup failure must not skip the baseline entirely —
       // a baseline in the device zone is far better than none.
+      config.logger?.warn('sync.factory: userTimezoneProvider threw; using device zone', {
+        err: describeError(err),
+      })
       return deviceTimezone()
     }
   }
@@ -285,6 +329,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     flusher,
     maxRows: config.flush?.maxRows,
     maxAgeMs: config.flush?.maxAgeMs,
+    logger: config.logger,
   })
 
   // Sleep sessions and stages are derived from sleep_raw by the correction
@@ -304,14 +349,55 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   const watermark = new WatermarkStore({ kv: config.storage })
 
   const busPushEmit = config.eventBus ? bindPushEvents(config.eventBus) : undefined
+
+  // A failed push keeps its watermark, so the rows go again next cycle:
+  // `warn`. A token that could not be refreshed is an auth failure: `error`.
+  function logPushFailure(result: PushResult): void {
+    const meta = {
+      table: result.table,
+      code: result.error?.code,
+      error: result.error ? describeError(result.error) : undefined,
+    }
+    if (result.error?.code === 'token_expired')
+      logError(config.logger, 'sync.push.failed', meta)
+    else
+      config.logger?.warn('sync.push.failed', meta)
+  }
+
+  // Fetch failures were returned and dropped. One line per call, naming
+  // every failed table — the watermark did not move, so the next fetch
+  // retries them.
+  function logFetchResults(label: string, results: FetchResult[], startedAt: number): FetchResult[] {
+    const failed = results.filter(r => !r.ok)
+    const summary = {
+      durationMs: Date.now() - startedAt,
+      tables: results.length,
+      rowsFetched: results.reduce((sum, r) => sum + r.rowsFetched, 0),
+    }
+    if (failed.length > 0) {
+      config.logger?.warn(`sync.${label}.failed`, {
+        ...summary,
+        failedTables: failed.map(r => r.table),
+        firstError: failed[0]?.error ? describeError(failed[0].error) : undefined,
+      })
+    }
+    else if (label === 'prefetch') {
+      // Incremental fetches are summarised by `scheduler.cycle.ok`.
+      config.logger?.info('sync.prefetch.ok', summary)
+    }
+    return results
+  }
   const pusher = new R2Pusher({
     engine: engineAsHybrid,
     watermark,
     refreshToken: config.refreshToken,
+    logger: config.logger,
     emit: (result) => {
       if (result.ok && result.rowsPushed > 0) {
         progress.lastSyncCompleteAt = Date.now()
       }
+      if (!result.ok)
+        logPushFailure(result)
       busPushEmit?.(result)
     },
   })
@@ -366,12 +452,19 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         // as a single unit rather than one wake-up per table.
         const batchId = flusher.beginBatch('scheduled')
         try {
-          await Promise.all(
+          const results = await Promise.all(
             config.tables.map(t => flusher.flush(t, 'scheduled', batchId)),
           )
           // After the raw tables land, before endBatch: corrected nights
           // are written into this batch so rules see them (never throws).
           await sleepDeriver?.derive(batchId, 'scheduled')
+          // Reported, not thrown: a failed table keeps its rows buffered for
+          // the next cycle, and the rest of the cycle (push, fetch,
+          // baselines) should still run. The scheduler logs the summary.
+          return {
+            failedTables: results.filter(r => !r.ok).map(r => r.table),
+            rowsFlushed: results.reduce((sum, r) => sum + r.rowsFlushed, 0),
+          }
         }
         finally {
           // `finally` so a partial failure still closes the batch — the
@@ -397,6 +490,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
               rulesLogger?.warn('sync.factory: pushCloses failed; requeued', {
                 count: pending.length,
                 code: result.error?.code,
+                error: result.error ? describeError(result.error) : undefined,
               })
             }
           }
@@ -404,13 +498,16 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
             await pendingClosesStore.requeue(ctx, pending)
             rulesLogger?.warn('sync.factory: pushCloses threw; requeued', {
               count: pending.length,
-              err: err instanceof Error ? err.message : String(err),
+              err: describeError(err),
             })
           }
         },
       fetchIncremental: isLocal
         ? async () => []
-        : async ctx => fetcher.fetchIncremental(ctx),
+        : async (ctx) => {
+          const startedAt = Date.now()
+          return logFetchResults('fetch', await fetcher.fetchIncremental(ctx), startedAt)
+        },
       computeBaselines: config.computeBaselines === false
         ? undefined
         : async () => {
@@ -423,6 +520,8 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
             members = await config.analytics.getFamilyMembers()
           }
           catch {
+            // expected: getFamilyMembers logs its own provider failure at
+            // `error`; the signed-in user's baselines still refresh.
             members = []
           }
           const userIds = members.length > 0 ? members : [config.ctx.userId]
@@ -445,8 +544,8 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
             await rulesEngine.evaluateScheduled()
           }
           catch (err) {
-            rulesLogger?.warn('sync.factory: rulesEngine.evaluateScheduled threw', {
-              err: err instanceof Error ? err.message : String(err),
+            logError(rulesLogger, 'sync.factory: rulesEngine.evaluateScheduled threw', {
+              err: describeError(err),
             })
           }
         }
@@ -483,6 +582,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     attachCtx: config.ctx,
     pendingClosesStore,
     sleepDeriver,
+    logger: config.logger,
   })
 
   return {
@@ -511,7 +611,10 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     triggerNow: () => scheduler.triggerNow(),
     prefetch: isLocal
       ? async () => []
-      : ctx => fetcher.prefetchOnAttach(ctx, config.prefetchPolicy),
+      : async (ctx) => {
+        const startedAt = Date.now()
+        return logFetchResults('prefetch', await fetcher.prefetchOnAttach(ctx, config.prefetchPolicy), startedAt)
+      },
   }
 }
 
@@ -526,6 +629,7 @@ interface CreateSinkDeps {
   attachCtx: AttachContext
   pendingClosesStore: PendingClosesStore
   sleepDeriver?: SleepDeriver
+  logger?: SchedulerLogger
 }
 
 /**
@@ -624,7 +728,7 @@ async function fetchActivePriorConfigs(
 }
 
 function createSensorSink(deps: CreateSinkDeps): SensorSink {
-  const { buffer, flusher, triggers, tables, engine, attachCtx, pendingClosesStore, sleepDeriver } = deps
+  const { buffer, flusher, triggers, tables, engine, attachCtx, pendingClosesStore, sleepDeriver, logger } = deps
   // Gated on subscription alone now — the mapper owns the translation, so
   // there is no consumer wiring left that could be missing.
   const handlesConfig = tables.includes('device_config')
@@ -706,6 +810,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       // would evaluate rules per table and reintroduce the race that
       // strictBatchOrdering exists to close.
       const batchId = flusher.beginBatch('manual')
+      const startedAt = Date.now()
       const results: FlushResult[] = []
       try {
         for (const table of tables) {
@@ -717,6 +822,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       finally {
         flusher.endBatch(batchId)
       }
+      logManualFlush(logger, results, startedAt)
       return results
     },
     pendingRowCount: async (table?: string) => {
@@ -728,6 +834,24 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       for (const t of tables) triggers.noteDrain(t)
     },
   }
+}
+
+/**
+ * The handoff summary for a manual flush — the app's post-sync write. Per-table
+ * failures are already logged by the flush emitter; this is the one line that
+ * says the handoff happened and how much landed.
+ */
+function logManualFlush(logger: SchedulerLogger | undefined, results: FlushResult[], startedAt: number): void {
+  const failedTables = results.filter(r => !r.ok).map(r => r.table)
+  const summary = {
+    durationMs: Date.now() - startedAt,
+    rowsFlushed: results.reduce((sum, r) => sum + r.rowsFlushed, 0),
+    failedTables,
+  }
+  if (failedTables.length > 0)
+    logger?.warn('sync.flush.manual.partial', summary)
+  else
+    logger?.info('sync.flush.manual.ok', summary)
 }
 
 function noopBackgroundTask(): BackgroundTaskPort {

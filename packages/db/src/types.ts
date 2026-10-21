@@ -48,6 +48,12 @@ export interface KVStoreConfig {
    * @default 'mongrov-kv'
    */
   instanceId?: string
+
+  /**
+   * Receives the in-memory fallback (MMKV unavailable) and unparseable stored
+   * values. Defaults to a dev-only console warning.
+   */
+  logger?: DBLogger
 }
 
 // ─── Database (RxDB) ───────────────────────────────────────────────────────

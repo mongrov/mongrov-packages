@@ -8,6 +8,7 @@
 import type { Message, Participant, Unsubscribe } from '@mongrov/types'
 import type {
   AdapterCredentials,
+  CollabLogger,
   FetchConversationsOptions,
   FetchConversationsResult,
   FetchMessagesOptions,
@@ -30,6 +31,8 @@ export interface RocketChatAdapterConfig {
    */
 
   client?: any
+  /** Logger for adapter internals (see `BaseAdapterOptions.logger`). */
+  logger?: CollabLogger
 }
 
 /**
@@ -61,7 +64,7 @@ export class RocketChatAdapter extends BaseAdapter {
   protected config: RocketChatAdapterConfig
 
   constructor(config: RocketChatAdapterConfig) {
-    super()
+    super({ logger: config.logger })
     this.config = config
   }
 

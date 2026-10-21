@@ -105,7 +105,7 @@ export async function bootstrapExtensions(
         await db.execute(`LOAD ${ext};`)
       }
       catch {
-        // Report the original LOAD failure: if the extension is meant to be
+        // expected: rethrown below as the original LOAD failure: if the extension is meant to be
         // linked in, "could not load" is the real problem and the INSTALL
         // 404 is just noise about a fetch that was never going to work.
         throw new AnalyticsError(

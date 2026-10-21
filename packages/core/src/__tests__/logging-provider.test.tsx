@@ -2,9 +2,10 @@
  * @jest-environment jsdom
  */
 
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import * as React from 'react'
 import { LoggingProvider, useLogger } from '../context/logging-provider'
+import * as loggerModule from '../logger'
 
 // Mock react-native
 jest.mock('react-native', () => ({
@@ -19,6 +20,7 @@ jest.mock('../network-state', () => ({
     isInternetReachable: true,
   })),
   addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
+  setNetworkStateLogger: jest.fn(),
 }))
 
 // @ts-expect-error global __DEV__
@@ -69,5 +71,38 @@ describe('LoggingProvider', () => {
     const logs = result.current.getLogs()
     expect(logs).toHaveLength(1)
     expect(logs[0].message).toBe('test from provider')
+  })
+})
+
+describe('LoggingProvider under Strict Mode', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('never hands out a logger it has destroyed', async () => {
+    const realCreate = loggerModule.createLogger
+    const destroyed = new WeakSet<object>()
+    jest.spyOn(loggerModule, 'createLogger').mockImplementation((config) => {
+      const logger = realCreate(config)
+      const destroy = logger.destroy
+      logger.destroy = async () => {
+        destroyed.add(logger)
+        return destroy()
+      }
+      return logger
+    })
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <React.StrictMode>
+        <LoggingProvider config={{ appVersion: '1.0.0', ringBuffer: true }}>
+          {children}
+        </LoggingProvider>
+      </React.StrictMode>
+    )
+
+    const { result } = renderHook(() => useLogger(), { wrapper })
+    await act(async () => {})
+
+    expect(destroyed.has(result.current)).toBe(false)
   })
 })

@@ -12,6 +12,7 @@ import type {
   CollabEventHandler,
   CollabEventName,
   CollabEvents,
+  CollabLogger,
   FetchConversationsOptions,
   FetchConversationsResult,
   FetchMessagesOptions,
@@ -21,6 +22,16 @@ import type {
   SendMessageParams,
   SendMessageResult,
 } from '../types'
+import { resolveCollabLogger } from '../logger'
+
+export interface BaseAdapterOptions {
+  /**
+   * Where adapter failures (throwing event handlers, status changes) are
+   * reported. Compatible with `@mongrov/core`'s Logger. Defaults to the dev
+   * console in `__DEV__`, nothing in release.
+   */
+  logger?: CollabLogger
+}
 
 /**
  * Abstract base class for collaboration adapters.
@@ -84,6 +95,27 @@ export abstract class BaseAdapter implements CollabAdapter {
 
   private eventHandlers = new Map<CollabEventName, Set<CollabEventHandler<CollabEventName>>>()
 
+  /** Logger for adapter internals; subclasses log through it too. */
+  protected logger: CollabLogger
+  private hasInjectedLogger: boolean
+
+  constructor(options?: BaseAdapterOptions) {
+    this.logger = resolveCollabLogger(options?.logger)
+    this.hasInjectedLogger = options?.logger !== undefined
+  }
+
+  /**
+   * Adopt a logger after construction. `CollabProvider` calls this with
+   * `CollabConfig.logger` so one injected logger covers the machine and the
+   * adapter. A logger passed to the constructor wins.
+   */
+  setLogger(logger: CollabLogger): void {
+    if (this.hasInjectedLogger)
+      return
+    this.logger = logger
+    this.hasInjectedLogger = true
+  }
+
   /** Current connection status */
   get status(): CollabConnectionStatus {
     return this._status
@@ -97,6 +129,8 @@ export abstract class BaseAdapter implements CollabAdapter {
    */
   protected setStatus(status: CollabConnectionStatus): void {
     if (this._status !== status) {
+      // debug: the connection machine logs the checkpoints at info.
+      this.logger.debug('[Collab] adapter status', { adapter: this.id, from: this._status, to: status })
       this._status = status
       this.emit('connection:status', status)
     }
@@ -163,7 +197,8 @@ export abstract class BaseAdapter implements CollabAdapter {
           handler(payload)
         }
         catch (error) {
-          console.error(`Error in event handler for ${event}:`, error)
+          // One throwing subscriber must not starve the others.
+          this.logger.error('[Collab] event handler threw', { adapter: this.id, event, error: String(error) })
         }
       }
     }

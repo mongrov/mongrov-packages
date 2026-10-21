@@ -8,6 +8,7 @@
  *
  * The contract states the rules directly:
  *
+ *   query failed (opt-in)      → 'error'
  *   cadence row missing        → 'no-sensor'
  *   daysWorn == 0              → 'first-day'
  *   baseline.sample_count < 30 → 'learning'
@@ -30,6 +31,13 @@ export interface StatusInputs {
   /** Still fetching the first paint. Outranks everything — we know nothing. */
   isLoading: boolean
   /**
+   * A query feeding this status failed. Optional so existing callers keep
+   * their behaviour; without it a failed query resolves on whatever empty
+   * data it left behind — usually `first-day`, which tells a user with weeks
+   * of history to start wearing the ring.
+   */
+  failed?: boolean
+  /**
    * Whether the device reports a cadence row for this metric. `false` means
    * the ring lacks the sensor, which is a different thing from having it and
    * never having worn it.
@@ -49,13 +57,18 @@ export interface StatusInputs {
 export const BASELINE_READY_DAYS = 30
 
 export function resolveVitalStatus(inputs: StatusInputs): VitalStatus {
-  const { isLoading, hasCadence, daysWorn, baselineSampleCount } = inputs
+  const { isLoading, failed = false, hasCadence, daysWorn, baselineSampleCount } = inputs
 
   // First paint only. Anything below would be guessing from absent data —
   // in particular, an empty result during load looks exactly like a ring
   // that has never been worn.
   if (isLoading)
     return 'loading'
+
+  // Before every data rung: after a failure, cadence and daysWorn are the
+  // empty defaults, not facts about the ring.
+  if (failed)
+    return 'error'
 
   // Before daysWorn: a ring without the sensor also has zero days.
   if (!hasCadence)

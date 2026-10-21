@@ -3,7 +3,8 @@
  * Uses expo-secure-store for secure token/secret storage.
  */
 
-import type { KVStore } from '../types'
+import type { DBLogger, KVStore } from '../types'
+import { noopLogger } from '../logger'
 
 // Type for expo-secure-store module
 type SecureStoreModule = typeof import('expo-secure-store')
@@ -41,9 +42,11 @@ const KEYS_REGISTRY = '__mongrov_secure_keys__'
  */
 export class SecureBackend implements KVStore {
   private store: SecureStoreModule
+  private readonly logger: DBLogger
 
-  constructor() {
+  constructor(logger: DBLogger = noopLogger) {
     this.store = getSecureStore()
+    this.logger = logger
   }
 
   async get(key: string): Promise<string | null> {
@@ -67,7 +70,13 @@ export class SecureBackend implements KVStore {
     try {
       return JSON.parse(value) as T
     }
-    catch {
+    catch (error) {
+      // Key name only — the value may be a secret.
+      this.logger.warn('[@mongrov/db] secure value is not JSON; treating as missing', {
+        key,
+        // Name only: JSON.parse messages quote the stored value.
+        error: error instanceof Error ? error.name : 'unknown',
+      })
       return null
     }
   }
@@ -90,7 +99,12 @@ export class SecureBackend implements KVStore {
     try {
       return JSON.parse(keysJson) as string[]
     }
-    catch {
+    catch (error) {
+      // The registry is rewritten on the next set; until then clear() and
+      // getAllKeys() cannot see the keys it tracked.
+      this.logger.warn('[@mongrov/db] secure key registry is corrupt; treating as empty', {
+        error: error instanceof Error ? error.name : 'unknown',
+      })
       return []
     }
   }

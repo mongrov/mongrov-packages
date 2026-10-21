@@ -13,6 +13,7 @@ import type {
   CollabLogger,
 } from './types'
 import { assign, fromPromise, setup } from 'xstate'
+import { noopCollabLogger } from './logger'
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
@@ -39,11 +40,10 @@ export type CollabMachineEvent
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-const noopLogger: CollabLogger = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
+const noopLogger: CollabLogger = noopCollabLogger
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error)
 }
 
 function calculateDelay(
@@ -121,27 +121,61 @@ export const collabMachine = setup({
       reconnectAttempts: () => 0,
     }),
     logConnecting: ({ context }) => {
-      context.logger.info('Connecting to server')
+      context.logger.info('[Collab] connecting', { adapter: context.adapter.id })
     },
     logConnected: ({ context }) => {
-      context.logger.info('Connected to server')
+      context.logger.info('[Collab] connected', {
+        adapter: context.adapter.id,
+        afterReconnectAttempts: context.reconnectAttempts,
+      })
     },
     logDisconnected: ({ context }) => {
-      context.logger.info('Disconnected from server')
+      context.logger.info('[Collab] disconnected', { adapter: context.adapter.id })
+    },
+    logDisconnectFailed: ({ context, event }) => {
+      // Handled: the machine still lands in `disconnected`.
+      context.logger.warn('[Collab] disconnect failed; treating as disconnected', {
+        adapter: context.adapter.id,
+        error: describeError((event as { error?: unknown }).error),
+      })
+    },
+    logConnectionLost: ({ context, event }) => {
+      context.logger.warn('[Collab] connection lost', {
+        adapter: context.adapter.id,
+        reason: event.type === 'CONNECTION_LOST' ? event.reason : undefined,
+      })
     },
     logReconnecting: ({ context }) => {
-      context.logger.info('Reconnecting', {
+      context.logger.info('[Collab] reconnecting', {
         attempt: context.reconnectAttempts + 1,
         maxAttempts: context.maxReconnectAttempts,
       })
     },
-    logError: ({ context, event }) => {
+    logRetryRequested: ({ context }) => {
+      context.logger.info('[Collab] retry requested', { adapter: context.adapter.id })
+    },
+    // A connection that was up reported an error: the machine reconnects, so
+    // this is degraded, not terminal.
+    logConnectionError: ({ context, event }) => {
       if (event.type === 'CONNECTION_ERROR') {
-        context.logger.error('Connection error', { error: event.error.message })
+        context.logger.warn('[Collab] connection error', {
+          adapter: context.adapter.id,
+          error: describeError(event.error),
+        })
       }
     },
+    // `connect()` rejected: the machine stops in `error` until CONNECT/RETRY.
+    // Reads `context.error` (assigned just before) because the invoke's error
+    // event is not a CONNECTION_ERROR.
+    logConnectFailed: ({ context }) => {
+      context.logger.error('[Collab] connect failed', {
+        adapter: context.adapter.id,
+        reconnectAttempts: context.reconnectAttempts,
+        error: describeError(context.error),
+      })
+    },
     logMaxRetriesReached: ({ context }) => {
-      context.logger.error('Max reconnection attempts reached', {
+      context.logger.error('[Collab] max reconnection attempts reached', {
         attempts: context.reconnectAttempts,
       })
     },
@@ -189,7 +223,8 @@ export const collabMachine = setup({
         }),
         onDone: {
           target: 'connected',
-          actions: ['clearError', 'resetReconnectAttempts', 'logConnected'],
+          // Log first so the line carries how many attempts it took.
+          actions: ['logConnected', 'clearError', 'resetReconnectAttempts'],
         },
         onError: {
           target: 'error',
@@ -197,7 +232,7 @@ export const collabMachine = setup({
             assign({
               error: ({ event }) => event.error as Error,
             }),
-            'logError',
+            'logConnectFailed',
           ],
         },
       },
@@ -215,11 +250,11 @@ export const collabMachine = setup({
         },
         CONNECTION_LOST: {
           target: 'reconnecting',
-          actions: ['logReconnecting'],
+          actions: ['logConnectionLost', 'logReconnecting'],
         },
         CONNECTION_ERROR: {
           target: 'reconnecting',
-          actions: ['setError', 'logError', 'logReconnecting'],
+          actions: ['setError', 'logConnectionError', 'logReconnecting'],
         },
       },
     },
@@ -245,6 +280,7 @@ export const collabMachine = setup({
         RETRY: {
           target: 'connecting',
           guard: 'canRetry',
+          actions: ['logRetryRequested'],
         },
       },
     },
@@ -262,7 +298,7 @@ export const collabMachine = setup({
         },
         onError: {
           target: 'disconnected',
-          actions: ['clearCredentials', 'logDisconnected'],
+          actions: ['clearCredentials', 'logDisconnectFailed'],
         },
       },
     },
@@ -279,6 +315,7 @@ export const collabMachine = setup({
         RETRY: {
           target: 'reconnecting',
           guard: 'hasCredentials',
+          actions: ['logRetryRequested', 'logReconnecting'],
         },
       },
     },

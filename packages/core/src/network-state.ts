@@ -1,3 +1,6 @@
+import type { InternalLogger } from './internal-log'
+import { devConsoleLogger, FailureGate } from './internal-log'
+
 export interface NetworkState {
   isConnected: boolean
   type: string | null
@@ -14,6 +17,18 @@ let cachedState: NetworkState = {
 
 const listeners = new Set<NetworkStateListener>()
 let pollingInterval: ReturnType<typeof setInterval> | null = null
+
+// Module state has no logger of its own; `LoggingProvider` sets the app's.
+let log: InternalLogger = devConsoleLogger()
+const pollFailures = new FailureGate()
+
+/**
+ * Where connectivity changes and polling failures are reported. Called by
+ * `LoggingProvider`; `null` restores the dev-console fallback.
+ */
+export function setNetworkStateLogger(logger: InternalLogger | null): void {
+  log = logger ?? devConsoleLogger()
+}
 
 function getExpoNetwork() {
   try {
@@ -44,21 +59,47 @@ async function pollAndNotify(): Promise<void> {
         || newState.type !== cachedState.type
         || newState.isInternetReachable !== cachedState.isInternetReachable
 
+    const previous = cachedState
     cachedState = newState
 
+    const failed = pollFailures.recover()
+    if (failed > 0)
+      log.info('[Network] state readable again', { failedPolls: failed })
+
     if (changed) {
-      listeners.forEach(cb => cb(newState))
+      log.info('[Network] state changed', {
+        isConnected: newState.isConnected,
+        type: newState.type,
+        isInternetReachable: newState.isInternetReachable,
+        wasConnected: previous.isConnected,
+      })
+      notify(newState)
     }
   }
-  catch {
-    // Silently ignore polling errors
+  catch (error) {
+    // The cached state stays as it was; listeners hear nothing until a poll
+    // succeeds. Reported once per run of failures (polls every 15s).
+    if (pollFailures.fail())
+      log.warn('[Network] state poll failed; keeping last known state', { error: String(error) })
   }
+}
+
+function notify(state: NetworkState): void {
+  listeners.forEach((cb) => {
+    // One throwing listener must not starve the others.
+    try {
+      cb(state)
+    }
+    catch (error) {
+      log.error('[Network] listener threw', { error: String(error) })
+    }
+  })
 }
 
 function startPolling(): void {
   if (pollingInterval)
     return
-  pollAndNotify()
+  void pollAndNotify() // never rejects: failures are reported inside
   pollingInterval = setInterval(pollAndNotify, 15000)
 }
 
@@ -102,7 +143,10 @@ export function useNetworkState(): NetworkState {
   const [state, setState] = useState<NetworkState>(cachedState)
 
   useEffect(() => {
-    getNetworkState().then(setState)
+    getNetworkState().then(setState, (error: unknown) => {
+      // Keeps the cached state; the listener below picks up the next poll.
+      log.warn('[Network] initial state read failed', { error: String(error) })
+    })
     const subscription = addNetworkStateListener(setState)
     return () => subscription.remove()
   }, [])

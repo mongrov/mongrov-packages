@@ -38,9 +38,14 @@ export type Verbatim = string
  *
  * `learning` is the subtle one: there IS data and it renders, but the hook
  * returns no verdicts and population rails only.
+ *
+ * `error` is reached only when the caller passes `failed: true` to
+ * `resolveVitalStatus`: a query that failed proves nothing about the ring,
+ * so it must not read as `first-day`. Renders no data and no verdict.
  */
 export type VitalStatus
   = | 'loading'
+    | 'error'
     | 'no-sensor'
     | 'first-day'
     | 'learning'

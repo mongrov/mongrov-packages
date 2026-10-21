@@ -370,14 +370,14 @@ function makeSpyLogger(): AnalyticsLogger {
 }
 
 describe('createAnalytics — logger integration (Phase 7)', () => {
-  it('emits debug entries for state transitions', async () => {
+  it('emits info entries for state transitions', async () => {
     const { config, fakeDb } = buildHarness()
     const logger = makeSpyLogger()
     const engine = createAnalytics({ ...config, logger }, { duckdbFactory: fakeDb.factory })
     await waitForState(engine, ['ready'])
 
-    const debugCalls = (logger.debug as ReturnType<typeof vi.fn>).mock.calls
-    const values = debugCalls
+    const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls
+    const values = infoCalls
       .filter(args => args[0] === 'analytics.state')
       .map(args => (args[1] as { value: string }).value)
     expect(values).toContain('opening')

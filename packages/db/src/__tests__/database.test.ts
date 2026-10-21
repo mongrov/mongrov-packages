@@ -170,6 +170,28 @@ describe('createDatabase', () => {
   })
 })
 
+describe('createDatabase failure', () => {
+  afterEach(() => {
+    __clearAllDatabases()
+  })
+
+  it('logs an error with the stage and rethrows when open fails', async () => {
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    await createDatabase({ name: 'dup-db', storage: {}, collections: [] })
+    await expect(createDatabase({
+      name: 'dup-db',
+      storage: {},
+      collections: [],
+      ignoreDuplicate: false,
+      logger,
+    })).rejects.toThrow('already exists')
+    expect(logger.error).toHaveBeenCalledWith(
+      'Database open failed',
+      expect.objectContaining({ name: 'dup-db', stage: 'open', error: expect.stringContaining('already exists') }),
+    )
+  })
+})
+
 describe('destroyDatabase', () => {
   afterEach(async () => {
     __clearAllDatabases()

@@ -18,6 +18,9 @@ import type {
 } from './types'
 import { DataAccessError } from './errors'
 
+// React Native global; undefined under Node / vitest.
+declare const __DEV__: boolean | undefined
+
 /**
  * Register a typed query. Runtime enforces the engine-specific required
  * field so JS callers get a loud error even when TypeScript is skipped.
@@ -190,6 +193,10 @@ function validateJoinInvalidation<TInput, TOutput>(
   if (missing.length === 0)
     return
 
+  // Dev-time authoring check (defineQuery runs at module load, before any
+  // logger exists); silent in release builds.
+  if (typeof __DEV__ !== 'undefined' && !__DEV__)
+    return
   const snippet = config.sql.replace(WHITESPACE_RE, ' ').trim().slice(0, 80)
   console.warn(
     `[@mongrov/data-access] defineQuery: SQL references tables `

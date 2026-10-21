@@ -121,5 +121,47 @@ describe('SecureBackend', () => {
       await store.set('invalid', 'not{json')
       expect(await store.getObject('invalid')).toBeNull()
     })
+
+    it('warns through the injected logger without logging the value', async () => {
+      const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      const store = new SecureBackend(logger)
+      await store.set('invalid', 'not{json-secret')
+      expect(await store.getObject('invalid')).toBeNull()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('not JSON'),
+        expect.objectContaining({ key: 'invalid' }),
+      )
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret')
+    })
+  })
+})
+
+describe('MMKVBackend logging', () => {
+  it('warns through the injected logger on unparseable values', async () => {
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    const store = new MMKVBackend('log-test', logger)
+    await store.set('bad', 'not{json')
+    expect(await store.getObject('bad')).toBeNull()
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('not JSON'),
+      expect.objectContaining({ instanceId: 'log-test', key: 'bad' }),
+    )
+  })
+
+  it('warns through the injected logger when falling back to memory', async () => {
+    jest.resetModules()
+    jest.doMock('react-native-mmkv', () => {
+      throw new Error('native module missing')
+    })
+    const { MMKVBackend: Isolated } = require('../kv-backends/mmkv-backend') as typeof import('../kv-backends/mmkv-backend')
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    const store = new Isolated('fallback', logger)
+    await store.set('k', 'v')
+    expect(await store.get('k')).toBe('v')
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('in-memory fallback'),
+      expect.objectContaining({ instanceId: 'fallback', error: expect.stringContaining('native module missing') }),
+    )
+    jest.dontMock('react-native-mmkv')
   })
 })

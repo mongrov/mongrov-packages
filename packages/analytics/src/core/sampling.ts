@@ -32,6 +32,7 @@
 import type { MetricId, MetricSamplingMinutes } from './metric_metadata'
 import type { AnalyticsEngine, AnalyticsLogger } from './types'
 import { describeError } from './errors'
+import { tailId } from './logger'
 import {
   METRIC_METADATA,
 
@@ -127,7 +128,7 @@ export function createSamplingResolver(
         // evaluation pass over a cadence lookup.
         config.logger?.warn('sampling: device_config read failed, using fallback', {
           metric,
-          deviceId,
+          deviceId: tailId(deviceId),
           err: describeError(err),
         })
       }

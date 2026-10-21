@@ -266,7 +266,7 @@ export function spo2DayLearning(): Spo2DayView {
 }
 
 /** Statuses with nothing to render — the hook still returns meta for the copy. */
-export function spo2DayEmpty(status: Extract<VitalStatus, 'loading' | 'no-sensor' | 'first-day'>): Spo2DayView {
+export function spo2DayEmpty(status: Extract<VitalStatus, 'loading' | 'error' | 'no-sensor' | 'first-day'>): Spo2DayView {
   const ready = spo2DayReady()
   return {
     ...ready,

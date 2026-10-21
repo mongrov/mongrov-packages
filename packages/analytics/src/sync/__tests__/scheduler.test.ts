@@ -164,3 +164,97 @@ describe('SyncScheduler.triggerNow (T-24)', () => {
     expect(seen).toEqual(['running', 'idle'])
   })
 })
+
+describe('SyncScheduler cycle logging', () => {
+  function spyLogger() {
+    return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  }
+
+  function withLogger(coordinator: SyncCoordinator, logger: ReturnType<typeof spyLogger>) {
+    return new SyncScheduler({
+      backgroundTask: makeBackgroundTask(),
+      constraints: makeConstraints(),
+      coordinator,
+      tables: ['hrv', 'hr'],
+      ctx,
+      constraintPolicy: { requireWifi: false, requireCharging: false },
+      logger,
+    })
+  }
+
+  it('logs a clean cycle at info, with its duration', async () => {
+    const logger = spyLogger()
+    const coordinator = makeCoordinator()
+    coordinator.flushAll.mockResolvedValue({ failedTables: [], rowsFlushed: 12 })
+
+    await withLogger(coordinator, logger).triggerNow()
+
+    expect(logger.info).toHaveBeenCalledWith('scheduler.cycle.ok', expect.objectContaining({
+      rowsFlushed: 12,
+      failedTables: [],
+      durationMs: expect.any(Number),
+    }))
+  })
+
+  it('does not report ok when a table failed to flush', async () => {
+    const logger = spyLogger()
+    const coordinator = makeCoordinator()
+    coordinator.flushAll.mockResolvedValue({ failedTables: ['hr'], rowsFlushed: 3 })
+
+    await withLogger(coordinator, logger).triggerNow()
+
+    expect(logger.warn).toHaveBeenCalledWith('scheduler.cycle.partial', expect.objectContaining({ failedTables: ['hr'] }))
+    expect(logger.info).not.toHaveBeenCalledWith('scheduler.cycle.ok', expect.anything())
+  })
+
+  it('names tables that failed to push or fetch, instead of reporting ok', async () => {
+    const logger = spyLogger()
+    const coordinator = makeCoordinator()
+    coordinator.pushAll.mockResolvedValue([
+      { ok: true, table: 'hrv', rowsPushed: 4 },
+      { ok: false, table: 'hr', rowsPushed: 0 },
+    ])
+    coordinator.fetchIncremental.mockResolvedValue([{ ok: false, table: 'hrv', rowsFetched: 0 }])
+
+    await withLogger(coordinator, logger).triggerNow()
+
+    expect(logger.warn).toHaveBeenCalledWith('scheduler.cycle.partial', expect.objectContaining({
+      rowsPushed: 4,
+      pushFailedTables: ['hr'],
+      fetchFailedTables: ['hrv'],
+    }))
+    expect(logger.info).not.toHaveBeenCalledWith('scheduler.cycle.ok', expect.anything())
+  })
+
+  it('logs a throwing constraint port rather than rejecting the task handler', async () => {
+    const logger = spyLogger()
+    // The scheduled (constraint-checked) path, through the registered handler.
+    const bg = makeBackgroundTask()
+    const scheduler = new SyncScheduler({
+      backgroundTask: bg,
+      constraints: { isOnWifi: vi.fn().mockRejectedValue(new Error('netinfo gone')), isCharging: vi.fn() },
+      coordinator: makeCoordinator(),
+      tables: ['hrv'],
+      ctx,
+      logger,
+    })
+    await scheduler.start()
+    await expect(bg.handlers.get('@mongrov/analytics:sync')!()).resolves.toBeUndefined()
+
+    expect(logger.error).toHaveBeenCalledWith('scheduler.cycle.constraints_failed', expect.objectContaining({
+      error: expect.stringContaining('netinfo gone'),
+    }))
+  })
+
+  it('logs a failed cycle at error with the whole cause chain', async () => {
+    const logger = spyLogger()
+    const coordinator = makeCoordinator()
+    coordinator.flushAll.mockRejectedValue(new Error('outer', { cause: new Error('duckdb: disk full') }))
+
+    await withLogger(coordinator, logger).triggerNow()
+
+    expect(logger.error).toHaveBeenCalledWith('scheduler.cycle.error', expect.objectContaining({
+      error: expect.stringContaining('duckdb: disk full'),
+    }))
+  })
+})

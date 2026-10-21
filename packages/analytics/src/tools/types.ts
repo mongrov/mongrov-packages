@@ -70,7 +70,8 @@ export interface ToolsLogger {
  */
 export type ToolImpl<Input> = (
   input: Input,
-  ctx: ToolContext & { analytics: AnalyticsEngine },
+  /** `logger` is the tools logger, for failures an impl degrades past. */
+  ctx: ToolContext & { analytics: AnalyticsEngine, logger?: ToolsLogger },
 ) => Promise<ToolResult>
 
 /**

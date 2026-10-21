@@ -28,11 +28,11 @@ import { SecureBackend } from './kv-backends/secure-backend'
  * ```
  */
 export function createKVStore(config: KVStoreConfig = {}): KVStore {
-  const { secure = false, instanceId = 'mongrov-kv' } = config
+  const { secure = false, instanceId = 'mongrov-kv', logger } = config
 
   if (secure) {
-    return new SecureBackend()
+    return new SecureBackend(logger)
   }
 
-  return new MMKVBackend(instanceId)
+  return new MMKVBackend(instanceId, logger)
 }

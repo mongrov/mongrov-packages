@@ -1,12 +1,11 @@
 import type { Message, UseAIChatReturn } from './types'
 import { useMachine } from '@xstate/react'
 import { useCallback, useMemo } from 'react'
-import { useAIClient, useAIConfig } from './ai-provider'
+import { useAIClient } from './ai-provider'
 import { chatMachine } from './machines/chat-machine'
 
 export function useAIChat(): UseAIChatReturn {
   const client = useAIClient()
-  const { logger } = useAIConfig()
   const [state, send] = useMachine(chatMachine)
 
   const sendMessage = useCallback(
@@ -38,15 +37,12 @@ export function useAIChat(): UseAIChatReturn {
       }
       catch (err) {
         const error = err instanceof Error ? err : new Error(String(err))
-        // Log as well as store it. The machine's context is only visible to
-        // whatever reads `error` off this hook; a caller that ignores it —
-        // which ChatScreen did until 0.4.1 — turns a failed request into
-        // silence, with no trace in Metro either.
-        logger?.error?.('[ai] chat request failed', { message: error.message })
+        // Not logged here: `client.chat` already logged it at error (once
+        // per failure, without the provider's message).
         send({ type: 'ERROR', error })
       }
     },
-    [client, send, logger, state.context.messages],
+    [client, send, state.context.messages],
   )
 
   const cancel = useCallback(() => {

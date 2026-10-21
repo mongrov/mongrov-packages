@@ -57,6 +57,10 @@ function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
   }
 }
 
+function fakeLogger() {
+  return { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+}
+
 describe('OfflineQueue', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -87,6 +91,24 @@ describe('OfflineQueue', () => {
 
     expect(queue.getQueueSize()).toBe(3)
 
+    queue.destroy()
+  })
+
+  it('reports an overflow once and the dropped total with the next flush', async () => {
+    const log = fakeLogger()
+    const sendFn = jest.fn().mockResolvedValue(undefined)
+    const queue = new OfflineQueue(sendFn, { maxSize: 2, storage: makeStorage(), logger: log })
+
+    queue.enqueue([makeEntry(), makeEntry(), makeEntry()])
+    queue.enqueue([makeEntry()])
+    expect(log.warn).toHaveBeenCalledTimes(1)
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('full'), { maxSize: 2 })
+
+    await queue.flush()
+    expect(log.info).toHaveBeenCalledWith(
+      '[OfflineQueue] flushed',
+      expect.objectContaining({ sent: 2, remaining: 0, droppedOnOverflow: 2 }),
+    )
     queue.destroy()
   })
 
@@ -161,7 +183,8 @@ describe('OfflineQueue', () => {
     const storage = makeStorage()
     const sendFn = jest.fn().mockRejectedValue(new Error('always fails'))
 
-    const queue = new OfflineQueue(sendFn, { maxSize: 500, maxRetries: 2, storage })
+    const log = fakeLogger()
+    const queue = new OfflineQueue(sendFn, { maxSize: 500, maxRetries: 2, storage, logger: log })
     queue.enqueue([makeEntry({ message: 'must survive' })])
 
     jest.useFakeTimers()
@@ -180,6 +203,10 @@ describe('OfflineQueue', () => {
     // Entries should still be in queue after exhaustion
     expect(queue.getQueueSize()).toBe(1)
     expect(sendFn).toHaveBeenCalledTimes(2)
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('flush failed'),
+      expect.objectContaining({ error: 'Error: always fails', attempts: 2, queued: 1 }),
+    )
 
     queue.destroy()
   })

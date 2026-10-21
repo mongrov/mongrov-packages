@@ -1,5 +1,6 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { describeError } from '../../core/errors'
 
 import { assertNoBanTerms, formatBytes } from '../formatters'
 import { localDay, tzParam } from '../local-day'
@@ -78,7 +79,10 @@ async function readBaseline(
     )
     return rows[0] ?? null
   }
-  catch {
+  catch (err) {
+    ctx.logger?.warn('tools.getHeartRate: baseline read failed, answering without it', {
+      err: describeError(err),
+    })
     return null
   }
 }

@@ -20,6 +20,7 @@ import type { HybridDuckDB } from '../core/engine'
 import type { AttachContext } from '../core/types'
 import type { PushEmitter } from './events'
 import type { RingConfigClose } from './mapper/ring-config'
+import type { SchedulerLogger } from './scheduler'
 import type { WatermarkStore } from './watermark'
 import { timeColumnFor } from '../core/table_metadata'
 import { SyncError } from './errors'
@@ -61,6 +62,8 @@ export interface R2PusherConfig {
    * successful push. See `events.ts` / `bindPushEvents()`.
    */
   emit?: PushEmitter
+  /** Retries are logged here; failures surface on the returned result. */
+  logger?: SchedulerLogger
 }
 
 function DEFAULT_IS_401(err: unknown): boolean {
@@ -83,6 +86,7 @@ export class R2Pusher {
   readonly #localTable: (ctx: AttachContext, table: string) => string
   readonly #remoteTable: (ctx: AttachContext, table: string) => string
   readonly #emit: PushEmitter | undefined
+  readonly #logger: SchedulerLogger | undefined
 
   constructor(config: R2PusherConfig) {
     this.#engine = config.engine
@@ -92,6 +96,7 @@ export class R2Pusher {
     this.#localTable = config.localTable ?? DEFAULT_LOCAL
     this.#remoteTable = config.remoteTable ?? DEFAULT_REMOTE
     this.#emit = config.emit
+    this.#logger = config.logger
   }
 
   async push(table: string, ctx: AttachContext): Promise<PushResult> {
@@ -106,6 +111,7 @@ export class R2Pusher {
     }
     catch (err) {
       if (this.#is401(err) && this.#refreshToken) {
+        this.#logger?.warn('sync.push.unauthorized_retry', { table })
         try {
           await this.#refreshToken()
           return await this.#pushOnce(table, ctx)
@@ -155,6 +161,7 @@ export class R2Pusher {
     }
     catch (err) {
       if (this.#is401(err) && this.#refreshToken) {
+        this.#logger?.warn('sync.push.unauthorized_retry', { table: 'device_config' })
         try {
           await this.#refreshToken()
           return await this.#pushClosesOnce(closes, ctx)

@@ -32,6 +32,7 @@ import type { ToolsLogger } from '../../types'
 import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { describeError } from '../../../core/errors'
 import { assertMcpAllowed } from '../guard'
 
 export interface CreateHttpTransportConfig {
@@ -128,6 +129,7 @@ export async function createHttpTransport(
     if (authToken) {
       const header = req.headers.authorization
       if (!bearerMatches(header, authToken)) {
+        config.logger?.warn('MCP HTTP transport rejected a request without a valid bearer token')
         res.statusCode = 401
         res.setHeader('content-type', 'text/plain')
         res.setHeader('www-authenticate', 'Bearer')
@@ -144,7 +146,7 @@ export async function createHttpTransport(
       }
       catch (err) {
         config.logger?.error('MCP HTTP transport request handler threw', {
-          err: err instanceof Error ? err.message : String(err),
+          err: describeError(err),
         })
         if (!res.headersSent) {
           res.statusCode = 500
@@ -168,6 +170,7 @@ export async function createHttpTransport(
 
   const address = server.address() as AddressInfo | null
   const resolvedPort = address?.port ?? port
+  config.logger?.info('MCP HTTP transport listening', { port: resolvedPort, path, auth: Boolean(authToken) })
 
   return {
     transport,

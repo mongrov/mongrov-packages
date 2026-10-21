@@ -25,7 +25,7 @@
 import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine, EventBus } from '../core/types'
 import type { SchedulerLogger } from './scheduler'
-import { AnalyticsError } from '../core/errors'
+import { AnalyticsError, describeError } from '../core/errors'
 import {
   BASELINE_MIN_DAYS,
   BASELINE_WINDOW_DAYS,
@@ -399,16 +399,10 @@ export function createBaselineComputer(
 
     // HAVING filtered it out — fewer than BASELINE_MIN_DAYS distinct days.
     // Not an error: a new user simply has no baseline yet, and consumers
-    // render "still learning" rather than a wrong range.
+    // render "still learning" rather than a wrong range. Counted as
+    // `skipped` in the cycle summary rather than logged per metric × window.
     const row = rows[0]
     if (!row || row.sample_count === null || row.sample_count < BASELINE_MIN_DAYS) {
-      logger?.debug('baseline: insufficient days, row not written', {
-        metric,
-        windowDays,
-        userId: ctx.userId,
-        sampleCount: row?.sample_count ?? 0,
-        required: BASELINE_MIN_DAYS,
-      })
       return false
     }
 
@@ -488,9 +482,15 @@ export function createBaselineComputer(
     computeHrPhaseBands,
 
     async computeAll(ctx) {
+      const startedAt = Date.now()
       let computed = 0
       let skipped = 0
       let failed = 0
+      // Collected, then logged once at the end of the cycle: a sick warehouse
+      // fails every metric × window, and one warn each was dozens of lines a
+      // cycle in a 1000-entry export buffer.
+      const failures: string[] = []
+      let firstError: string | undefined
 
       for (const metric of metrics) {
         for (const windowDays of windows) {
@@ -503,12 +503,8 @@ export function createBaselineComputer(
           catch (err) {
             // One metric's failure must not abort the other twenty.
             failed += 1
-            logger?.warn('baseline: compute failed', {
-              metric,
-              windowDays,
-              userId: ctx.userId,
-              err: err instanceof Error ? err.message : String(err),
-            })
+            failures.push(`${metric}/${windowDays}d`)
+            firstError ??= describeError(err)
           }
         }
       }
@@ -522,21 +518,23 @@ export function createBaselineComputer(
           }
           catch (err) {
             failed += 1
-            logger?.warn('baseline: hr phase bands failed', {
-              windowDays,
-              userId: ctx.userId,
-              err: err instanceof Error ? err.message : String(err),
-            })
+            failures.push(`hr_phase_bands/${windowDays}d`)
+            firstError ??= describeError(err)
           }
         }
       }
 
-      logger?.debug('baseline: compute cycle complete', {
-        userId: ctx.userId,
-        computed,
-        skipped,
-        failed,
-      })
+      const summary = { userId: ctx.userId, computed, skipped, failed, durationMs: Date.now() - startedAt }
+      if (failed > 0) {
+        logger?.warn('baseline: compute cycle complete', {
+          ...summary,
+          failures: failures.slice(0, 10),
+          firstError,
+        })
+      }
+      else {
+        logger?.info('baseline: compute cycle complete', summary)
+      }
       return { computed, skipped, failed }
     },
   }

@@ -30,6 +30,7 @@ import type {
   ToolsLogger,
 } from './types'
 import { jsonSchema, tool } from 'ai'
+import { describeError } from '../core/errors'
 import { applyOutputBudget } from './budget'
 
 const RATE_LIMIT_MESSAGE = 'Rate limit exceeded. Try again shortly.'
@@ -142,6 +143,7 @@ export function makeTool<Input>(cfg: MakeToolConfig<Input>) {
           outcome: 'rate_limited',
           errorMessage: null,
         })
+        cfg.logger?.warn('tool rate limited', { toolName: cfg.name })
         return RATE_LIMIT_MESSAGE
       }
 
@@ -166,6 +168,7 @@ export function makeTool<Input>(cfg: MakeToolConfig<Input>) {
             outcome: 'authorized_reject',
             errorMessage: null,
           })
+          cfg.logger?.warn('tool authorization rejected', { toolName: cfg.name })
           return AUTHZ_MESSAGE
         }
       }
@@ -175,6 +178,7 @@ export function makeTool<Input>(cfg: MakeToolConfig<Input>) {
         const raw = await cfg.impl(input, {
           ...ctx,
           analytics: cfg.analytics,
+          logger: cfg.logger,
         })
         const capped = applyOutputBudget(raw, cfg.budget)
         cfg.audit.record({
@@ -193,6 +197,8 @@ export function makeTool<Input>(cfg: MakeToolConfig<Input>) {
         return capped.text
       }
       catch (err) {
+        // The audit row keeps the bare message (a stored column); the log
+        // line gets the full cause chain.
         const errorMessage = err instanceof Error ? err.message : String(err)
         cfg.audit.record({
           ts: new Date(clock()),
@@ -207,9 +213,10 @@ export function makeTool<Input>(cfg: MakeToolConfig<Input>) {
           outcome: 'error',
           errorMessage,
         })
-        cfg.logger?.warn('tool execution failed', {
+        // `error`: the impl threw, and the model got a generic apology.
+        cfg.logger?.error('tool execution failed', {
           toolName: cfg.name,
-          err: errorMessage,
+          err: describeError(err),
         })
         return ERROR_MESSAGE
       }

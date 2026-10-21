@@ -17,6 +17,9 @@
 
 import type { SensorBuffer } from './buffer'
 import type { BatchFlusher, FlushReason } from './flusher'
+import type { SchedulerLogger } from './scheduler'
+import { describeError } from '../core/errors'
+import { logError } from './scheduler'
 
 export interface FlushTriggersConfig {
   buffer: SensorBuffer
@@ -27,6 +30,8 @@ export interface FlushTriggersConfig {
   maxAgeMs?: number
   /** Test-injected clock. */
   now?: () => number
+  /** Receives scheduled flushes that reject (they are fire-and-forget). */
+  logger?: SchedulerLogger
 }
 
 /** Default from spec §Flush triggers. */
@@ -39,6 +44,7 @@ export class FlushTriggers {
   readonly #maxRows: number
   readonly #maxAgeMs: number
   readonly #now: () => number
+  readonly #logger: SchedulerLogger | undefined
   /** Tracks the enqueuedAt of the oldest entry per table, seeded on first observation. */
   #oldestByTable = new Map<string, number>()
 
@@ -48,6 +54,22 @@ export class FlushTriggers {
     this.#maxRows = config.maxRows ?? DEFAULT_MAX_ROWS
     this.#maxAgeMs = config.maxAgeMs ?? DEFAULT_MAX_AGE_MS
     this.#now = config.now ?? (() => Date.now())
+    this.#logger = config.logger
+  }
+
+  /**
+   * Fire-and-forget flush. A failed write resolves `ok: false` (the flush
+   * emitter logs it); a rejection means the buffer itself failed, and an
+   * un-awaited promise would have dropped it unseen.
+   */
+  #schedule(table: string, reason: FlushReason): void {
+    this.#flusher.scheduleFlush(table, reason).catch((err: unknown) => {
+      logError(this.#logger, 'sync.triggers: scheduled flush rejected', {
+        table,
+        reason,
+        err: describeError(err),
+      })
+    })
   }
 
   /**
@@ -81,13 +103,13 @@ export class FlushTriggers {
       const perTable = await this.#buffer.size(t)
       if (perTable.inMemory >= this.#maxRows) {
         scheduled.push({ table: t, reason: 'row-count' })
-        this.#flusher.scheduleFlush(t, 'row-count')
+        this.#schedule(t, 'row-count')
         continue
       }
       const oldest = this.#oldestByTable.get(t)
       if (oldest !== undefined && this.#now() - oldest >= this.#maxAgeMs) {
         scheduled.push({ table: t, reason: 'age' })
-        this.#flusher.scheduleFlush(t, 'age')
+        this.#schedule(t, 'age')
       }
     }
     // Suppress the unused var warning for size — it may be surfaced later.
@@ -101,7 +123,7 @@ export class FlushTriggers {
    */
   onForeground(): void {
     for (const t of this.#oldestByTable.keys()) {
-      this.#flusher.scheduleFlush(t, 'foreground')
+      this.#schedule(t, 'foreground')
     }
   }
 
@@ -111,7 +133,7 @@ export class FlushTriggers {
    */
   onBackground(): void {
     for (const t of this.#oldestByTable.keys()) {
-      this.#flusher.scheduleFlush(t, 'background')
+      this.#schedule(t, 'background')
     }
   }
 

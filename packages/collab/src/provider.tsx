@@ -13,6 +13,7 @@ import type {
   CollabConnectionStatus,
   CollabEventHandler,
   CollabEventName,
+  CollabLogger,
   PresenceState,
   SendMessageParams,
   SendMessageResult,
@@ -32,6 +33,8 @@ import {
   useState,
 } from 'react'
 import { createActor } from 'xstate'
+import { BaseAdapter } from './adapters/base'
+import { resolveCollabLogger } from './logger'
 import {
   collabMachine,
   createMachineInput,
@@ -78,6 +81,8 @@ interface CollabContextValue {
   ) => Unsubscribe
   /** The underlying adapter */
   adapter: CollabAdapter
+  /** `CollabConfig.logger`, or the dev-console / no-op fallback */
+  logger: CollabLogger
 }
 
 const CollabContext = createContext<CollabContextValue | null>(null)
@@ -116,6 +121,13 @@ export function CollabProvider({ config, children }: CollabProviderProps): React
   // Deliberately not wired up in a lint pass: making it work would start
   // connecting for consumers who set it, which is a behaviour change.
   const { adapter } = config
+  const logger = useMemo(() => resolveCollabLogger(config.logger), [config.logger])
+
+  // One injected logger covers the machine and the adapter.
+  useEffect(() => {
+    if (config.logger && adapter instanceof BaseAdapter)
+      adapter.setLogger(config.logger)
+  }, [adapter, config.logger])
 
   // Create the state machine actor
   const actorRef = useMemo(() => {
@@ -245,6 +257,7 @@ export function CollabProvider({ config, children }: CollabProviderProps): React
       markAsRead,
       on,
       adapter,
+      logger,
     }),
     [
       status,
@@ -264,6 +277,7 @@ export function CollabProvider({ config, children }: CollabProviderProps): React
       markAsRead,
       on,
       adapter,
+      logger,
     ],
   )
 
@@ -303,7 +317,7 @@ export function usePresence(userIds: string[]): {
   presence: Map<string, UserPresence>
   isLoading: boolean
 } {
-  const { adapter, isConnected } = useCollab()
+  const { adapter, isConnected, logger } = useCollab()
   const [presence, setPresence] = useState<Map<string, UserPresence>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
 
@@ -345,13 +359,16 @@ export function usePresence(userIds: string[]): {
     let cleanupPresence: (() => void) | undefined
     setup().then((cleanup) => {
       cleanupPresence = cleanup
+    }, (err: unknown) => {
+      logger.error('[Collab] presence subscribe failed', { users: userIds.length, error: String(err) })
+      setIsLoading(false)
     })
 
     return () => {
       unsubscribe?.()
       cleanupPresence?.()
     }
-  }, [adapter, isConnected, userIds.join(',')])
+  }, [adapter, isConnected, logger, userIds.join(',')])
 
   return { presence, isLoading }
 }
@@ -363,7 +380,7 @@ export function useTyping(conversationId: string): {
   typingUsers: TypingUser[]
   sendTyping: (isTyping: boolean) => void
 } {
-  const { adapter, isConnected, sendTyping: sendTypingToServer } = useCollab()
+  const { adapter, isConnected, logger, sendTyping: sendTypingToServer } = useCollab()
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([])
   const typingTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map())
 
@@ -421,10 +438,13 @@ export function useTyping(conversationId: string): {
   const sendTyping = useCallback(
     (isTyping: boolean) => {
       if (isConnected) {
-        sendTypingToServer(conversationId, isTyping)
+        // Best effort: a lost typing indicator is degraded, not data loss.
+        sendTypingToServer(conversationId, isTyping).catch((err: unknown) => {
+          logger.warn('[Collab] send typing failed', { error: String(err) })
+        })
       }
     },
-    [isConnected, conversationId, sendTypingToServer],
+    [isConnected, conversationId, logger, sendTypingToServer],
   )
 
   return { typingUsers, sendTyping }
@@ -442,7 +462,7 @@ export function useMessages(conversationId: string): {
   loadMore: () => Promise<void>
   refresh: () => Promise<void>
 } {
-  const { adapter, isConnected } = useCollab()
+  const { adapter, isConnected, logger } = useCollab()
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
@@ -506,6 +526,7 @@ export function useMessages(conversationId: string): {
         }
       }
       catch (err) {
+        logger.error('[Collab] messages load failed', { error: String(err) })
         setError(err instanceof Error ? err : new Error(String(err)))
         setIsLoading(false)
       }
@@ -521,7 +542,7 @@ export function useMessages(conversationId: string): {
       unsubscribeRef.current?.()
       unsubscribeRef.current = null
     }
-  }, [adapter, isConnected, conversationId])
+  }, [adapter, isConnected, conversationId, logger])
 
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoading || messages.length === 0)
@@ -537,9 +558,10 @@ export function useMessages(conversationId: string): {
       setHasMore(result.hasMore)
     }
     catch (err) {
+      logger.error('[Collab] load more messages failed', { error: String(err) })
       setError(err instanceof Error ? err : new Error(String(err)))
     }
-  }, [adapter, conversationId, hasMore, isLoading, messages])
+  }, [adapter, conversationId, hasMore, isLoading, logger, messages])
 
   const refresh = useCallback(async () => {
     if (!isConnected)
@@ -553,12 +575,13 @@ export function useMessages(conversationId: string): {
       setError(null)
     }
     catch (err) {
+      logger.error('[Collab] messages refresh failed', { error: String(err) })
       setError(err instanceof Error ? err : new Error(String(err)))
     }
     finally {
       setIsLoading(false)
     }
-  }, [adapter, conversationId, isConnected])
+  }, [adapter, conversationId, isConnected, logger])
 
   return { messages, isLoading, error, hasMore, loadMore, refresh }
 }

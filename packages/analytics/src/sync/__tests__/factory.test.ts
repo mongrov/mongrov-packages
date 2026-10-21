@@ -634,3 +634,33 @@ describe('strictBatchOrdering (Sprint 5 item (a))', () => {
     expect(emitted).not.toContain('batch:complete')
   })
 })
+
+describe('flush failures reach the logger', () => {
+  it('logs flush-failed with the cause chain — bindFlushEvents forwards only successes', async () => {
+    const fake = createFakeEngine()
+    for (let i = 0; i < 10; i++)
+      fake.queueOpenError(new Error('TransactionException: appender aborted'))
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const mgr = createSyncManager({
+      ...baseConfig(),
+      analytics: fake.engine as unknown as AnalyticsEngine,
+      logger,
+    })
+    await mgr.sink.push({
+      table: 'hrv',
+      brand: 'ziva',
+      familyId: 'fam_A',
+      userId: 'u1',
+      deviceId: 'ring',
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't', rmssd_ms: 42 }],
+    })
+
+    const results = await mgr.sink.flush()
+
+    expect(results.some(r => !r.ok)).toBe(true)
+    expect(logger.warn).toHaveBeenCalledWith('sync.flush.failed', expect.objectContaining({
+      table: 'hrv',
+      error: expect.stringContaining('appender aborted'),
+    }))
+  })
+})

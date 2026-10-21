@@ -200,12 +200,17 @@ export function createAnalytics(
       const localCatalog = await probeLocalCatalog(db)
       localCatalogName = localCatalog
 
-      await ensureMigrations(
+      const migrated = await ensureMigrations(
         db,
         config.storage,
         { brand: ctx.brand, tenantId: ctx.tenantId },
         { local: localCatalog, remote: remoteCatalog },
       )
+      // Only when a step actually ran: an up-to-date attach is the common
+      // case and says nothing new.
+      if (migrated.from !== migrated.to) {
+        log.info('analytics.migrations.applied', { from: migrated.from, to: migrated.to, mode })
+      }
 
       // Union views last — they read the tables migrations just ensured,
       // and DuckDB validates a view's body at CREATE time, so this must
@@ -221,7 +226,7 @@ export function createAnalytics(
       }, {
         // Non-fatal by design (see createViews) — so it must be LOUD here.
         onMacroFailed: (name, cause) =>
-          log.error('analytics.attach.macro_failed', { macro: name, cause: String(cause) }),
+          log.error('analytics.attach.macro_failed', { macro: name, error: describeError(cause) }),
       })
       return {
         warehouseSecret: attach.warehouseSecret,
@@ -282,8 +287,24 @@ export function createAnalytics(
   const internalSub = actor.subscribe(() => {
     const s = currentState(actor)
     if (s !== lastLoggedState) {
+      const from = lastLoggedState
       lastLoggedState = s
-      log.debug('analytics.state', { value: s })
+      // `info`: a handful of transitions per session, and the only record
+      // of whether the warehouse opened and attached. An `error` carries the
+      // machine's `lastError` — the open/attach/refresh failures otherwise
+      // only set it, and nothing logged why.
+      if (s === 'error') {
+        const lastError = actor.getSnapshot().context.lastError
+        log.error('analytics.state', {
+          value: s,
+          from,
+          code: lastError?.code,
+          error: lastError ? describeError(lastError) : undefined,
+        })
+      }
+      else {
+        log.info('analytics.state', { value: s, from })
+      }
     }
     for (const fn of publicSubscribers) fn(s)
   })
@@ -399,7 +420,7 @@ export function createAnalytics(
     if (effectiveDays <= 0)
       return
     const target = localCatalogName ?? await probeLocalCatalog(db)
-    await runRetentionSweep(db, target, {
+    const result = await runRetentionSweep(db, target, {
       effectiveDays,
       mode,
       // Local mode: no push exists (or ever will) — data is local-forever
@@ -409,6 +430,14 @@ export function createAnalytics(
       // `memory.duckdb` across accounts, so without this the delete reached
       // other families' rows (2026-09-26 review, finding 2).
       tenant: { brand: ctx.brand, familyId: ctx.tenantId, userId: ctx.userId },
+    })
+    // Once per attach / setRetention. `skipped` tables have nothing pushed
+    // yet, so their rows are kept on purpose — worth seeing when local data
+    // never shrinks.
+    log.info('analytics.retention.swept', {
+      effectiveDays,
+      swept: result.swept.length,
+      skipped: result.skipped,
     })
   }
 
@@ -465,13 +494,13 @@ export function createAnalytics(
         await saveLastAttach(config.storage, ctx)
       }
       catch (cause) {
-        log.warn('analytics.persist.last_attach_failed', { cause })
+        log.warn('analytics.persist.last_attach_failed', { error: describeError(cause) })
       }
       try {
         await sweep(ctx)
       }
       catch (cause) {
-        log.warn('analytics.retention.sweep_failed', { cause })
+        log.warn('analytics.retention.sweep_failed', { error: describeError(cause) })
       }
     },
     async detach() {
@@ -492,7 +521,7 @@ export function createAnalytics(
           await clearLastAttach(config.storage, ctxAtDetach.brand)
         }
         catch (cause) {
-          log.warn('analytics.persist.clear_last_attach_failed', { cause })
+          log.warn('analytics.persist.clear_last_attach_failed', { error: describeError(cause) })
         }
       }
     },
