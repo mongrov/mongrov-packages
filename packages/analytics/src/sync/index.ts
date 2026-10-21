@@ -66,9 +66,9 @@ export type {
   SyncManagerState,
   SyncProgress,
 } from './manager'
-
 // Mappers (Phase A).
 export { mapActivity, type MapActivityResult } from './mapper/activity'
+
 export { BATTERY_EVENT, mapBattery } from './mapper/battery'
 export {
   type FirmwareMappedBatch,
@@ -76,7 +76,6 @@ export {
   type MapFirmwareOptions,
 } from './mapper/firmware'
 export { mapHeartRate } from './mapper/heart-rate'
-
 export { mapHrv } from './mapper/hrv'
 
 export {
@@ -86,6 +85,7 @@ export {
 } from './mapper/plausibility'
 
 export type { DropReport } from './mapper/plausibility'
+
 export {
   mapRingConfig,
   type MapRingConfigResult,
@@ -148,6 +148,23 @@ export {
   SyncScheduler,
   type SyncSchedulerConfig,
 } from './scheduler'
+// The sleep-correction read path, for the app's native SQL smoke
+// (principle 68, zivaone_app#460): sleep-derive runs it inside the batch
+// cycle, where nothing else exercises it on a device build. A caller passes
+// its own `SleepRelations` so its staging views never replace sleep-derive's.
+export {
+  type CorrectSleepInput,
+  correctSleepNights,
+  type CorrectSleepResult,
+  nightsForEpochs,
+  DEFAULT_RELATIONS as SLEEP_CORRECTION_RELATIONS,
+  type NightOutcome as SleepCorrectionNightOutcome,
+  type SleepRelations,
+  type StagingBounds as SleepStagingBounds,
+  stagingBoundsFor as sleepStagingBoundsFor,
+  type StagingScope as SleepStagingScope,
+  stagingViewsSql as sleepStagingViewsSql,
+} from './sleep-correction'
 export {
   DEFAULT_MAX_AGE_MS,
   DEFAULT_MAX_ROWS,

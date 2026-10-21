@@ -54,15 +54,18 @@ export interface SleepRelations {
   activity: string
 }
 
-export const DEFAULT_RELATIONS: SleepRelations = {
+// Frozen: it is public from /sync, and every builder defaults to it, so a
+// caller assigning into it would redirect sleep-derive's own views.
+export const DEFAULT_RELATIONS: Readonly<SleepRelations> = Object.freeze({
   sleep: 'stg_sleep',
   heartrate: 'stg_heartrate',
   activity: 'stg_activity',
-}
+})
 
 const IDENT_RE = /^[a-z_][\w.]*$/i
 
-function rel(name: string): string {
+/** A relation name, validated before it is put into SQL. */
+export function rel(name: string): string {
   if (!IDENT_RE.test(name))
     throw new Error(`sleep-correction: invalid relation name ${JSON.stringify(name)}`)
   return name
