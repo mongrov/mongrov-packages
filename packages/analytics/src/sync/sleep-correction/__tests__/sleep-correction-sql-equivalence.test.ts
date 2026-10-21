@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../../core/schemas'
-import { computeNightEpochs } from '../classify'
+import { computeNightEpochs, CONF_ENVELOPE, CONF_GAP } from '../classify'
 import { nightWindow } from '../night'
 import { correctSleepNights, stagingBoundsFor } from '../orchestrate'
 import { detectHrTierSql, globalBaselinesSql } from '../sql'
@@ -287,17 +287,25 @@ describe('staging bounds — same answer as unbounded views', () => {
    * `envelope` and a `gap` row at the same instant it has no tie-break, so
    * DuckDB picks either — run to run, with no change to the SQL (seen on the
    * captures: one night flips 0.5/envelope ↔ 0.4/gap between two runs of the
-   * same text). Pre-existing and out of #46's scope; two runs here can label
-   * the same recovered minute either way. Everything else must match.
+   * same text). Pre-existing and out of #46's scope (its own issue).
+   *
+   * So exactly that swap is masked, and nothing wider: a recovered row must
+   * still be one of the two consistent pairs — envelope at CONF_ENVELOPE or
+   * gap at CONF_GAP — and only which of the two it is may differ. Every other
+   * field, and every non-recovered row, must match as is.
    */
-  function recoveredAsOne(r: Awaited<ReturnType<typeof correctSleepNights>>) {
+  const RECOVERED_PAIRS: Record<string, number> = { envelope: CONF_ENVELOPE, gap: CONF_GAP }
+  function maskEnvelopeGapSwap(r: Awaited<ReturnType<typeof correctSleepNights>>) {
     return {
       ...r,
       nights: r.nights.map(n => ({
         ...n,
-        rows: n.rows?.map(row => row.source === 'envelope' || row.source === 'gap'
-          ? { ...row, source: 'recovered', confidence: 0 }
-          : row),
+        rows: n.rows?.map((row) => {
+          if (!(row.source in RECOVERED_PAIRS))
+            return row
+          expect(row.confidence, `${row.date} ${row.source}`).toBe(RECOVERED_PAIRS[row.source])
+          return { ...row, source: 'envelope|gap', confidence: Number.NaN }
+        }),
       })),
     }
   }
@@ -315,17 +323,23 @@ describe('staging bounds — same answer as unbounded views', () => {
         await db.execute(sql)
       const unbounded = await correctSleepNights(db, input)
       const bounds = stagingBoundsFor(input)
-      expect(bounds.activityFromEpoch).toBe(Math.min(...nights.map(n => nightWindow(n, input.timeZone).windowStart)))
+      // The floors, computed here from what the queries read — NOT from the
+      // bounds under test: Phase 2 and the morning vitals read from the first
+      // night's window start, the baseline join from `cutoff - 30`.
+      const firstWindow = Math.min(...nights.map(n => nightWindow(n, input.timeZone).windowStart))
+      const floors = { stg_sleep: Math.min(input.cutoffEpoch - 30, firstWindow), stg_activity: firstWindow }
+      expect(bounds.sleepFromEpoch).toBeLessThanOrEqual(floors.stg_sleep)
+      expect(bounds.activityFromEpoch).toBeLessThanOrEqual(floors.stg_activity)
       for (const sql of stagingViewsSql(scope, undefined, bounds))
         await db.execute(sql)
       expect(stagingViewsSql(scope, undefined, bounds).join('\n')).toMatch(/ts >= TIMESTAMP/)
       const bounded = await correctSleepNights(db, input)
-      expect(recoveredAsOne(bounded)).toEqual(recoveredAsOne(unbounded))
+      expect(maskEnvelopeGapSwap(bounded)).toEqual(maskEnvelopeGapSwap(unbounded))
       expect(unbounded.nights.some(n => n.status === 'ok')).toBe(true)
 
-      // And the claim itself, per relation: above each bound, the bounded
-      // view holds exactly the unbounded view's rows.
-      for (const [rel, from] of [['stg_sleep', bounds.sleepFromEpoch], ['stg_activity', bounds.activityFromEpoch]] as const) {
+      // And the claim itself, per relation: from each independent floor up,
+      // the bounded view holds exactly the unbounded view's rows.
+      for (const [rel, from] of Object.entries(floors)) {
         const q = `SELECT * FROM ${rel} WHERE date >= ${from} ORDER BY ALL`
         const b = await db.execute(q)
         for (const sql of stagingViewsSql(scope))
@@ -339,6 +353,21 @@ describe('staging bounds — same answer as unbounded views', () => {
     }
     await db.close?.()
   }, 120_000)
+
+  it('stagingBoundsFor: sleep from cutoff - 30 (the ±30 s join), activity from the first window', () => {
+    const cutoff = at('2026-05-12T00:00:00')
+    expect(stagingBoundsFor({ nights: [], timeZone: 'UTC', cutoffEpoch: cutoff })).toEqual({
+      sleepFromEpoch: cutoff - 30,
+      activityFromEpoch: undefined,
+    })
+    const later = nightWindow('2026-05-20', 'UTC').windowStart
+    expect(later).toBeGreaterThan(cutoff)
+    expect(stagingBoundsFor({ nights: ['2026-05-20'], timeZone: 'UTC', cutoffEpoch: cutoff }))
+      .toEqual({ sleepFromEpoch: cutoff - 30, activityFromEpoch: later })
+    const earlier = nightWindow('2026-05-04', 'UTC').windowStart
+    expect(stagingBoundsFor({ nights: ['2026-05-20', '2026-05-04'], timeZone: 'UTC', cutoffEpoch: cutoff }))
+      .toEqual({ sleepFromEpoch: earlier, activityFromEpoch: earlier })
+  })
 
   it('a bound one second higher would drop rows the queries read (the margin is needed)', async () => {
     const db = await warehouse()
