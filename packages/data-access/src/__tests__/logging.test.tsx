@@ -16,9 +16,14 @@ function makeLogger() {
   return { warn: vi.fn(), error: vi.fn() }
 }
 
-function render(q: QueryDefinition<unknown, unknown>, execute: () => Promise<unknown>, logger: ReturnType<typeof makeLogger>) {
+function render(
+  q: QueryDefinition<unknown, unknown>,
+  execute: () => Promise<unknown>,
+  logger: ReturnType<typeof makeLogger>,
+  { retry = 0, hooks = 1 }: { retry?: number, hooks?: number } = {},
+) {
   const registry: Registry = { queries: { 'hrv.last': q }, mutations: {}, events: {} }
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry, retryDelay: 0, gcTime: 0 } } })
   function Wrapper({ children }: { children: React.ReactNode }) {
     return (
       <DataAccessProvider
@@ -32,7 +37,7 @@ function render(q: QueryDefinition<unknown, unknown>, execute: () => Promise<unk
       </DataAccessProvider>
     )
   }
-  return renderHook(() => useAppQuery('hrv.last', {}), { wrapper: Wrapper })
+  return renderHook(() => Array.from({ length: hooks }, () => useAppQuery('hrv.last', {}))[0], { wrapper: Wrapper })
 }
 
 afterEach(() => {
@@ -70,5 +75,18 @@ describe('DataAccessProvider logger', () => {
       expect.objectContaining({ query: 'hrv.last', code: 'authorization_denied' }),
     )
     expect(logger.error).not.toHaveBeenCalled()
+  })
+
+  it('logs a failure once per settled error, not per retry or per mounted hook', async () => {
+    const q = defineQuery({ engine: 'duckdb', output: z.number(), sql: 'SELECT 1' }) as unknown as QueryDefinition<unknown, unknown>
+    const logger = makeLogger()
+    const execute = vi.fn(async () => {
+      throw new Error('warehouse closed')
+    })
+    const { result } = render(q, execute, logger, { retry: 2, hooks: 3 })
+
+    await waitFor(() => expect(result.current.error).not.toBeNull())
+    expect(execute).toHaveBeenCalledTimes(3)
+    expect(logger.error).toHaveBeenCalledTimes(1)
   })
 })

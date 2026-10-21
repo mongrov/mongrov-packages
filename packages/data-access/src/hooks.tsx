@@ -24,7 +24,7 @@ import type {
   RxdbQueryConfig,
 } from './types'
 
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { hashKey, useMutation, useQuery } from '@tanstack/react-query'
 import * as React from 'react'
 import { useDataAccessRuntime } from './context'
 import { extractInputDays, resolveAsyncFetch } from './define'
@@ -100,16 +100,13 @@ export function useAppQuery<TInput, TOutput>(
   const query = useQuery<TOutput, Error>({
     queryKey,
     queryFn: () =>
-      executeQuery(def, input as TInput, runtime.getContext(), runtime.engines)
-        .catch((err: unknown) => {
-          // Rethrown: the hook's `error` still carries it; this is the trace.
-          reportFailure(runtime, 'query', name, err)
-          throw err
-        }),
+      executeQuery(def, input as TInput, runtime.getContext(), runtime.engines),
     enabled: !isRxdb,
     staleTime: def.config.staleTime ?? DEFAULT_STALE_TIME,
     gcTime: def.config.gcTime ?? DEFAULT_GC_TIME,
   })
+
+  useReportSettledQueryFailure(runtime, name, queryKey, query.status === 'error' ? query.error : null, query.errorUpdatedAt)
 
   // rxdb path — external state driven by observable emissions.
   const [rxState, setRxState] = React.useState<{
@@ -473,7 +470,39 @@ function describeFailure(err: unknown): Record<string, unknown> {
 }
 
 /**
- * One line per failed query / mutation attempt. An authorize denial is an
+ * The last `errorUpdatedAt` logged per query hash, per query client.
+ *
+ * A TanStack query logs ONCE per settled failure, not per attempt and not
+ * per mounted hook: logging inside `queryFn` wrote a line for every retry,
+ * and every component reading the same key would log the same error again.
+ */
+const loggedQueryErrors = new WeakMap<object, Map<string, number>>()
+
+function useReportSettledQueryFailure(
+  runtime: DataAccessRuntime,
+  name: string,
+  queryKey: readonly unknown[],
+  error: Error | null,
+  errorUpdatedAt: number,
+): void {
+  React.useEffect(() => {
+    if (!error || !runtime.logger)
+      return
+    let seen = loggedQueryErrors.get(runtime.queryClient)
+    if (!seen) {
+      seen = new Map()
+      loggedQueryErrors.set(runtime.queryClient, seen)
+    }
+    const hash = hashKey(queryKey)
+    if (seen.get(hash) === errorUpdatedAt)
+      return
+    seen.set(hash, errorUpdatedAt)
+    reportFailure(runtime, 'query', name, error)
+  }, [runtime, name, queryKey, error, errorUpdatedAt])
+}
+
+/**
+ * One line per failed query / mutation. An authorize denial is an
  * expected outcome (warn); anything else means data was not read or written.
  */
 function reportFailure(

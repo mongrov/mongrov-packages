@@ -61,11 +61,18 @@ export function familyScopeAuthorize(
     }
     catch (err) {
       // Fail closed, but say why: otherwise a broken provider reads as the
-      // user simply not being in the family.
-      config.logger?.error('tools.authorize: membership lookup failed, denying', {
-        toolName,
-        err: describeError(err),
-      })
+      // user simply not being in the family. `analytics.getFamilyMembers`
+      // already logs its own failure at error, so that path records only
+      // the decision here, not the same error a second time.
+      if (config.familyMembersProvider) {
+        config.logger?.error('tools.authorize: membership lookup failed, denying', {
+          toolName,
+          err: describeError(err),
+        })
+      }
+      else {
+        config.logger?.warn('tools.authorize: membership unavailable, denying', { toolName })
+      }
       return false
     }
   }
@@ -102,11 +109,18 @@ export function orgScopeAuthorize(
     }
     catch (err) {
       // Fail closed, but say why: otherwise a broken provider reads as the
-      // user simply not being in the family.
-      config.logger?.error('tools.authorize: membership lookup failed, denying', {
-        toolName,
-        err: describeError(err),
-      })
+      // user simply not being in the family. `analytics.getFamilyMembers`
+      // already logs its own failure at error, so that path records only
+      // the decision here, not the same error a second time.
+      if (config.familyMembersProvider) {
+        config.logger?.error('tools.authorize: membership lookup failed, denying', {
+          toolName,
+          err: describeError(err),
+        })
+      }
+      else {
+        config.logger?.warn('tools.authorize: membership unavailable, denying', { toolName })
+      }
       return false
     }
   }
