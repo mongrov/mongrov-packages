@@ -316,6 +316,7 @@ async function probeCatalogName(db: HybridDuckDB): Promise<string> {
         return name
     }
     catch (cause) {
+      // expected: the next probe is the fallback; the last failure is thrown below.
       lastCause = cause
     }
   }
@@ -440,7 +441,7 @@ export async function dropViews(db: HybridDuckDB): Promise<void> {
       await db.execute(`DROP MACRO TABLE IF EXISTS ${name};`)
     }
     catch {
-      // Best-effort, as below.
+      // expected: best-effort, as below.
     }
   }
   // The quality views read the union views.
@@ -449,7 +450,7 @@ export async function dropViews(db: HybridDuckDB): Promise<void> {
       await db.execute(`DROP VIEW IF EXISTS ${name};`)
     }
     catch {
-      // Best-effort, as below.
+      // expected: best-effort, as below.
     }
   }
   for (const table of VIEWED_TABLES) {
@@ -457,7 +458,7 @@ export async function dropViews(db: HybridDuckDB): Promise<void> {
       await db.execute(dropViewDdl(table))
     }
     catch {
-      // Best-effort: a failed DROP VIEW IF EXISTS means the catalog is
+      // expected: best-effort. A failed DROP VIEW IF EXISTS means the catalog is
       // already unreachable, which is the state we were aiming for.
     }
   }

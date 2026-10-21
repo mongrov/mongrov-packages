@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createFakeEngine } from '../__fakes__/engine'
 import { familyScopeAuthorize, orgScopeAuthorize } from '../authorize'
 
@@ -164,5 +164,22 @@ describe('orgScopeAuthorize with familyMembersProvider', () => {
     })
     expect(await auth('getHRV', { userId: 'bob' }, baseCtx)).toBe(true)
     expect(engine.calls).toHaveLength(0)
+  })
+})
+
+describe('authorize logging', () => {
+  it('logs a membership lookup failure at error while still denying', async () => {
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const auth = familyScopeAuthorize(createFakeEngine(), {
+      familyMembersProvider: async () => {
+        throw new Error('provider_unavailable')
+      },
+      logger,
+    })
+    expect(await auth('getHRV', { userId: 'bob' }, baseCtx)).toBe(false)
+    expect(logger.error).toHaveBeenCalledWith('tools.authorize: membership lookup failed, denying', expect.objectContaining({
+      toolName: 'getHRV',
+      err: expect.stringContaining('provider_unavailable'),
+    }))
   })
 })

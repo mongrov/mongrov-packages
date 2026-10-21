@@ -16,6 +16,7 @@ import type { ClassifiedRow } from './classify'
 import type { SqlRunner } from './correct'
 import type { SleepRelations } from './sql'
 
+import { describeError } from '../../core/errors'
 import { correctNight, detectHrTier, globalBaselines } from './correct'
 import { nightWindow, offsetAtInstantMs } from './night'
 import { computeSettleMin, recoveredMinutes } from './settle'
@@ -72,7 +73,8 @@ export async function correctSleepNights(db: SqlRunner, input: CorrectSleepInput
       })
     }
     catch (e) {
-      nights.push({ night, ...w, status: 'failed', error: e instanceof Error ? e.message : String(e) })
+      // Recorded on the outcome; the deriver logs the failed nights.
+      nights.push({ night, ...w, status: 'failed', error: describeError(e) })
     }
   }
   return { hrIntervalMin, p75, p90, nights }

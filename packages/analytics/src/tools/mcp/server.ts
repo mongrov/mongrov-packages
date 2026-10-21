@@ -25,6 +25,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { describeError } from '../../core/errors'
 import { toMcpTools } from './adapter'
 import { assertMcpAllowed } from './guard'
 
@@ -91,10 +92,9 @@ export function createMcpServer(
       return await tool.handler(req.params.arguments ?? {})
     }
     catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
       config.logger?.error('mcp tool handler threw', {
         toolName: req.params.name,
-        err: message,
+        err: describeError(err),
       })
       return {
         content: [{

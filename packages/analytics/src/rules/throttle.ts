@@ -15,6 +15,7 @@
 import type { KVStore } from '../core/types'
 import type { Throttle } from './schema'
 import type { Clock, RulesLogger } from './types'
+import { describeError } from '../core/errors'
 
 const KEY_PREFIX = 'analytics:rules:throttle:'
 
@@ -61,33 +62,27 @@ export function createThrottleStore({
         const last = new Date(lastRaw)
         const gapMs = now.getTime() - last.getTime()
         const minGapMs = throttle.minGapMinutes * 60 * 1000
-        if (gapMs < minGapMs) {
-          logger?.debug('rules.throttle: gap', {
-            ruleId,
-            userId,
-            gapMs,
-            minGapMs,
-          })
+        // Throttle hits are counted in the evaluator's pass summary, not
+        // logged here: this runs per rule × user on every pass.
+        if (gapMs < minGapMs)
           return true
-        }
-        // Purge stale daily-count keys from prior days (best-effort).
+        // Purge stale daily-count keys from prior days (best-effort). It was
+        // awaited bare, so a KV delete miss failed the rule's evaluation.
         const lastYmd = ymdOf(last)
         if (lastYmd !== ymd) {
-          await storage.delete(countKey(ruleId, userId, lastYmd))
+          try {
+            await storage.delete(countKey(ruleId, userId, lastYmd))
+          }
+          catch (err) {
+            logger?.warn('rules.throttle: stale count purge failed', { ruleId, err: describeError(err) })
+          }
         }
       }
 
       // Daily cap check.
       const count = (await storage.get<number>(countKey(ruleId, userId, ymd))) ?? 0
-      if (count >= throttle.maxPerDay) {
-        logger?.debug('rules.throttle: daily cap', {
-          ruleId,
-          userId,
-          count,
-          maxPerDay: throttle.maxPerDay,
-        })
+      if (count >= throttle.maxPerDay)
         return true
-      }
 
       return false
     },

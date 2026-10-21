@@ -86,8 +86,8 @@ async function listColumns(
       .filter((n: string | undefined): n is string => typeof n === 'string')
   }
   catch {
-    // Either the table does not exist, or this build has no table_info.
-    // Fall back to information_schema for platforms where it works.
+    // expected: either the table does not exist, or this build has no
+    // table_info. Fall back to information_schema for platforms where it works.
     try {
       const rows = await db.execute<{ column_name: string }>(
         `SELECT column_name FROM information_schema.columns `
@@ -97,6 +97,8 @@ async function listColumns(
       return rows.map((r: { column_name: string }) => r.column_name)
     }
     catch {
+      // expected: no table to list. An empty list is how callers spell
+      // "table absent"; a real engine fault resurfaces on the DDL that follows.
       return []
     }
   }

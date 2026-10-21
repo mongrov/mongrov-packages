@@ -108,4 +108,19 @@ describe('FlushTriggers', () => {
     expect(scheduleSpy).toHaveBeenCalledTimes(1)
     expect(scheduleSpy).toHaveBeenCalledWith('hrv', 'manual')
   })
+
+  it('logs a scheduled flush that rejects instead of leaving it unhandled', async () => {
+    scheduleSpy.mockImplementation(() => Promise.reject(new Error('overflow KV gone')))
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const triggers = new FlushTriggers({ buffer, flusher, logger })
+    triggers.noteEnqueue('hrv', 1)
+    triggers.onForeground()
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(logger.error).toHaveBeenCalledWith('sync.triggers: scheduled flush rejected', expect.objectContaining({
+      table: 'hrv',
+      reason: 'foreground',
+      err: expect.stringContaining('overflow KV gone'),
+    }))
+  })
 })

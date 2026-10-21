@@ -100,6 +100,9 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     userTimezoneProvider,
   } = config
 
+  /** Per-pass zone cache, reset with `settingCache` in `newPass`. */
+  let tzCache = new Map<string, string | undefined>()
+
   /**
    * The user's own zone, or undefined.
    *
@@ -112,16 +115,23 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
   async function resolveTimezone(userId: string): Promise<string | undefined> {
     if (!userTimezoneProvider)
       return undefined
+    // Cached per pass: it is asked once per day-cadence rule, so a failing
+    // provider logged once per rule × user.
+    if (tzCache.has(userId))
+      return tzCache.get(userId)
+    let tz: string | undefined
     try {
-      return await userTimezoneProvider(userId)
+      tz = await userTimezoneProvider(userId)
     }
     catch (err) {
       logger?.warn('rules.evaluator: userTimezoneProvider threw', {
         userId,
         err: describeError(err),
       })
-      return undefined
+      tz = undefined
     }
+    tzCache.set(userId, tz)
+    return tz
   }
 
   /**
@@ -151,16 +161,15 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     if (cached !== undefined)
       return cached
 
+    // Falling back to the default is the normal case (the user never set
+    // one) and runs per rule × user, so it is not logged.
     let value = defaultValue
-    let source = 'default'
     if (storage) {
       try {
         const stored = await storage.get<unknown>(`analytics:${userId}:${key}`)
         const parsed = typeof stored === 'string' ? Number(stored) : stored
-        if (typeof parsed === 'number' && Number.isFinite(parsed)) {
+        if (typeof parsed === 'number' && Number.isFinite(parsed))
           value = parsed
-          source = 'kvstore'
-        }
       }
       catch (err) {
         logger?.warn('rules.evaluator: user_setting read failed, using default', {
@@ -170,14 +179,6 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
           err: describeError(err),
         })
       }
-    }
-    if (source === 'default') {
-      logger?.debug('rules.evaluator: user_setting fallback to defaultValue', {
-        ruleId,
-        userId,
-        key,
-        defaultValue,
-      })
     }
     settingCache.set(cacheKey, value)
     return value
@@ -255,12 +256,32 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
   // Problems seen during one evaluateOnBatch / evaluateScheduled pass. They
   // are per rule × user, so logging each one put 13+ identical lines into the
   // export on every evaluation; one summary per pass says the same thing.
-  interface PassIssues { noTimezone: Set<string>, failedRules: Set<string>, failures: number, firstError?: string }
+  interface PassIssues {
+    noTimezone: Set<string>
+    failedRules: Set<string>
+    failures: number
+    firstError?: string
+    evaluated: number
+    throttled: number
+    startedAt: number
+  }
   function newPass(): PassIssues {
-    return { noTimezone: new Set(), failedRules: new Set(), failures: 0 }
+    settingCache = new Map()
+    tzCache = new Map()
+    return { noTimezone: new Set(), failedRules: new Set(), failures: 0, evaluated: 0, throttled: 0, startedAt: Date.now() }
   }
 
-  function logPass(pass: PassIssues, trigger: 'batch' | 'scheduled'): void {
+  function logPass(pass: PassIssues, trigger: 'batch' | 'scheduled', rules: number, violations: number): void {
+    // One checkpoint per pass — the record that rules ran, and what they found.
+    logger?.info('rules.evaluator: pass complete', {
+      trigger,
+      rules,
+      evaluated: pass.evaluated,
+      throttled: pass.throttled,
+      violations,
+      failures: pass.failures,
+      durationMs: Date.now() - pass.startedAt,
+    })
     if (pass.noTimezone.size > 0) {
       logger?.warn('rules.evaluator: skipped day-cadence rules, no user timezone', {
         trigger,
@@ -282,12 +303,10 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     ctx: { userId: string, familyId: string },
     pass: PassIssues,
   ): Promise<RuleViolation | null> {
+    pass.evaluated += 1
     const throttled = await throttle.isThrottled(rule.id, ctx.userId, rule.throttle)
     if (throttled) {
-      logger?.debug('rules.evaluator: throttled', {
-        ruleId: rule.id,
-        userId: ctx.userId,
-      })
+      pass.throttled += 1
       return null
     }
 
@@ -440,7 +459,6 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
 
   return {
     async evaluateOnBatch(batch) {
-      settingCache = new Map()
       const active = registry.getByBrand(brand)
       const relevant = rulesForTables(active, batch.affectedTables)
       if (relevant.length === 0 || batch.affectedUserIds.length === 0) {
@@ -455,12 +473,11 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
             violations.push(v)
         }
       }
-      logPass(pass, 'batch')
+      logPass(pass, 'batch', relevant.length, violations.length)
       return violations
     },
 
     async evaluateScheduled() {
-      settingCache = new Map()
       if (analytics.state !== 'attached') {
         throw new AnalyticsError(
           'not_attached',
@@ -491,7 +508,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
             violations.push(v)
         }
       }
-      logPass(pass, 'scheduled')
+      logPass(pass, 'scheduled', active.length, violations.length)
       return violations
     },
   }

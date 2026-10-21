@@ -1,5 +1,6 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { describeError } from '../../core/errors'
 
 import { precisionFor } from '../../core/metric_metadata'
 import { assertNoBanTerms, formatBytes } from '../formatters'
@@ -103,7 +104,10 @@ async function readBaseline(
     )
     return rows[0] ?? null
   }
-  catch {
+  catch (err) {
+    ctx.logger?.warn('tools.getTemperature: baseline read failed, answering without it', {
+      err: describeError(err),
+    })
     return null
   }
 }

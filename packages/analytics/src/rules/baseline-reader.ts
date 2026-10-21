@@ -21,6 +21,7 @@
 import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine } from '../core/types'
 import type { RulesLogger } from './types'
+import { describeError } from '../core/errors'
 import {
   BASELINE_MIN_DAYS,
 
@@ -154,17 +155,11 @@ export function createBaselineReader(
 
       let result: Baseline | null = null
       try {
+        // Not logged when it computes on read: that is per rule × user on
+        // every pass, and the result carries `computedOnRead` already.
         result = await readStored(userId, metric, windowDays, ctx)
-        if (result === null) {
+        if (result === null)
           result = await computeOnRead(userId, metric, windowDays, ctx)
-          if (result !== null) {
-            logger?.debug('rules.baseline: stored row absent, computed on read', {
-              userId,
-              metric,
-              windowDays,
-            })
-          }
-        }
       }
       catch (err) {
         // A missing baseline is a normal state (new user). A failed read is
@@ -174,7 +169,7 @@ export function createBaselineReader(
           userId,
           metric,
           windowDays,
-          err: err instanceof Error ? err.message : String(err),
+          err: describeError(err),
         })
         result = null
       }

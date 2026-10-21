@@ -91,7 +91,8 @@ describe('correctSleepNights', () => {
     const out = await correctSleepNights(flaky, { nights: ['2026-06-18', '2026-06-25'], timeZone: 'UTC', cutoffEpoch: 0 })
     await db.close?.()
     expect(out.nights.map(n => n.status)).toEqual(['failed', 'no_firmware_sleep'])
-    expect(out.nights[0].error).toBe('boom')
+    // describeError: the error's name, then its message (and any cause chain).
+    expect(out.nights[0].error).toBe('Error: boom')
   }, 60_000)
 })
 

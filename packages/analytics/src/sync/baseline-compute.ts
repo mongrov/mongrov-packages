@@ -399,16 +399,10 @@ export function createBaselineComputer(
 
     // HAVING filtered it out — fewer than BASELINE_MIN_DAYS distinct days.
     // Not an error: a new user simply has no baseline yet, and consumers
-    // render "still learning" rather than a wrong range.
+    // render "still learning" rather than a wrong range. Counted as
+    // `skipped` in the cycle summary rather than logged per metric × window.
     const row = rows[0]
     if (!row || row.sample_count === null || row.sample_count < BASELINE_MIN_DAYS) {
-      logger?.debug('baseline: insufficient days, row not written', {
-        metric,
-        windowDays,
-        userId: ctx.userId,
-        sampleCount: row?.sample_count ?? 0,
-        required: BASELINE_MIN_DAYS,
-      })
       return false
     }
 
@@ -488,6 +482,7 @@ export function createBaselineComputer(
     computeHrPhaseBands,
 
     async computeAll(ctx) {
+      const startedAt = Date.now()
       let computed = 0
       let skipped = 0
       let failed = 0
@@ -529,7 +524,7 @@ export function createBaselineComputer(
         }
       }
 
-      const summary = { userId: ctx.userId, computed, skipped, failed }
+      const summary = { userId: ctx.userId, computed, skipped, failed, durationMs: Date.now() - startedAt }
       if (failed > 0) {
         logger?.warn('baseline: compute cycle complete', {
           ...summary,

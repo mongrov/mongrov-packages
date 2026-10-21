@@ -21,6 +21,7 @@
 
 import type { AnalyticsEngine } from '../core/types'
 import type { AuditEntry, AuditWriter, ToolsLogger } from './types'
+import { describeError } from '../core/errors'
 
 const DEFAULT_BATCH_SIZE = 10
 const DEFAULT_FLUSH_INTERVAL_MS = 1000
@@ -64,6 +65,7 @@ export function createAuditWriter(cfg: CreateAuditWriterConfig): AuditWriter {
     if (timer || closed)
       return
     timer = setInterval(() => {
+      // expected: doFlush never rejects — it catches and logs its own failures.
       void doFlush()
     }, flushIntervalMs)
     // Node timers are keep-alive by default; unref so a lingering
@@ -93,9 +95,8 @@ export function createAuditWriter(cfg: CreateAuditWriterConfig): AuditWriter {
       }
       catch (err) {
         consecutiveFailures += 1
-        const errMsg = err instanceof Error ? err.message : String(err)
         logger?.warn('audit flush failed', {
-          err: errMsg,
+          err: describeError(err),
           batchSize: batch.length,
           consecutiveFailures,
         })
@@ -124,6 +125,7 @@ export function createAuditWriter(cfg: CreateAuditWriterConfig): AuditWriter {
       pending.push(entry)
       ensureTimer()
       if (pending.length >= batchSize) {
+        // expected: doFlush never rejects (see above).
         void doFlush()
       }
     },

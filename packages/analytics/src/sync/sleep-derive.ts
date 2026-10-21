@@ -29,8 +29,11 @@ import type { MapperContext, SleepSessionRow, SleepStageRow } from './mapper/typ
 import type { SchedulerLogger } from './scheduler'
 import type { SqlRunner } from './sleep-correction/correct'
 
+import { describeError } from '../core/errors'
+import { tailId } from '../core/logger'
 import { sessionsFromCorrected } from './mapper/sleep'
 import { computeNightOf } from './mapper/time'
+import { logError } from './scheduler'
 import { correctSleepNights, nightsForEpochs } from './sleep-correction/orchestrate'
 import { stagingViewsSql } from './sleep-correction/staging'
 
@@ -174,7 +177,15 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
     await deps.engine.execute(`DELETE FROM ${catalog}.main.sleep_session WHERE session_id IN (${list})`)
   }
 
-  async function deriveRange(p: PendingRange): Promise<{ sessions: SleepSessionRow[], stages: SleepStageRow[] }> {
+  interface DerivedRange {
+    sessions: SleepSessionRow[]
+    stages: SleepStageRow[]
+    nights: number
+    failedNights: string[]
+    firstNightError?: string
+  }
+
+  async function deriveRange(p: PendingRange): Promise<DerivedRange> {
     const timeZone = await deps.resolveTimezone(p.userId)
     const ctx: MapperContext = {
       brand: p.brand,
@@ -195,9 +206,15 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
 
     const sessions: SleepSessionRow[] = []
     const stages: SleepStageRow[] = []
+    // Collected and logged once per range: a backfill spans weeks of nights,
+    // and a sick query fails every one of them identically.
+    const failedNights: string[] = []
+    let firstNightError: string | undefined
     for (const n of result.nights) {
-      if (n.status === 'failed')
-        deps.logger?.warn('sync.sleep-derive: night failed; previous rows kept', { night: n.night, err: n.error })
+      if (n.status === 'failed') {
+        failedNights.push(n.night)
+        firstNightError ??= n.error
+      }
       if (n.status !== 'ok' || !n.rows)
         continue
       const out = sessionsFromCorrected(n.rows, ctx, { settleMin: n.settleMin })
@@ -218,7 +235,18 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       sessions.push(...out.sleep_session)
       stages.push(...out.sleep_stage)
     }
-    return { sessions, stages }
+    return { sessions, stages, nights: result.nights.length, failedNights, firstNightError }
+  }
+
+  function logRange(p: PendingRange, d: DerivedRange): void {
+    if (d.failedNights.length === 0)
+      return
+    deps.logger?.warn('sync.sleep-derive: nights failed; previous rows kept', {
+      deviceId: tailId(p.deviceId),
+      failed: d.failedNights.length,
+      nights: d.failedNights.slice(0, 10),
+      firstError: d.firstNightError,
+    })
   }
 
   return {
@@ -255,9 +283,17 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
         return
       const ranges = [...pending.values()]
       pending.clear()
+      const startedAt = now()
+      const totals = { ranges: ranges.length, nights: 0, sessions: 0, stages: 0, failedNights: 0, failedRanges: 0 }
       for (const p of ranges) {
         try {
-          const { sessions, stages } = await deriveRange(p)
+          const derived = await deriveRange(p)
+          const { sessions, stages } = derived
+          logRange(p, derived)
+          totals.nights += derived.nights
+          totals.sessions += sessions.length
+          totals.stages += stages.length
+          totals.failedNights += derived.failedNights.length
           const tenant = { brand: p.brand, familyId: p.familyId, userId: p.userId, deviceId: p.deviceId }
           if (sessions.length > 0)
             await deps.buffer.push({ table: 'sleep_session', ...tenant, rows: sessions as unknown as Record<string, unknown>[] })
@@ -265,13 +301,18 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
             await deps.buffer.push({ table: 'sleep_stage', ...tenant, rows: stages as unknown as Record<string, unknown>[] })
         }
         catch (err) {
-          deps.logger?.warn('sync.sleep-derive: correction failed; raw sleep kept, nights unchanged', {
+          // Unexpected: per-night failures are caught inside the pipeline,
+          // so this is the whole range failing — no nights were derived.
+          totals.failedRanges += 1
+          logError(deps.logger, 'sync.sleep-derive: correction failed; raw sleep kept, nights unchanged', {
             userId: p.userId,
-            deviceId: p.deviceId,
-            err: err instanceof Error ? err.message : String(err),
+            deviceId: tailId(p.deviceId),
+            err: describeError(err),
           })
         }
       }
+      // Once per batch cycle that had sleep to correct.
+      deps.logger?.info('sync.sleep-derive: derived', { ...totals, reason, durationMs: now() - startedAt })
       // Land the derived rows inside this batch, so batch:complete follows them.
       await deps.flusher.flush('sleep_session', reason, batchId)
       await deps.flusher.flush('sleep_stage', reason, batchId)

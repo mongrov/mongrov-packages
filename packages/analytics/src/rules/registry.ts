@@ -123,6 +123,8 @@ export function createRulesRegistry({
       }
       entry.enabled = true
       await storage.set(enabledKey(ruleId), true)
+      // A user-facing switch that changes what fires — worth a line.
+      logger?.info('rules.registry: enabled', { ruleId })
       notify()
     },
 
@@ -133,6 +135,7 @@ export function createRulesRegistry({
       }
       entry.enabled = false
       await storage.set(enabledKey(ruleId), false)
+      logger?.info('rules.registry: disabled', { ruleId })
       notify()
     },
 

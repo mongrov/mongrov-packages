@@ -118,6 +118,9 @@ export function useTimeseries<T = unknown>(
         dispatch({ type: 'success', data: rows })
       }
       catch (cause) {
+        // Surfaced, not logged: the failure is returned as the hook's `error`
+        // for the caller to show or log. Logging here would add a line per
+        // render-driven query (T-17 AC: no logs on the query path).
         if (abortRef.aborted)
           return
         dispatch({
@@ -174,6 +177,8 @@ export function useTimeseries<T = unknown>(
 export interface UseInsightResult {
   insight: Insight | undefined
   loading: boolean
+  /** The read's failure, if any — `insight` is `undefined` either way. */
+  error: Error | null
 }
 
 /**
@@ -187,7 +192,7 @@ export function useInsight(id: string): UseInsightResult {
     ? `SELECT * FROM ${quoteQualifier(catalog)}.insight WHERE insight_id = $id LIMIT 1`
     : ''
   const params = useMemo(() => ({ id }), [id])
-  const { data, loading } = useTimeseries<Insight>(
+  const { data, loading, error } = useTimeseries<Insight>(
     catalog ? id : undefined,
     sql,
     params,
@@ -195,6 +200,7 @@ export function useInsight(id: string): UseInsightResult {
   return {
     insight: data?.[0],
     loading,
+    error,
   }
 }
 

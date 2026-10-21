@@ -24,7 +24,8 @@
  */
 
 import type { AnalyticsEngine, FamilyMembersProvider } from '../core/types'
-import type { AuthorizeFn } from './types'
+import type { AuthorizeFn, ToolsLogger } from './types'
+import { describeError } from '../core/errors'
 
 export interface AuthorizeConfig {
   /**
@@ -32,13 +33,15 @@ export interface AuthorizeConfig {
    * SQL. This is the path wired by `createAnalyticsTools`.
    */
   familyMembersProvider?: FamilyMembersProvider
+  /** Receives membership-lookup failures (the hook still fails closed). */
+  logger?: ToolsLogger
 }
 
 export function familyScopeAuthorize(
   analytics: AnalyticsEngine,
   config: AuthorizeConfig = {},
 ): AuthorizeFn {
-  return async (_toolName, args, ctx) => {
+  return async (toolName, args, ctx) => {
     const targetUserId = args.userId
     if (typeof targetUserId !== 'string' || targetUserId.length === 0) {
       return false
@@ -56,7 +59,13 @@ export function familyScopeAuthorize(
         : await analytics.getFamilyMembers()
       return members.includes(targetUserId)
     }
-    catch {
+    catch (err) {
+      // Fail closed, but say why: otherwise a broken provider reads as the
+      // user simply not being in the family.
+      config.logger?.error('tools.authorize: membership lookup failed, denying', {
+        toolName,
+        err: describeError(err),
+      })
       return false
     }
   }
@@ -73,7 +82,7 @@ export function orgScopeAuthorize(
   analytics: AnalyticsEngine,
   config: AuthorizeConfig = {},
 ): AuthorizeFn {
-  return async (_toolName, args, ctx) => {
+  return async (toolName, args, ctx) => {
     const targetUserId = args.userId
     if (typeof targetUserId !== 'string' || targetUserId.length === 0) {
       return false
@@ -91,7 +100,13 @@ export function orgScopeAuthorize(
         : await analytics.getFamilyMembers()
       return members.includes(targetUserId)
     }
-    catch {
+    catch (err) {
+      // Fail closed, but say why: otherwise a broken provider reads as the
+      // user simply not being in the family.
+      config.logger?.error('tools.authorize: membership lookup failed, denying', {
+        toolName,
+        err: describeError(err),
+      })
       return false
     }
   }
