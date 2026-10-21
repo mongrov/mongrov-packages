@@ -2,7 +2,7 @@
  * `MockVitalsProvider` — the hooks, backed by fixtures.
  *
  * The point is not "some data to look at". It is that a screen can be driven
- * through **all five states of the A2 status contract** without a ring, a
+ * through **all six states of the A2 status contract** without a ring, a
  * warehouse, or a 30-day wait:
  *
  * ```tsx
