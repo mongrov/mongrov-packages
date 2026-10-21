@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../../core/schemas'
-import { computeNightEpochs, CONF_ENVELOPE, CONF_GAP } from '../classify'
+import { computeNightEpochs } from '../classify'
 import { nightWindow } from '../night'
 import { correctSleepNights, stagingBoundsFor } from '../orchestrate'
 import { detectHrTierSql, globalBaselinesSql } from '../sql'
@@ -282,34 +282,6 @@ describe('staging bounds — same answer as unbounded views', () => {
     return db
   }
 
-  /**
-   * v3.1's Phase 2 dedupe keeps firmware over everything, but between an
-   * `envelope` and a `gap` row at the same instant it has no tie-break, so
-   * DuckDB picks either — run to run, with no change to the SQL (seen on the
-   * captures: one night flips 0.5/envelope ↔ 0.4/gap between two runs of the
-   * same text). Pre-existing and out of #46's scope (its own issue).
-   *
-   * So exactly that swap is masked, and nothing wider: a recovered row must
-   * still be one of the two consistent pairs — envelope at CONF_ENVELOPE or
-   * gap at CONF_GAP — and only which of the two it is may differ. Every other
-   * field, and every non-recovered row, must match as is.
-   */
-  const RECOVERED_PAIRS: Record<string, number> = { envelope: CONF_ENVELOPE, gap: CONF_GAP }
-  function maskEnvelopeGapSwap(r: Awaited<ReturnType<typeof correctSleepNights>>) {
-    return {
-      ...r,
-      nights: r.nights.map(n => ({
-        ...n,
-        rows: n.rows?.map((row) => {
-          if (!(row.source in RECOVERED_PAIRS))
-            return row
-          expect(row.confidence, `${row.date} ${row.source}`).toBe(RECOVERED_PAIRS[row.source])
-          return { ...row, source: 'envelope|gap', confidence: Number.NaN }
-        }),
-      })),
-    }
-  }
-
   it('correctSleepNights over bounded views equals the unbounded run', async () => {
     const db = await warehouse()
     const scope = { brand: BRAND, familyId: FAMILY, userId: 'u1', deviceId: 'ring_1' }
@@ -334,7 +306,9 @@ describe('staging bounds — same answer as unbounded views', () => {
         await db.execute(sql)
       expect(stagingViewsSql(scope, undefined, bounds).join('\n')).toMatch(/ts >= TIMESTAMP/)
       const bounded = await correctSleepNights(db, input)
-      expect(maskEnvelopeGapSwap(bounded)).toEqual(maskEnvelopeGapSwap(unbounded))
+      // Exact, source and confidence included: the Phase 2 dedupe is total (#52).
+      expect(bounded).toEqual(unbounded)
+      expect(await correctSleepNights(db, input)).toEqual(bounded)
       expect(unbounded.nights.some(n => n.status === 'ok')).toBe(true)
 
       // And the claim itself, per relation: from each independent floor up,
