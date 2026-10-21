@@ -8,7 +8,7 @@ export { AuthProvider, useAuth, useAuthClient } from './auth-provider'
 export { useBiometricGate } from './biometric'
 
 // Storage
-export { SecureTokenStore } from './secure-token-store'
+export { createSecureTokenStore, SecureTokenStore } from './secure-token-store'
 
 // Interceptor — exported via '@mongrov/auth/interceptor' subpath
 // to avoid leaking axios types into the main entry point.

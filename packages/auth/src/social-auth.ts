@@ -13,7 +13,7 @@
  * ```
  */
 
-import type { AuthErrorCode, SocialProvider } from './types'
+import type { AuthErrorCode, AuthLogger, SocialProvider } from './types'
 import {
   GoogleSignin,
   isCancelledResponse,
@@ -23,6 +23,7 @@ import * as AppleAuthentication from 'expo-apple-authentication'
 import { useCallback, useState } from 'react'
 
 import { Platform } from 'react-native'
+import { describeError, noopLogger } from './log'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -71,6 +72,11 @@ export interface SocialAuthHookResult<T extends SocialAuthResult> {
   isAvailable: boolean
 }
 
+export interface SocialAuthLogOptions {
+  /** Receives provider failures (cancellation is not logged). Default: no-op. */
+  logger?: AuthLogger
+}
+
 // ─── Apple Authentication ────────────────────────────────────────────────────
 
 /**
@@ -95,7 +101,8 @@ export interface SocialAuthHookResult<T extends SocialAuthResult> {
  * };
  * ```
  */
-export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
+export function useAppleAuth(options: SocialAuthLogOptions = {}): SocialAuthHookResult<AppleAuthResult> {
+  const log = options.logger ?? noopLogger
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<SocialAuthError | null>(null)
 
@@ -160,10 +167,11 @@ export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
 
       // Handle user cancellation
       if (error.code === 'ERR_REQUEST_CANCELED') {
-        // User cancelled - not an error
+        // expected: user cancelled - not an error
         return null
       }
 
+      log.warn('[auth] Apple sign-in failed', { code: error.code, error: describeError(error) })
       setError({
         code: 'SOCIAL_AUTH_FAILED',
         message: error.message || 'Apple Sign In failed',
@@ -174,7 +182,7 @@ export function useAppleAuth(): SocialAuthHookResult<AppleAuthResult> {
     finally {
       setLoading(false)
     }
-  }, [isAvailable])
+  }, [isAvailable, log])
 
   return {
     signIn,
@@ -199,6 +207,8 @@ export interface GoogleAuthConfig {
   webClientId?: string
   /** Additional OAuth scopes beyond openid/email/profile */
   scopes?: string[]
+  /** Receives provider failures (cancellation is not logged). Default: no-op. */
+  logger?: AuthLogger
 }
 
 /**
@@ -225,6 +235,7 @@ export interface GoogleAuthConfig {
  * ```
  */
 export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<GoogleAuthResult> {
+  const log = config.logger ?? noopLogger
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<SocialAuthError | null>(null)
 
@@ -271,8 +282,11 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
         const tokens = await GoogleSignin.getTokens()
         accessToken = tokens.accessToken ?? null
       }
-      catch {
+      catch (tokenErr) {
         // Sign-in succeeded; access token can be fetched later via GoogleSignin.getTokens()
+        log.warn('[auth] Google getTokens failed after sign-in; continuing without access token', {
+          error: describeError(tokenErr),
+        })
       }
 
       return {
@@ -283,6 +297,7 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
     }
     catch (err) {
       const error = err as Error
+      log.warn('[auth] Google sign-in failed', { error: describeError(error) })
       setError({
         code: 'SOCIAL_AUTH_FAILED',
         message: error.message || 'Google Sign In failed',
@@ -293,7 +308,7 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
     finally {
       setLoading(false)
     }
-  }, [config.webClientId, config.iosClientId, config.scopes])
+  }, [config.webClientId, config.iosClientId, config.scopes, log])
 
   return {
     signIn,
@@ -309,6 +324,8 @@ export function useGoogleAuth(config: GoogleAuthConfig): SocialAuthHookResult<Go
 export interface SocialAuthConfig {
   /** Google OAuth configuration */
   google?: GoogleAuthConfig
+  /** Passed to both providers (Google's own `logger` wins). Default: no-op. */
+  logger?: AuthLogger
 }
 
 /**
@@ -328,8 +345,8 @@ export interface SocialAuthConfig {
  * ```
  */
 export function useSocialAuth(config: SocialAuthConfig = {}) {
-  const apple = useAppleAuth()
-  const google = useGoogleAuth(config.google || {})
+  const apple = useAppleAuth({ logger: config.logger })
+  const google = useGoogleAuth({ logger: config.logger, ...config.google })
 
   const signInWith = useCallback(
     async (provider: SocialProvider): Promise<SocialAuthResult | null> => {

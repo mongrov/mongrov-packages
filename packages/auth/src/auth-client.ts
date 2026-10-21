@@ -5,7 +5,6 @@ import type {
   AuthClientConfig,
   AuthError,
   AuthErrorCode,
-  AuthLogger,
   AuthState,
   AuthStatus,
   AuthTokens,
@@ -15,16 +14,20 @@ import type {
 
 import { jwtDecode } from 'jwt-decode'
 import { createActor } from 'xstate'
+import { describeError, noopLogger } from './log'
 import { authMachine } from './machines/auth-machine'
 import { createRefreshManager } from './refresh-manager'
-import { SecureTokenStore } from './secure-token-store'
+import { createSecureTokenStore } from './secure-token-store'
 
-const noopLogger: AuthLogger = {
-  debug() {},
-  info() {},
-  warn() {},
-  error() {},
-}
+/** Sign-in failures the user caused and can fix: handled, not a defect. */
+const EXPECTED_SIGN_IN_CODES: ReadonlySet<AuthErrorCode> = new Set<AuthErrorCode>([
+  'INVALID_CREDENTIALS',
+  'VALIDATION_ERROR',
+  'RATE_LIMITED',
+  'ACCOUNT_LOCKED',
+  'DUPLICATE_EMAIL',
+  'REGISTRATION_DISABLED',
+])
 
 function classifyError(err: unknown): AuthErrorCode {
   if (err instanceof Error) {
@@ -82,16 +85,33 @@ function derivePublicState(stateValue: string, context: AuthMachineContext): Aut
 export function createAuthClient(config: AuthClientConfig): AuthClient {
   const {
     adapter,
-    tokenStore = SecureTokenStore as TokenStore,
     proactiveRefresh = true,
     refreshThreshold = 0.8,
     parseUserFromToken = defaultParseUser,
     logger: log = noopLogger,
   } = config
+  const tokenStore: TokenStore = config.tokenStore ?? createSecureTokenStore({ logger: log })
 
   // Create and start the XState actor
   const actor = createActor(authMachine)
+  logStatusTransitions()
   actor.start()
+
+  /** One info line per public status change (idle/authenticating/authenticated/error). */
+  function logStatusTransitions(): void {
+    let lastStatus: AuthStatus = 'idle'
+    actor.subscribe((snap) => {
+      const status = mapStatus(snap.value as string)
+      if (status === lastStatus)
+        return
+      log.info('[auth] state changed', {
+        from: lastStatus,
+        to: status,
+        ...(snap.context.error ? { errorCode: snap.context.error.code } : {}),
+      })
+      lastStatus = status
+    })
+  }
 
   async function resolveUser(accessToken: string): Promise<UserInfo> {
     if (adapter.getUser) {
@@ -108,7 +128,9 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         return false
       return decoded.exp * 1000 < Date.now()
     }
-    catch {
+    catch (err) {
+      // Handled: an undecodable token is treated as expired and refreshed.
+      log.warn('[auth] access token not decodable; treating as expired', { error: describeError(err) })
       return true
     }
   }
@@ -118,8 +140,9 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
     tokenStore,
     proactiveRefresh,
     refreshThreshold,
+    logger: log,
     onRefreshed: (tokens: AuthTokens) => {
-      log.debug('[auth] token refreshed silently')
+      log.info('[auth] token refresh succeeded', { rotatedRefreshToken: Boolean(tokens.refreshToken) })
       const snap = actor.getSnapshot()
       actor.send({
         type: 'TOKEN_REFRESHED',
@@ -128,12 +151,15 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
       })
     },
     onRefreshFailed: (error: AuthError) => {
-      log.warn('[auth] token refresh failed, signing out', error.message)
+      log.error('[auth] token refresh failed, signing out', { error: describeError(error) })
       // clear() is async but callback is sync — chain to ensure tokens
       // are removed before any subsequent hydrate can read stale values.
       tokenStore.clear().then(
         () => actor.send({ type: 'REFRESH_FAILED' }),
-        () => actor.send({ type: 'REFRESH_FAILED' }),
+        (clearErr: unknown) => {
+          log.error('[auth] token store clear failed after refresh failure', { error: describeError(clearErr) })
+          actor.send({ type: 'REFRESH_FAILED' })
+        },
       )
     },
   })
@@ -154,7 +180,7 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken ?? null,
       })
-      log.info('[auth] signIn succeeded', user.id)
+      log.info('[auth] signIn succeeded')
       if (proactiveRefresh && tokens.expiresIn) {
         refreshManager.scheduleRefresh(tokens.expiresIn)
       }
@@ -165,7 +191,8 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         message: err instanceof Error ? err.message : 'Sign in failed',
         original: err instanceof Error ? err : undefined,
       }
-      log.error('[auth] signIn failed', authError.code, authError.message)
+      const level = EXPECTED_SIGN_IN_CODES.has(authError.code) ? 'warn' : 'error'
+      log[level]('[auth] signIn failed', { code: authError.code, error: describeError(err) })
       actor.send({ type: 'SIGN_IN_FAILURE', error: authError })
       throw authError
     }
@@ -176,8 +203,10 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
     const { accessToken } = actor.getSnapshot().context
     refreshManager.cancelRefresh()
     if (adapter.logout && accessToken) {
-      // fire-and-forget
-      adapter.logout(accessToken).catch(() => {})
+      // fire-and-forget: local sign-out proceeds whatever the server says
+      adapter.logout(accessToken).catch((err: unknown) => {
+        log.warn('[auth] server logout failed; signed out locally', { error: describeError(err) })
+      })
     }
     await tokenStore.clear()
     actor.send({ type: 'SIGN_OUT' })
@@ -189,7 +218,7 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
     try {
       const accessToken = await tokenStore.getAccessToken()
       if (!accessToken) {
-        log.debug('[auth] hydrate: no stored tokens, staying idle')
+        log.info('[auth] hydrate: no stored session')
         actor.send({ type: 'HYDRATE_NO_TOKENS' })
         return
       }
@@ -198,7 +227,7 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
 
       if (isTokenExpired(accessToken)) {
         if (refreshToken) {
-          log.debug('[auth] hydrate: token expired, attempting refresh')
+          log.info('[auth] hydrate: token expired, refreshing')
           const tokens = await refreshManager.handleUnauthorized()
           const user = await resolveUser(tokens.accessToken)
           actor.send({
@@ -207,10 +236,10 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken ?? refreshToken,
           })
-          log.info('[auth] hydrate: refreshed and restored session', user.id)
+          log.info('[auth] hydrate: refreshed and restored session')
         }
         else {
-          log.debug('[auth] hydrate: token expired, no refresh token')
+          log.info('[auth] hydrate: token expired and no refresh token; signed out')
           await tokenStore.clear()
           actor.send({ type: 'HYDRATE_NO_TOKENS' })
         }
@@ -224,7 +253,7 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         accessToken,
         refreshToken,
       })
-      log.info('[auth] hydrate: restored session', user.id)
+      log.info('[auth] hydrate: restored session')
 
       // Try to get expiresIn from token for scheduling
       try {
@@ -237,13 +266,16 @@ export function createAuthClient(config: AuthClientConfig): AuthClient {
         }
       }
       catch {
-        // Can't decode exp — no proactive refresh
+        // expected: isTokenExpired already decoded this token (and warned if
+        // it could not), so this only skips proactive refresh
       }
     }
     catch (err) {
-      // If refresh failed, onRefreshFailed already handled transition
+      // If refresh failed, onRefreshFailed already logged it and handled the
+      // transition back to idle.
       const snap = actor.getSnapshot()
       if (snap.value !== 'idle') {
+        log.error('[auth] hydrate failed', { error: describeError(err) })
         const authError: AuthError = {
           code: 'ADAPTER_ERROR',
           message: err instanceof Error ? err.message : 'Hydration failed',

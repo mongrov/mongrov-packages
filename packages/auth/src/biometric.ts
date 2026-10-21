@@ -1,4 +1,6 @@
+import type { AuthLogger } from './types'
 import { useCallback, useEffect, useState } from 'react'
+import { describeError, noopLogger } from './log'
 
 type LocalAuthModule = {
   hasHardwareAsync: () => Promise<boolean>
@@ -15,12 +17,13 @@ function getLocalAuth(): LocalAuthModule | null {
     localAuthModule = require('expo-local-authentication') as LocalAuthModule
   }
   catch {
+    // expected: optional peer; the gate reports unavailable (and authenticate warns)
     localAuthModule = null
   }
   return localAuthModule
 }
 
-export function useBiometricGate(): {
+export function useBiometricGate(options: { logger?: AuthLogger } = {}): {
   isAvailable: boolean
   isAuthenticated: boolean
   authenticate: (reason?: string) => Promise<boolean>
@@ -29,6 +32,7 @@ export function useBiometricGate(): {
   const [isAvailable, setIsAvailable] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const log = options.logger ?? noopLogger
 
   useEffect(() => {
     const mod = getLocalAuth()
@@ -46,7 +50,8 @@ export function useBiometricGate(): {
           setIsAvailable(hasHardware && isEnrolled)
         }
       }
-      catch {
+      catch (err) {
+        log.warn('[auth] biometric availability check failed; gate unavailable', { error: describeError(err) })
         if (!cancelled) {
           setIsAvailable(false)
         }
@@ -54,12 +59,13 @@ export function useBiometricGate(): {
     })()
 
     return () => { cancelled = true }
-  }, [])
+  }, [log])
 
   const authenticate = useCallback(async (reason?: string): Promise<boolean> => {
     const mod = getLocalAuth()
     if (!mod) {
       // Module unavailable — treat as success (don't block user)
+      log.warn('[auth] expo-local-authentication unavailable; biometric gate passed without a prompt')
       setIsAuthenticated(true)
       return true
     }
@@ -77,11 +83,12 @@ export function useBiometricGate(): {
     }
     catch (err) {
       const msg = err instanceof Error ? err.message : 'Biometric authentication failed'
+      log.warn('[auth] biometric authentication threw', { error: describeError(err) })
       setError(msg)
       setIsAuthenticated(false)
       return false
     }
-  }, [])
+  }, [log])
 
   return { isAvailable, isAuthenticated, authenticate, error }
 }

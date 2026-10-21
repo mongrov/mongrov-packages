@@ -100,11 +100,16 @@ export interface Session {
 
 // ─── Logger (compatible with @mongrov/core) ────────────
 
+/**
+ * Structural subset of `@mongrov/core`'s `Logger`, so a core logger (or the
+ * app's sync logger) can be passed as-is. `data` is a flat, JSON-safe object:
+ * never put tokens, passwords, emails or user ids in it.
+ */
 export interface AuthLogger {
-  debug: (message: string, ...args: unknown[]) => void
-  info: (message: string, ...args: unknown[]) => void
-  warn: (message: string, ...args: unknown[]) => void
-  error: (message: string, ...args: unknown[]) => void
+  debug: (message: string, data?: Record<string, unknown>) => void
+  info: (message: string, data?: Record<string, unknown>) => void
+  warn: (message: string, data?: Record<string, unknown>) => void
+  error: (message: string, data?: Record<string, unknown>) => void
 }
 
 // ─── Token Store ────────────────────────────────────────
@@ -163,7 +168,12 @@ export interface AuthClientConfig {
   refreshThreshold?: number
   /** Extract UserInfo from JWT if adapter.getUser not provided */
   parseUserFromToken?: (decodedToken: Record<string, unknown>) => UserInfo
-  /** Logger instance (e.g. from @mongrov/core useLogger()). Default: no-op */
+  /**
+   * Logger (e.g. a `@mongrov/core` logger). Receives the auth state
+   * transitions, refresh outcomes and storage fallbacks. Also handed to the
+   * default `SecureTokenStore` when `tokenStore` is not given.
+   * Default: no-op.
+   */
   logger?: AuthLogger
 }
 
