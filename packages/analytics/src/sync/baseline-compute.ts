@@ -35,7 +35,7 @@ import {
   METRIC_METADATA,
 
 } from '../core/metric_metadata'
-import { readViewFor, STILL_FLOOR } from '../core/reading-quality'
+import { readViewFor, STILL_FLOOR, STILL_WINDOW_MINUTES } from '../core/reading-quality'
 import { minDayReadings } from '../rules/compiler'
 import { buildHrPhaseBandsSql } from './hr-phase-bands'
 
@@ -198,21 +198,60 @@ export function buildBaselineSql(
     // a public export rather than a substitution. Until then a reading can be
     // `still` for this baseline and the charts, yet `not resting` for a rule
     // that alerts on it.
+    //
+    // ## Steps in the window: two lookups, not a scan (zivaone_app#460 P15)
+    //
+    // This was a correlated `SUM(steps) FROM v_activity` over `[ts - 15,
+    // ts + 15)` per reading — the shape zivaone_app#126 measured at ~33 s at
+    // 180 days, run here once per window (7 / 30 / 90) per cycle. It is now
+    // the subtraction `v_motion` and `hr-phase-bands.ts` use: a running step
+    // total, `mn` = latest row strictly before the window closes, `mp` =
+    // latest strictly before it opens, and `cum(mn) - cum(mp)` is exactly the
+    // steps in the half-open window. See `motionJoin` in core/reading-quality.
+    //
+    // Two deliberate choices, both to keep the result IDENTICAL to the
+    // correlated sum (`resting-gated-still-equivalence.test.ts` runs both):
+    //
+    //   - TENANT-WIDE `cum_steps`, no `device_id` match. The correlated sum
+    //     counted every ring's steps; the clean views' `still` counts only
+    //     the reading's own ring (zivaone_app#366). Moving this baseline to
+    //     the device-scoped definition is a behaviour change, not a perf fix,
+    //     and is left for its own decision.
+    //   - A BOUNDED running total, inlined rather than `v_motion` (whose
+    //     window spans the whole activity history) or the `v_motion_between`
+    //     macro (whose creation is non-fatal at attach, so a baseline must not
+    //     depend on it). The slice starts STILL_WINDOW_MINUTES before the
+    //     earliest reading the scan admits, which is exact by the same
+    //     argument as `v_motion_between`: rows before `mp` cancel, and when
+    //     the slice has no `mp` every row up to `mn` is inside the window.
+    //     (A reading that close to the scan start also lands on a local day
+    //     the HAVING drops, so the pad is belt-and-braces, not load-bearing.)
+    //
+    // A reading with no activity near it gets 0 either way (both lookups NULL
+    // or the same row), matching the old `COALESCE(SUM, 0)`.
     return `
-      WITH daily_values AS (
+      WITH motion AS (
+        SELECT user_id, brand, family_id, ts,
+               SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
+        FROM v_activity
+        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+          AND steps IS NOT NULL
+          AND ts >= now() - ${scanBind} - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
+      ),
+      daily_values AS (
         SELECT date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', m.ts))) AS day,
                avg(m.${column}) AS daily_value
         FROM ${view} m
+        ASOF LEFT JOIN motion mp
+          ON mp.user_id = m.user_id AND mp.brand = m.brand AND mp.family_id = m.family_id
+         AND m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mp.ts
+        ASOF LEFT JOIN motion mn
+          ON mn.user_id = m.user_id AND mn.brand = m.brand AND mn.family_id = m.family_id
+         AND m.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mn.ts
         WHERE m.user_id = $userId AND m.brand = $brand AND m.family_id = $familyId
           AND m.ts > now() - ${scanBind}
           AND m.${column} IS NOT NULL
-          AND COALESCE((
-            SELECT SUM(a.steps) FROM v_activity a
-            WHERE a.user_id = m.user_id AND a.brand = m.brand
-              AND a.family_id = m.family_id
-              AND a.ts >= m.ts - INTERVAL 15 MINUTE
-              AND a.ts <  m.ts + INTERVAL 15 MINUTE
-          ), 0) < ${STILL_FLOOR}
+          AND COALESCE(mn.cum_steps, 0) - COALESCE(mp.cum_steps, 0) < ${STILL_FLOOR}
         GROUP BY 1
         HAVING ${completeDays}
       )
