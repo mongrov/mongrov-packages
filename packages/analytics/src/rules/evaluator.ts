@@ -370,7 +370,12 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       // scale: an unreadable setting must not silence the alert.
       if (compiled.bandScaleKey !== undefined)
         params[BAND_SCALE_PARAM] = await resolveBandScale(ctx.userId, compiled, rule.id)
-      rows = await analytics.execute<EvaluationRow>(compiled.sql, params)
+      // mongrov-packages#44 — the bounded form when every macro exists for
+      // this attach; the views otherwise. Same rows either way.
+      const sql = analytics.boundedReads === true && compiled.boundedSql !== undefined
+        ? compiled.boundedSql
+        : compiled.sql
+      rows = await analytics.execute<EvaluationRow>(sql, params)
     }
     catch (err) {
       pass.failures += 1

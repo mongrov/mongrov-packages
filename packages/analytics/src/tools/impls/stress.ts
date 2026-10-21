@@ -1,5 +1,6 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { daysInterval, readRelation, SPARE_DAYS } from '../../core/bounded-read'
 import { describeError } from '../../core/errors'
 
 import { assertNoBanTerms, formatBytes } from '../formatters'
@@ -34,10 +35,13 @@ interface BaselineRow {
  * authority.
  */
 export const getStress: ToolImpl<GetStressInput> = async (input, ctx) => {
+  // mongrov-packages#44 — the bounded macro covers `ts >= now() - $days days`
+  // (plus the spare day) when the engine has it; the view otherwise.
+  const relation = readRelation(ctx.analytics, 'v_hrv_clean', { back: daysInterval(`(CAST($days AS BIGINT) + ${SPARE_DAYS})`) })
   const sql = `SELECT ${localDay()} AS day,
             AVG(stress)::DOUBLE AS avg_stress,
             MAX(stress)::DOUBLE AS hi_stress
-     FROM v_hrv_clean
+     FROM ${relation}
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
        AND stress IS NOT NULL

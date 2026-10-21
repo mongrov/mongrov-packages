@@ -218,7 +218,7 @@ export function createAnalytics(
       // family_id (see generateViewDdl), which is why they are recreated
       // on every attach rather than created once: a brand switch that
       // reused the previous views would serve the previous tenant's rows.
-      await createViews(db, {
+      const views = await createViews(db, {
         brand: ctx.brand,
         familyId: ctx.tenantId,
         localCatalog,
@@ -228,12 +228,17 @@ export function createAnalytics(
         onMacroFailed: (name, cause) =>
           log.error('analytics.attach.macro_failed', { macro: name, error: describeError(cause) }),
       })
+      // A macro failed in its plain form too: readers stay on the views.
+      boundedReads = views.unavailableMacros.length === 0
+      if (!boundedReads)
+        log.error('analytics.attach.bounded_reads_off', { macros: views.unavailableMacros })
       return {
         warehouseSecret: attach.warehouseSecret,
         tokenExpiresAt: attach.tokenExpiresAt.getTime(),
       }
     },
     async detachEngine({ ctx }) {
+      boundedReads = false
       // Views first: they reference the remote catalog, so dropping them
       // after DETACH would leave definitions pointing at a catalog that no
       // longer exists. Best-effort inside dropViews, so a failure here can
@@ -326,6 +331,12 @@ export function createAnalytics(
    * (principles 17/53 — server-side retention is R2 snapshot expiration).
    */
   let localCatalogName: string | undefined
+
+  /**
+   * Every bounded macro exists for the current attach (mongrov-packages#44).
+   * Set by `attachEngine` from what `createViews` managed to create.
+   */
+  let boundedReads = false
 
   /**
    * Family-membership cache backing `engine.getFamilyMembers()`
@@ -552,6 +563,9 @@ export function createAnalytics(
     },
     get mode() {
       return mode
+    },
+    get boundedReads(): boolean {
+      return boundedReads && currentState(actor) === 'attached'
     },
     subscribe(listener): Unsubscribe {
       publicSubscribers.add(listener)

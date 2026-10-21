@@ -1,5 +1,6 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { daysInterval, readRelation, SPARE_DAYS } from '../../core/bounded-read'
 import { assertNoBanTerms, formatBytes, popStddev } from '../formatters'
 import { localDay, tzParam } from '../local-day'
 
@@ -17,17 +18,20 @@ interface Row {
   value: number
 }
 
+/** `view`, or its bounded macro covering the last `lookbackDays` (mongrov-packages#44). */
+type Relation = (view: string, lookbackDays: number) => string
+
 interface MetricSpec {
-  sql: (lookbackDays: number) => string
+  sql: (lookbackDays: number, relation: Relation) => string
   unit: string
   label: string
 }
 
 const METRIC_SPECS: Record<DetectAnomalyInput['metric'], MetricSpec> = {
   hrv_ms: {
-    sql: lookbackDays =>
+    sql: (lookbackDays, relation) =>
       `SELECT ${localDay()} AS day, AVG(hrv_ms)::DOUBLE AS value
-       FROM v_hrv_clean
+       FROM ${relation('v_hrv_clean', lookbackDays)}
        WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
          AND hrv_ms IS NOT NULL
          AND ts >= now() - INTERVAL (${lookbackDays}) DAY
@@ -62,7 +66,8 @@ export const detectAnomaly: ToolImpl<DetectAnomalyInput> = async (
   ctx,
 ) => {
   const spec = METRIC_SPECS[input.metric]
-  const sql = spec.sql(input.lookbackDays)
+  const sql = spec.sql(input.lookbackDays, (view, lookbackDays) =>
+    readRelation(ctx.analytics, view, { back: daysInterval(lookbackDays + SPARE_DAYS) }))
   const rows = await ctx.analytics.execute<Row>(sql, {
     userId: input.userId,
     brand: ctx.brand,

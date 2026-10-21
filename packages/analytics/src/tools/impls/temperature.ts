@@ -1,5 +1,6 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
+import { daysInterval, readRelation, SPARE_DAYS } from '../../core/bounded-read'
 import { describeError } from '../../core/errors'
 
 import { precisionFor } from '../../core/metric_metadata'
@@ -42,11 +43,14 @@ interface BaselineRow {
  *     formatter follows the device, not the column.
  */
 export const getTemperature: ToolImpl<GetTemperatureInput> = async (input, ctx) => {
+  // mongrov-packages#44 — the bounded macro covers `ts >= now() - $days days`
+  // (plus the spare day) when the engine has it; the view otherwise.
+  const relation = readRelation(ctx.analytics, 'v_temperature_clean', { back: daysInterval(`(CAST($days AS BIGINT) + ${SPARE_DAYS})`) })
   const sql = `SELECT ${localDay()} AS day,
             AVG(temp_c)::DOUBLE AS avg_temp,
             MAX(temp_c)::DOUBLE AS hi_temp,
             MIN(temp_c)::DOUBLE AS lo_temp
-     FROM v_temperature_clean
+     FROM ${relation}
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
        AND temp_c IS NOT NULL

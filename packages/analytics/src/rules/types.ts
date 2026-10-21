@@ -43,6 +43,14 @@ export interface CompiledRule {
   ruleId: string
   metric: MetricId
   sql: string
+  /**
+   * The same query reading the vital through its bounded `_between` macros
+   * instead of the full-history views (mongrov-packages#44): identical rows,
+   * a fraction of the cost. Present when the rule reads a quality table. The
+   * evaluator runs it only when `analytics.boundedReads` is true, and `sql`
+   * otherwise — so a macro missing at attach costs speed, never the rule.
+   */
+  boundedSql?: string
   /** Statically-known params. Runtime binds `$userId`/`$brand`/`$familyId` on top. */
   params: Record<string, string | number>
   description: string

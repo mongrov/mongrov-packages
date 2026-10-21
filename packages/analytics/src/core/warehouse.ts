@@ -42,7 +42,7 @@ import type {
   TokenVendor,
 } from './types'
 import { AnalyticsError } from './errors'
-import { qualityMacroDdls, qualityMacroNames, qualityViewDdls, qualityViewNames } from './reading-quality'
+import { fallbackMacroDdl, qualityMacroDdls, qualityMacroNames, qualityViewDdls, qualityViewNames } from './reading-quality'
 import { dropViewDdl, generateViewDdl, VIEWED_TABLES } from './schemas'
 
 /**
@@ -382,7 +382,7 @@ export async function createViews(
      */
     onMacroFailed?: (name: string, cause: unknown) => void
   } = {},
-): Promise<void> {
+): Promise<CreateViewsResult> {
   for (const table of VIEWED_TABLES) {
     try {
       await db.execute(generateViewDdl(table, ctx))
@@ -417,14 +417,37 @@ export async function createViews(
   // failed only on the device's DuckDB build (zivaone_app#191): attach went to
   // `error` and every write was rejected with it. Now the queries that read a
   // missing macro fail on their own, loudly, and everything else keeps working.
+  //
+  // mongrov-packages#44: a failed macro now gets its PLAIN form under the same
+  // name (the view, filtered — `fallbackMacroDdl`), so a reader that names it
+  // still answers, at the view's cost. Only when that fails too is the macro
+  // reported unavailable, and the package's own readers then stay on the
+  // views (`AnalyticsEngine.boundedReads`).
+  const unavailableMacros: string[] = []
   for (const macro of qualityMacroDdls()) {
     try {
       await db.execute(macro.sql)
     }
     catch (cause) {
       opts.onMacroFailed?.(macro.name, rootCause(cause))
+      try {
+        await db.execute(fallbackMacroDdl(macro.name))
+      }
+      catch {
+        unavailableMacros.push(macro.name)
+      }
     }
   }
+  return { unavailableMacros }
+}
+
+/** What `createViews` could not provide. Views are fatal, so only macros appear. */
+export interface CreateViewsResult {
+  /**
+   * Bounded macros that exist in NEITHER form after attach. Empty is the
+   * normal case; anything else means `*_between` readers must use the views.
+   */
+  unavailableMacros: string[]
 }
 
 /**
