@@ -185,15 +185,25 @@ WHERE date >= ${num(windowStart)}
 /**
  * Phase 2 — envelope extension, gap recovery and session stitching.
  *
- * ## One row per minute, chosen the same way every run (#52)
+ * ## The same rows every run (#52)
+ *
+ * Two orderings here were partial, and both are now total. Every result is
+ * still one v3.1 could produce for the same input: each only fixes a choice
+ * v3.1 left to the engine.
+ *
+ * Firmware sessions are numbered by start, then end, then `fw_start`.
+ * `sleep_raw`'s key includes the session start, so a re-download can store
+ * two sessions with the same first minute, and which one was "previous"
+ * decided the gap to the next session — whether that gap was recovered at
+ * all, not just how it was labelled.
  *
  * v3.1's dedupe ordered by "firmware first" and nothing else, so between an
  * `envelope` and a `gap` row at the same minute DuckDB picked either: the
  * same night, rerun, could store a recovered minute as envelope/0.5 or as
  * gap/0.4. Envelope now wins, then higher confidence, then the remaining
- * columns, so the pick is total. Every result is one v3.1 could already
- * produce for the same input, and quality, date and session are the same
- * either way (both recovered sources are quality 2).
+ * columns, so the pick is total. Between envelope and gap only the label
+ * changes (both are quality 2). Between two firmware rows at one minute the
+ * lower quality code now wins (deep 1 over awake 5), where v3.1 kept either.
  */
 export function correctNightSql(
   windowStart: number,
@@ -305,7 +315,7 @@ fw_sessions AS (
 
 fw_sess_numbered AS (
     SELECT *,
-           ROW_NUMBER() OVER (ORDER BY sess_start) AS rn
+           ROW_NUMBER() OVER (ORDER BY sess_start, sess_end, fw_start NULLS LAST) AS rn
     FROM fw_sessions
 ),
 
@@ -424,7 +434,14 @@ FROM stitched
 ORDER BY date;`
 }
 
-/** Phase 3 input — HR + step samples for the Step 5.6 END refinement. */
+/**
+ * Phase 3 input — HR + step samples for the Step 5.6 END refinement.
+ *
+ * Ordered totally (#52): two samples at one epoch (sub-second readings that
+ * round together, or the local + remote halves of the view) came back in
+ * either order, and `computeSettleMin` keeps that order, so its hold check
+ * could see the high reading on one run and skip it on the next.
+ */
 export function morningVitalsSql(windowStart: number, windowEnd: number, r: SleepRelations = DEFAULT_RELATIONS): string {
   return `
 SELECT 'hr' AS kind, date AS epoch, "singleHR" AS value
@@ -435,5 +452,5 @@ UNION ALL
 SELECT 'step' AS kind, date AS epoch, step AS value
 FROM ${rel(r.activity)}
 WHERE date >= ${num(windowStart)} AND date < ${num(windowEnd + FETCH_AFTER)}
-ORDER BY epoch;`
+ORDER BY epoch, kind, value;`
 }

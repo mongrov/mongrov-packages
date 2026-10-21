@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
 import { computeNightEpochs, parseDateStr } from '../classify'
 import { correctNight, detectHrTier, globalBaselines } from '../correct'
-import { correctNightSql, detectHrTierSql } from '../sql'
+import { correctNightSql, detectHrTierSql, morningVitalsSql } from '../sql'
 
 const at = (iso: string) => Date.parse(`${iso}Z`) / 1000
 
@@ -88,5 +88,22 @@ describe('sleep correction on DuckDB', () => {
   it('refuses non-finite numbers and unsafe relation names in the SQL', () => {
     expect(() => correctNightSql(Number.NaN, 0, 5, 80, 90)).toThrow('non-finite')
     expect(() => detectHrTierSql({ sleep: 's', heartrate: 'x; DROP TABLE y', activity: 'a' })).toThrow('invalid relation')
+  })
+})
+
+describe('morningVitalsSql order (#52)', () => {
+  it('orders samples that share an epoch by kind, then value, whatever the insert order', async () => {
+    const db = await createRealDuckDB([])
+    await db.execute(`CREATE TABLE stg_heartrate (date BIGINT, "singleHR" DOUBLE)`)
+    await db.execute(`CREATE TABLE stg_activity (date BIGINT, step DOUBLE)`)
+    await db.execute(`INSERT INTO stg_heartrate VALUES (100, 90), (100, 60), (40, 70)`)
+    await db.execute(`INSERT INTO stg_activity VALUES (100, 5)`)
+    const rows = (await db.execute(morningVitalsSql(0, 100))) as { kind: string, epoch: unknown, value: unknown }[]
+    expect(rows.map(r => [r.kind, Number(r.epoch), Number(r.value)])).toEqual([
+      ['hr', 40, 70],
+      ['hr', 100, 60],
+      ['hr', 100, 90],
+      ['step', 100, 5],
+    ])
   })
 })
