@@ -224,19 +224,31 @@ export function buildBaselineSql(
     //     earliest reading the scan admits, which is exact by the same
     //     argument as `v_motion_between`: rows before `mp` cancel, and when
     //     the slice has no `mp` every row up to `mn` is inside the window.
-    //     (A reading that close to the scan start also lands on a local day
-    //     the HAVING drops, so the pad is belt-and-braces, not load-bearing.)
+    //     The pad is REQUIRED, not belt-and-braces: the scan starts
+    //     `windowDays + 1` days of elapsed time back, but the HAVING keeps
+    //     whole LOCAL days, and across a DST fall-back a local day is 25 h.
+    //     E.g. Los Angeles, 30-day window, run at 23:30 PST with fall-back
+    //     inside the window: the scan starts at 00:30 PDT on the oldest KEPT
+    //     day, so readings in its first 15 minutes have windows that reach
+    //     before the scan start — without the pad they would lose those steps.
+    //
+    // One row per instant (GROUP BY ts): two rings logging the same minute
+    // become one row carrying both rings' steps. With ties left in, the
+    // answer would rest on the window frame (RANGE gives tied rows the same
+    // total, ROWS would not) and on which tied row DuckDB's ASOF happens to
+    // return — measured to follow insertion order. Collapsed, neither exists.
     //
     // A reading with no activity near it gets 0 either way (both lookups NULL
     // or the same row), matching the old `COALESCE(SUM, 0)`.
     return `
       WITH motion AS (
         SELECT user_id, brand, family_id, ts,
-               SUM(steps) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
+               SUM(SUM(steps)) OVER (PARTITION BY user_id, brand, family_id ORDER BY ts) AS cum_steps
         FROM v_activity
         WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
           AND steps IS NOT NULL
           AND ts >= now() - ${scanBind} - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE
+        GROUP BY user_id, brand, family_id, ts
       ),
       daily_values AS (
         SELECT date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', m.ts))) AS day,
