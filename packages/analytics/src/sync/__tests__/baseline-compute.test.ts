@@ -294,6 +294,34 @@ describe('computeAll', () => {
   })
 })
 
+describe('computeAll · one announcement per cycle (zivaone_app#460 P3)', () => {
+  const row = { p05: 1, p10: 2, p50: 3, p90: 4, p95: 5, mean: 3, stddev: 1, sample_count: 25 }
+
+  it('emits user_baseline:updated once, listing every row written', async () => {
+    const emitted: { name: string, payload: { updates?: unknown[] } }[] = []
+    const { engine } = scriptedEngine(row)
+    const computer = createBaselineComputer({
+      analytics: engine as never,
+      hrPhaseBands: false,
+      eventBus: { emit: (name: string, payload: { updates?: unknown[] }) => emitted.push({ name, payload }) } as never,
+    })
+
+    const result = await computer.computeAll(CTX)
+
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0].name).toBe('user_baseline:updated')
+    expect(emitted[0].payload).toMatchObject({ userId: 'alice' })
+    expect(emitted[0].payload.updates).toHaveLength(result.computed)
+  })
+
+  it('emits nothing when no baseline was written', async () => {
+    const emit = vi.fn()
+    const { engine } = scriptedEngine(null)
+    await createBaselineComputer({ analytics: engine as never, hrPhaseBands: false, eventBus: { emit } as never }).computeAll(CTX)
+    expect(emit).not.toHaveBeenCalled()
+  })
+})
+
 describe('computeAll · HR phase bands (D-H)', () => {
   const RAIL = { p05: 1, p10: 2, p50: 3, p90: 4, p95: 5, mean: 3, stddev: 1, sample_count: 25 }
 

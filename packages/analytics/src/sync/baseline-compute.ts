@@ -383,10 +383,30 @@ export function createBaselineComputer(
   const metrics = config.metrics ?? getBaselineMetricIds()
   const windows = config.windows ?? BASELINE_WINDOW_DAYS
 
+  /** One row written: who, which metric and window, from how many days. */
+  type BaselineUpdate = { metric: string, windowDays: BaselineWindowDays, sampleCount: number | null }
+
+  /**
+   * Called directly, `computeOne` / `computeHrPhaseBands` announce each row
+   * as before. `computeAll` instead collects every row and announces ONCE at
+   * the end of the cycle (zivaone_app#460 P3): each announcement invalidates
+   * every baseline-dependent screen query, and one per metric × window (~39 a
+   * cycle) re-ran each of them ~39 times, queued behind the cycle's own SQL
+   * on the single connection.
+   */
+  function announce(ctx: BaselineComputeContext, update: BaselineUpdate) {
+    eventBus?.emit('user_baseline:updated', {
+      userId: ctx.userId,
+      ...update,
+      computedAt: new Date().toISOString(),
+    })
+  }
+
   async function computeOne(
     metric: MetricId,
     windowDays: BaselineWindowDays,
     ctx: BaselineComputeContext,
+    onUpdated: (update: BaselineUpdate) => void = update => announce(ctx, update),
   ): Promise<boolean> {
     const sql = buildBaselineSql(metric, windowDays)
     const rows = await analytics.execute<BaselineRow>(sql, {
@@ -424,13 +444,7 @@ export function createBaselineComputer(
 
     // Registry queries (`spo2.compareBaseline`, `spo2.baselineMaturity`)
     // invalidate on this.
-    eventBus?.emit('user_baseline:updated', {
-      userId: ctx.userId,
-      metric,
-      windowDays,
-      sampleCount: row.sample_count,
-      computedAt: new Date().toISOString(),
-    })
+    onUpdated({ metric, windowDays, sampleCount: row.sample_count })
     return true
   }
 
@@ -442,6 +456,7 @@ export function createBaselineComputer(
   async function computeHrPhaseBands(
     windowDays: BaselineWindowDays,
     ctx: BaselineComputeContext,
+    onUpdated: (update: BaselineUpdate) => void = update => announce(ctx, update),
   ): Promise<number> {
     const rows = await analytics.execute<BaselineRow & { metric: string }>(buildHrPhaseBandsSql(), {
       userId: ctx.userId,
@@ -466,20 +481,14 @@ export function createBaselineComputer(
         stddev: row.stddev,
         sampleCount: row.sample_count,
       })
-      eventBus?.emit('user_baseline:updated', {
-        userId: ctx.userId,
-        metric: row.metric,
-        windowDays,
-        sampleCount: row.sample_count,
-        computedAt: new Date().toISOString(),
-      })
+      onUpdated({ metric: row.metric, windowDays, sampleCount: row.sample_count })
     }
     return rows.length
   }
 
   return {
-    computeOne,
-    computeHrPhaseBands,
+    computeOne: (metric, windowDays, ctx) => computeOne(metric, windowDays, ctx),
+    computeHrPhaseBands: (windowDays, ctx) => computeHrPhaseBands(windowDays, ctx),
 
     async computeAll(ctx) {
       const startedAt = Date.now()
@@ -491,11 +500,15 @@ export function createBaselineComputer(
       // cycle in a 1000-entry export buffer.
       const failures: string[] = []
       let firstError: string | undefined
+      const updates: BaselineUpdate[] = []
+      const collect = (update: BaselineUpdate) => {
+        updates.push(update)
+      }
 
       for (const metric of metrics) {
         for (const windowDays of windows) {
           try {
-            const written = await computeOne(metric, windowDays, ctx)
+            const written = await computeOne(metric, windowDays, ctx, collect)
             if (written)
               computed += 1
             else skipped += 1
@@ -512,7 +525,7 @@ export function createBaselineComputer(
       if (config.hrPhaseBands !== false) {
         for (const windowDays of windows) {
           try {
-            const written = await computeHrPhaseBands(windowDays, ctx)
+            const written = await computeHrPhaseBands(windowDays, ctx, collect)
             computed += written
             skipped += 6 - written
           }
@@ -522,6 +535,17 @@ export function createBaselineComputer(
             firstError ??= describeError(err)
           }
         }
+      }
+
+      // One announcement per cycle, and none when nothing was written. Same
+      // event; `updates` lists the rows. No subscriber reads the payload —
+      // they only invalidate — so the shape is free to carry the list.
+      if (updates.length > 0) {
+        eventBus?.emit('user_baseline:updated', {
+          userId: ctx.userId,
+          updates,
+          computedAt: new Date().toISOString(),
+        })
       }
 
       const summary = { userId: ctx.userId, computed, skipped, failed, durationMs: Date.now() - startedAt }

@@ -53,6 +53,8 @@ export interface BufferSize {
 export interface FlushResult {
   table: string
   rowsFlushed: number
+  /** Rows new to the warehouse; see `FlushedEvent.rowsInserted`. Absent on an empty or failed flush. */
+  rowsInserted?: number
   ok: boolean
   error?: Error
   /**

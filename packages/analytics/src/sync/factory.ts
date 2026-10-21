@@ -256,7 +256,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     if (event.type === 'flushed') {
       progress.pendingByTable[event.payload.table] = 0
       progress.lastFlushAt = Date.now()
-      if (!strictBatchOrdering) {
+      if (!strictBatchOrdering && event.payload.rowsInserted > 0) {
         evaluateRules(
           [event.payload.table as TableName],
           event.payload.affectedUserIds,
@@ -267,8 +267,11 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     if (event.type === 'batch-complete' && strictBatchOrdering) {
       // Every table in the batch has landed, so a `context: 'asleep'` rule
       // can now JOIN v_sleep_session and see the whole night.
+      // Only tables that inserted NEW rows (zivaone_app#460 P17): a re-sync of
+      // rows already held flushes every table and changes nothing a rule can
+      // see, and each rule reads the full-history quality views.
       evaluateRules(
-        event.payload.affectedTables as TableName[],
+        event.payload.insertedTables as TableName[],
         event.payload.affectedUserIds,
         `batch:${event.payload.batchId}`,
       )

@@ -71,6 +71,28 @@ describe('self-keyed tables flush idempotently', () => {
   })
 })
 
+describe('rows inserted vs rows drained (zivaone_app#460 P17)', () => {
+  it('reports 0 inserted for a re-sync of a row already held, and leaves it out of insertedTables', async () => {
+    const r = await rig()
+    const night = new Date(Date.UTC(2026, 5, 17))
+    const row = session('s1', '2026-06-17T22:00:00Z', night)
+
+    await r.buffer.push({ table: 'sleep_session', ...TENANT, rows: [row] })
+    const first = await r.flusher.flush('sleep_session', 'manual')
+    expect(first).toMatchObject({ rowsFlushed: 1, rowsInserted: 1 })
+
+    const batchId = r.flusher.beginBatch('manual')
+    await r.buffer.push({ table: 'sleep_session', ...TENANT, rows: [row] })
+    const again = await r.flusher.flush('sleep_session', 'manual', batchId)
+    expect(again).toMatchObject({ rowsFlushed: 1, rowsInserted: 0 })
+
+    const batch = r.flusher.endBatch(batchId)
+    expect(batch?.affectedTables).toEqual(['sleep_session'])
+    expect(batch?.insertedTables).toEqual([])
+    await r.db.close()
+  })
+})
+
 describe('night_of survives the write as the local evening date', () => {
   // 01:30 IST on Jun 18 is 20:00 UTC on Jun 17: the night of Jun 17.
   it.each([
