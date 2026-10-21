@@ -255,6 +255,79 @@ describe('rules-engine integration', () => {
     expect(evaluateOnBatch).not.toHaveBeenCalled()
   })
 
+  // dependsOnlyOnNewRows (zivaone_app#460 P17b): the engine must hear about
+  // every row arrival, and BEFORE the batch pass it triggers starts.
+  function rulesWithArrivals() {
+    const order: string[] = []
+    const noteRowsArrived = vi.fn(() => {
+      order.push('arrived')
+    })
+    const evaluateOnBatch = vi.fn(async () => {
+      order.push('batch')
+      return []
+    })
+    const engine = {
+      register: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+      list: vi.fn(() => []),
+      getActive: vi.fn(() => []),
+      evaluateOnBatch,
+      evaluateScheduled: vi.fn().mockResolvedValue([]),
+      noteRowsArrived,
+      on: vi.fn(() => () => {}),
+      subscribeRegistry: vi.fn(() => () => {}),
+    }
+    return { engine, order, noteRowsArrived }
+  }
+  const hrvBatch = {
+    table: 'hrv' as const,
+    brand: 'ziva',
+    familyId: 'fam_A',
+    userId: 'u1',
+    deviceId: 'ring',
+    rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+  }
+
+  it('reports inserted rows to rulesEngine.noteRowsArrived before the batch pass', async () => {
+    const r = rulesWithArrivals()
+    const mgr = createSyncManager({ ...baseConfig(), rulesEngine: r.engine })
+    await mgr.sink.push(hrvBatch)
+    await mgr.sink.flush()
+    expect(r.order).toEqual(['arrived', 'batch'])
+  })
+
+  it('does not report a flush that inserted nothing', async () => {
+    const r = rulesWithArrivals()
+    const fake = createFakeEngine()
+    const execute = fake.engine.execute.bind(fake.engine)
+    fake.engine.execute = (async (sql: string, params?: Record<string, unknown>) =>
+      sql.startsWith('INSERT INTO hrv') ? [{ Count: 0 }] : execute(sql, params)) as typeof fake.engine.execute
+    const mgr = createSyncManager({ ...baseConfig(), analytics: fake.engine as unknown as AnalyticsEngine, rulesEngine: r.engine })
+    await mgr.sink.push(hrvBatch)
+    await mgr.sink.flush()
+    expect(r.noteRowsArrived).not.toHaveBeenCalled()
+  })
+
+  it('reports fetched rows (and failed fetches) before the scheduled pass', async () => {
+    for (const [results, expected] of [
+      [[{ table: 'hrv', rowsFetched: 0, ok: true }], 0],
+      [[{ table: 'hrv', rowsFetched: 0, ok: true }, { table: 'heart_rate', rowsFetched: 4, ok: true }], 1],
+      [[{ table: 'hrv', rowsFetched: 0, ok: false }], 1],
+    ] as const) {
+      const r = rulesWithArrivals()
+      const mgr = createSyncManager({ ...baseConfig(), rulesEngine: r.engine })
+      vi.spyOn(mgr.fetcher, 'fetchIncremental').mockResolvedValue(results.map(x => ({ ...x })))
+      r.engine.evaluateScheduled.mockImplementation(async () => {
+        r.order.push('scheduled')
+        return []
+      })
+      await mgr.triggerNow()
+      expect(r.noteRowsArrived).toHaveBeenCalledTimes(expected)
+      expect(r.order.at(-1)).toBe('scheduled')
+    }
+  })
+
   it('skips rulesEngine when no userIds were affected (empty drain)', async () => {
     const evaluateOnBatch = vi.fn().mockResolvedValue([])
     const rulesEngine = {

@@ -115,6 +115,12 @@ compare = "less_than"
 context = "any"
 consecutive = 1
 severity = "warn"
+# Row-driven (zivaone_app#460 P17b): the lowest reading in the window can only
+# RISE as old readings age out, so with no new rows the scheduled pass cannot
+# find a breach the batch pass missed. Its query reads the full-history SpO2
+# clean view, so skipping the repeat is worth having. The validator checks the
+# shape (min + less_than, reading cadence, no baseline, context any).
+dependsOnlyOnNewRows = true
 
 [rule.target]
 type = "user_setting"
@@ -273,6 +279,10 @@ aggregation = "avg"
 compare = "greater_than_or_equal"
 consecutive = 3
 severity = "warn"
+# Row-driven (#460 P17b): a run of three adjacent readings over the flag can
+# only shorten as readings age out of the window, never form. Same validator
+# check as ziva.spo2-safe-level.
+dependsOnlyOnNewRows = true
 
 [rule.target]
 type = "user_setting"

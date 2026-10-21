@@ -161,6 +161,18 @@ export interface RulesEngine {
   getActive: () => Rule[]
   evaluateOnBatch: (batch: FlushSummary) => Promise<RuleViolation[]>
   evaluateScheduled: () => Promise<RuleViolation[]>
+  /**
+   * Tell the engine rows landed: a flush inserted some, a fetch pulled some.
+   * After a call, the scheduled pass stops reusing earlier batch reads for
+   * `dependsOnlyOnNewRows` rules (see `RuleSchema.dependsOnlyOnNewRows`).
+   *
+   * The sync manager calls it for every flush and fetch. An app that writes
+   * rows a rule reads through any other path should call it too; if it does
+   * not, a flagged rule sees those rows one cycle late, never not at all.
+   *
+   * Optional so existing `RulesEngine` implementations still type-check.
+   */
+  noteRowsArrived?: () => void
   on: (event: 'violation', handler: (v: RuleViolation) => void) => Unsubscribe
   /**
    * Subscribe to registry mutations (register / enable / disable). Backs the

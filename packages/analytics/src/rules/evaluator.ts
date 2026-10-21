@@ -78,6 +78,23 @@ const INSIGHT_SEVERITY: Record<Rule['severity'], 'info' | 'warn' | 'urgent'> = {
 export interface Evaluator {
   evaluateOnBatch: (batch: FlushSummary) => Promise<RuleViolation[]>
   evaluateScheduled: () => Promise<RuleViolation[]>
+  /** Rows landed somewhere: no `dependsOnlyOnNewRows` skip may rely on an earlier read. */
+  noteRowsArrived: () => void
+}
+
+/** A batch-pass read the scheduled pass may reuse; see `dependsOnlyOnNewRows`. */
+interface BatchRead {
+  /** Registry revision the rule was compiled at. */
+  rev: number
+  /** `dataGeneration` when the query STARTED. */
+  generation: number
+  /** Every bound parameter, serialised: settings, zone, band scale. */
+  inputs: string
+}
+
+/** Stable serialisation of the bound parameters (key order fixed). */
+function paramsKey(params: Record<string, unknown>): string {
+  return JSON.stringify(Object.keys(params).sort().map(k => [k, params[k]]))
 }
 
 /** A JSON-quoted string's surrounding quotes. */
@@ -99,6 +116,17 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     storage,
     userTimezoneProvider,
   } = config
+
+  /**
+   * `dependsOnlyOnNewRows` (zivaone_app#460 P17b). `dataGeneration` counts row
+   * arrivals the sync layer reports. The batch pass records, per rule × user,
+   * what it read; the scheduled pass takes the records made since the
+   * previous scheduled pass and skips a flagged rule whose record still
+   * matches — same registry, no arrivals since the read started, same inputs.
+   */
+  let dataGeneration = 0
+  let batchReads = new Map<string, BatchRead>()
+  const readKey = (ruleId: string, userId: string) => `${ruleId}\u0000${userId}`
 
   /** Per-pass zone cache, reset with `settingCache` in `newPass`. */
   let tzCache = new Map<string, string | undefined>()
@@ -263,12 +291,27 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     firstError?: string
     evaluated: number
     throttled: number
+    /** Scheduled only: flagged rules skipped because the batch read still holds. */
+    unchanged: number
     startedAt: number
+    trigger: 'batch' | 'scheduled'
+    /** Scheduled only: the batch reads this pass may reuse. */
+    reuse?: Map<string, BatchRead>
   }
-  function newPass(): PassIssues {
+  function newPass(trigger: 'batch' | 'scheduled', reuse?: Map<string, BatchRead>): PassIssues {
     settingCache = new Map()
     tzCache = new Map()
-    return { noTimezone: new Set(), failedRules: new Set(), failures: 0, evaluated: 0, throttled: 0, startedAt: Date.now() }
+    return {
+      noTimezone: new Set(),
+      failedRules: new Set(),
+      failures: 0,
+      evaluated: 0,
+      throttled: 0,
+      unchanged: 0,
+      startedAt: Date.now(),
+      trigger,
+      reuse,
+    }
   }
 
   function logPass(pass: PassIssues, trigger: 'batch' | 'scheduled', rules: number, violations: number): void {
@@ -278,6 +321,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       rules,
       evaluated: pass.evaluated,
       throttled: pass.throttled,
+      unchanged: pass.unchanged,
       violations,
       failures: pass.failures,
       durationMs: Date.now() - pass.startedAt,
@@ -370,7 +414,29 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       // scale: an unreadable setting must not silence the alert.
       if (compiled.bandScaleKey !== undefined)
         params[BAND_SCALE_PARAM] = await resolveBandScale(ctx.userId, compiled, rule.id)
+
+      // `dependsOnlyOnNewRows`: the batch pass already ran this exact query
+      // (same rule revision, same inputs) and no row has landed since it
+      // started, so this one would read the same rows. Only the clock
+      // differs, and the validator only admits rules the clock cannot fire.
+      const flagged = rule.dependsOnlyOnNewRows === true
+      const key = flagged ? readKey(rule.id, ctx.userId) : ''
+      const inputs = flagged ? paramsKey(params) : ''
+      if (flagged && pass.trigger === 'scheduled') {
+        const read = pass.reuse?.get(key)
+        if (read && read.rev === registry.rev && read.generation === dataGeneration && read.inputs === inputs) {
+          pass.unchanged += 1
+          return null
+        }
+      }
+      const generation = dataGeneration
+      const rev = registry.rev
       rows = await analytics.execute<EvaluationRow>(compiled.sql, params)
+      // Recorded only for a query that RAN: a throttled, zone-less or failed
+      // evaluation read nothing, so there is nothing for the scheduled pass
+      // to reuse.
+      if (flagged && pass.trigger === 'batch')
+        batchReads.set(key, { rev, generation, inputs })
     }
     catch (err) {
       pass.failures += 1
@@ -465,7 +531,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
         return []
       }
       const violations: RuleViolation[] = []
-      const pass = newPass()
+      const pass = newPass('batch')
       for (const rule of relevant) {
         for (const userId of batch.affectedUserIds) {
           const v = await evaluateRule(rule, { userId, familyId }, pass)
@@ -478,6 +544,11 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     },
 
     async evaluateScheduled() {
+      // The batch reads since the previous scheduled pass, and only those —
+      // taken first, so an early return below still closes the cycle and a
+      // read is never reused by a later one.
+      const reuse = batchReads
+      batchReads = new Map()
       if (analytics.state !== 'attached') {
         throw new AnalyticsError(
           'not_attached',
@@ -500,7 +571,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
         return []
       }
       const violations: RuleViolation[] = []
-      const pass = newPass()
+      const pass = newPass('scheduled', reuse)
       for (const rule of active) {
         for (const userId of members) {
           const v = await evaluateRule(rule, { userId, familyId }, pass)
@@ -510,6 +581,10 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       }
       logPass(pass, 'scheduled', active.length, violations.length)
       return violations
+    },
+
+    noteRowsArrived() {
+      dataGeneration += 1
     },
   }
 }

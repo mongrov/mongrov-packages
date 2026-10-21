@@ -254,6 +254,11 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       })
     }
     if (event.type === 'flushed') {
+      // Before any rules pass this flush triggers, so a pass that starts
+      // after it records the new generation (dependsOnlyOnNewRows, #460).
+      // Unknown counts as "rows landed".
+      if (event.payload.rowsInserted !== 0)
+        rulesEngine?.noteRowsArrived?.()
       progress.pendingByTable[event.payload.table] = 0
       progress.lastFlushAt = Date.now()
       if (!strictBatchOrdering && event.payload.rowsInserted > 0) {
@@ -372,6 +377,10 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // retries them.
   function logFetchResults(label: string, results: FetchResult[], startedAt: number): FetchResult[] {
     const failed = results.filter(r => !r.ok)
+    // Fetched rows are new rows to a rule (dependsOnlyOnNewRows, #460). A
+    // failed table may have landed part of its rows, so it counts too.
+    if (results.some(r => !r.ok || r.rowsFetched !== 0))
+      rulesEngine?.noteRowsArrived?.()
     const summary = {
       durationMs: Date.now() - startedAt,
       tables: results.length,

@@ -78,6 +78,49 @@ function samplingLabel(metric: MetricId): string {
     : `every ${cadence}min`
 }
 
+/** Window aggregates the clock can only push AWAY from firing (see the schema). */
+const AGING_SAFE_COMPARES: Partial<Record<Rule['aggregation'], readonly Rule['compare'][]>> = {
+  min: ['less_than', 'less_than_or_equal'],
+  max: ['greater_than', 'greater_than_or_equal'],
+  count: ['greater_than', 'greater_than_or_equal'],
+}
+
+/**
+ * `dependsOnlyOnNewRows` lets the scheduled pass skip the rule, so it must be
+ * true: the rule must not be able to START firing while no rows arrive. Each
+ * refusal names the dependency that breaks it.
+ */
+function validateDependsOnlyOnNewRows(rule: Rule): void {
+  if (rule.dependsOnlyOnNewRows !== true)
+    return
+  const refuse = (why: string): never => {
+    throw new RuleValidationError(`Rule ${rule.id}: dependsOnlyOnNewRows is not valid here — ${why}.`)
+  }
+  if (rule.rawSql)
+    refuse('rawSql is opaque, so what it depends on cannot be checked')
+  if (rule.cadence === 'day')
+    refuse('day cadence depends on the clock: a local day completing at midnight adds a day to count')
+  if (rule.minDays !== undefined)
+    refuse('minDays counts local days, which the clock changes')
+  if (rule.context !== 'any')
+    refuse(`context '${rule.context}' joins another table whose rows can change (sleep sessions are re-derived)`)
+  if (METRIC_METADATA[rule.metric].sampling_minutes === 'per_session')
+    refuse('per-session metrics are derived, and a night can be re-derived without a new reading')
+  const target = rule.target.type
+  if (target !== 'absolute' && target !== 'user_setting' && target !== 'range')
+    refuse(`target '${target}' reads a baseline, which changes when baselines recompute`)
+  if (rule.consecutive !== undefined && rule.consecutive > 1)
+    return // aging only shortens a run of adjacent breaches; it cannot make one
+  if (rule.aggregation === 'last')
+    return // the newest row is the same row until the window empties
+  const safe = AGING_SAFE_COMPARES[rule.aggregation] ?? []
+  if (!safe.includes(rule.compare)) {
+    refuse(`${rule.aggregation} ${rule.compare} can start firing as old rows leave the window `
+      + `(e.g. "no reading in N hours"); only min with less_than, max/count with greater_than, `
+      + `last, or a consecutive run qualify`)
+  }
+}
+
 /**
  * Validate a parsed rule. Throws `RuleValidationError` on any of:
  *   - window smaller than the metric sampling cadence allows,
@@ -91,6 +134,7 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
   validateContext(rule)
   validateUserSettingKey(rule)
   validatePhaseBand(rule)
+  validateDependsOnlyOnNewRows(rule)
 
   const allowed = allowedWindowsFor(rule.metric)
   if (!allowed.includes(rule.window)) {

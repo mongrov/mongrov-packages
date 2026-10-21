@@ -274,6 +274,37 @@ export const RuleSchema = z.object({
    * (BP, vascular aging). Validator enforces.
    */
   exposureOverride: z.boolean().optional(),
+  /**
+   * The rule's answer can change only when new rows arrive (zivaone_app#460
+   * P17b). Default false.
+   *
+   * When true, the scheduled pass (`evaluateScheduled`) skips this rule for a
+   * user if, since the previous scheduled pass, the batch pass already
+   * evaluated it for that user, no rows have arrived since that evaluation
+   * started, the registry has not changed, and every eval-time input (the
+   * user's settings, zone, band scale) resolves to the same values. In that
+   * case the scheduled query would read exactly what the batch query read,
+   * and the only thing that differs is the clock.
+   *
+   * So the flag is a claim that the clock cannot make the rule fire: as time
+   * passes and old rows slide out of the window, the rule can only stop
+   * firing, never start. `validateRule` refuses the flag on any shape where
+   * that is not true —
+   *   - `cadence: 'day'` (a day completing at midnight adds a day)
+   *   - `minDays`, `rawSql`, a non-`any` context, a per-session metric
+   *   - any baseline-derived target (`user_baseline` changes every cycle)
+   *   - window aggregates whose value can move toward the threshold as rows
+   *     age out: only `min` with `<`/`<=`, `max` / `count` with `>`/`>=`, and
+   *     `last` qualify. `avg`, `sum`, and "no reading in N hours"
+   *     (`count = 0`) never do.
+   * Reading-cadence `consecutive` runs qualify: aging only shortens a run.
+   *
+   * What "no rows arrived" sees: the sync layer reports every flush that
+   * inserted rows and every fetch that pulled any (`noteRowsArrived`). Rows
+   * written outside those paths are not seen, which costs at most one cycle:
+   * skip records last only until the next scheduled pass.
+   */
+  dependsOnlyOnNewRows: z.boolean().optional(),
 })
 
 export type Rule = z.infer<typeof RuleSchema>

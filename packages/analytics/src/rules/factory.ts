@@ -80,6 +80,7 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
         return []
       return evaluator.evaluateScheduled()
     },
+    noteRowsArrived: () => evaluator.noteRowsArrived(),
     on: (event, handler) => {
       if (closed)
         return () => {}

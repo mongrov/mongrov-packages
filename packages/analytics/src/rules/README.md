@@ -52,6 +52,7 @@ await engine.evaluateScheduled();
   rawSql?: string,              // escape hatch — allowlisted placeholders only
   rawSqlParams?: string[],
   exposureOverride?: boolean,   // required when rawSql touches collected_only cols
+  dependsOnlyOnNewRows?: boolean, // default false — see "Scheduled-pass skips"
 }
 ```
 
@@ -115,6 +116,55 @@ purged on the next-day read.
 
 Time is injected via `config.clock` (defaults to `() => new Date()`), so
 tests can pin midnight-adjacent transitions deterministically.
+
+## Scheduled-pass skips (`dependsOnlyOnNewRows`)
+
+Each sync cycle evaluates rules twice: the batch pass (`evaluateOnBatch`, for
+rules on tables that got new rows) and the scheduled pass (`evaluateScheduled`,
+every rule × every family member). For most rules the second run is
+the point: the clock moves windows, completes days, and the cycle recomputes
+baselines in between. Some rules, though, read nothing the clock can change.
+For those, the scheduled pass repeats the batch pass's query on the same rows.
+
+`dependsOnlyOnNewRows: true` (default false) lets the scheduled pass skip the
+rule for a user when **all** of these hold:
+
+- the batch pass evaluated it for that user since the previous scheduled
+  pass, and the query ran (not throttled, failed or skipped)
+- no rows have arrived since that query started. The sync manager reports
+  every flush that inserted rows and every fetch that pulled rows or failed
+  (`RulesEngine.noteRowsArrived`).
+- the registry is unchanged
+- every eval-time input resolves to the same value: the user's settings,
+  zone, and band scale
+
+A batch read is reused at most once. The next scheduled pass runs the rule
+again unless a newer batch read qualifies.
+
+The flag claims that **the clock cannot make the rule fire**: as rows age out
+of the window it can only stop firing. `validateRule` refuses the flag
+wherever that is false:
+
+| refused | why |
+|---|---|
+| `cadence: 'day'`, `minDays` | a local day completing at midnight changes the answer |
+| baseline targets (`baseline_*`, `phase_band`) | `user_baseline` and inline baselines change between passes |
+| `context` other than `any`, per-session metrics | sleep sessions are re-derived without a new reading |
+| `rawSql` | opaque |
+| `avg`, `sum`, `min >`, `max <`, `count =`/`<` … | the value can move toward the threshold as old rows leave: "no reading in N hours" is `count = 0` |
+
+What qualifies: `min` with `<`/`<=`, `max` or `count` with `>`/`>=`, `last`,
+and reading-cadence `consecutive` runs (aging only shortens a run).
+
+Two shipped rules carry the flag: `ziva.spo2-safe-level` (any reading below
+your level) and `ziva.stress-flag-level` (three readings in a row at or above
+your level). Both read full-history clean views, so a skip saves real work.
+The battery rules qualify too but are left unflagged: their query is cheap,
+and a one-hour window reads like a staleness rule even though it isn't one.
+
+An app that writes rule-visible rows outside the sync manager should call
+`engine.noteRowsArrived?.()`. If it doesn't, a flagged rule sees those rows
+one cycle late, but it still sees them.
 
 ## Brand defaults
 
