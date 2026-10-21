@@ -15,6 +15,11 @@
  *   - Confidence literals are CAST to DOUBLE — DuckDB types `0.90` as DECIMAL,
  *     DataFusion as Float64.
  *
+ * And cost rewrites that keep v3.1's answers exactly (zivaone_app#460, pinned
+ * against the v3.1 text by `sleep-correction-sql-equivalence.test.ts`): the
+ * baseline join counts its ±30 s matches by ASOF lookup instead of a nested
+ * loop, and the HR tier pairs neighbours with `LAG` instead of a self-join.
+ *
  * Numbers are inlined, as v3.1 does: every value is computed by this module
  * (epochs, tier, percentiles), never user input, and inlining sidesteps
  * react-native-duckdb's untyped-param bind (zivaone_app#70). `num()` refuses
@@ -69,20 +74,34 @@ function num(v: number): string {
   return String(v)
 }
 
-/** Once per sync. `hr_interval_minutes` is 5, 10 or 30 (v3.1 CASE, NULL ⇒ 30). */
+/**
+ * Once per sync. `hr_interval_minutes` is 5, 10 or 30 (v3.1 CASE, NULL ⇒ 30).
+ *
+ * v3.1 paired each reading with its predecessor by `ROW_NUMBER` and a
+ * self-join on `rn - 1`. `LAG` over the same ordering is the same pairing
+ * without the join (zivaone_app#460): ties sort adjacently either way, so
+ * whichever tied row comes first carries the gap to the previous distinct
+ * date and the rest carry 0 — the same multiset of gaps, and 0 is outside
+ * the 61-3599 band regardless. The first reading has no predecessor in both
+ * forms (COALESCE ⇒ 0). `sleep-correction-sql-equivalence.test.ts` runs the
+ * v3.1 text against this one.
+ *
+ * Still reads the relation's whole history: bounding it (or caching the tier
+ * per ring) would change which gaps the median sees, so it is a behaviour
+ * decision rather than a rewrite, and is not made here.
+ */
 export function detectHrTierSql(r: SleepRelations = DEFAULT_RELATIONS): string {
   return `
-WITH hr_numbered AS (
+WITH hr_ordered AS (
     SELECT date,
-           ROW_NUMBER() OVER (ORDER BY date) AS rn
+           LAG(date) OVER (ORDER BY date) AS prev_date
     FROM ${rel(r.heartrate)}
     WHERE "singleHR" BETWEEN ${HR_MIN} AND ${HR_MAX}
 ),
 hr_intervals AS (
-    SELECT cur.date - COALESCE(prv.date, cur.date) AS gap_sec
-    FROM hr_numbered cur
-    LEFT JOIN hr_numbered prv ON prv.rn = cur.rn - 1
-    WHERE cur.date - COALESCE(prv.date, cur.date) BETWEEN 61 AND 3599
+    SELECT date - COALESCE(prev_date, date) AS gap_sec
+    FROM hr_ordered
+    WHERE date - COALESCE(prev_date, date) BETWEEN 61 AND 3599
 ),
 median_gap AS (
     SELECT quantile_cont(gap_sec, 0.5) AS med
@@ -97,16 +116,56 @@ SELECT
 FROM median_gap;`
 }
 
-/** Once per sync. Sleeping-HR p90 / p75 since `cutoffEpoch`; 120 when empty. */
+/**
+ * Once per sync. Sleeping-HR p90 / p75 since `cutoffEpoch`; 120 when empty.
+ *
+ * ## Same multiset as v3.1, without the nested loop (zivaone_app#460)
+ *
+ * v3.1 wrote `INNER JOIN sleep s ON ABS(h.date - s.date) <= 30`: every HR
+ * reading since the cutoff against every sleep row ever stored, as a nested
+ * loop. It is an INNER join, so a reading enters the percentiles once PER
+ * sleep row within 30 s of it — usually once (minute-spaced sleep), sometimes
+ * twice, never if none. That multiplicity is part of the answer.
+ *
+ * So each reading's multiplicity is computed directly — the number of sleep
+ * rows in `[h.date - 30, h.date + 30]`, which is `|h - s| <= 30` — as the
+ * difference of a running count at two ASOF lookups (the `v_motion` trick),
+ * and the reading is repeated that many times. Same multiset, so the same
+ * quantiles exactly. Measured on 180 days: ~400 ms → ~5 ms.
+ *
+ * `BETWEEN` alone, as #460 first suggested, does not get there: DuckDB plans
+ * it as a piecewise merge join on one bound with the other as a filter, no
+ * faster than the loop.
+ *
+ *   hi  latest sleep row with `date <= h + 30`; its running count is the
+ *       number of rows `<= h + 30` (RANGE framing counts ties together)
+ *   lo  latest with `date < h - 30`: the rows strictly before the window
+ *
+ * The sleep side starts at `cutoff - 30`. A row older than that is older
+ * than `h - 30` for every reading kept, so it would count in both lookups and
+ * cancel; when the slice has no `lo`, every slice row up to `hi` is inside
+ * the window.
+ */
 export function globalBaselinesSql(cutoffEpoch: number, r: SleepRelations = DEFAULT_RELATIONS): string {
   return `
-WITH hr_sleep AS (
-    SELECT h."singleHR" AS hr
+WITH sleep_count AS (
+    SELECT date, COUNT(*) OVER (ORDER BY date) AS cum
+    FROM ${rel(r.sleep)}
+    WHERE CAST(quality AS INT) IN (1, 2, 3)
+      AND date >= ${num(cutoffEpoch - 30)}
+),
+hr_matches AS (
+    SELECT h."singleHR" AS hr,
+           COALESCE(hi.cum, 0) - COALESCE(lo.cum, 0) AS n
     FROM ${rel(r.heartrate)} h
-    INNER JOIN ${rel(r.sleep)} s ON ABS(h.date - s.date) <= 30
+    ASOF LEFT JOIN sleep_count hi ON h.date + 30 >= hi.date
+    ASOF LEFT JOIN sleep_count lo ON h.date - 30 > lo.date
     WHERE h."singleHR" BETWEEN ${HR_MIN} AND ${HR_MAX}
-      AND CAST(s.quality AS INT) IN (1, 2, 3)
       AND h.date >= ${num(cutoffEpoch)}
+),
+hr_sleep AS (
+    SELECT m.hr
+    FROM hr_matches m, range(m.n) AS rep(i)
 )
 SELECT
     COALESCE((SELECT quantile_cont(hr, 0.90) FROM hr_sleep), ${HR_MAX}) AS p90_global,
