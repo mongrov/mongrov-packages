@@ -245,6 +245,121 @@ describe('T-13 · useAppQuery (kv)', () => {
   })
 })
 
+// --- #43 · useAppQuery refetch options --------------------------------
+
+describe('#43 · useAppQuery refetch({ cancelRefetch })', () => {
+  /**
+   * duckdb engine whose execute() calls each return a promise the test
+   * resolves by hand, so a read can be held in flight.
+   */
+  function makeDeferredEngine() {
+    const pending: Array<(v: number) => void> = []
+    const execute = vi.fn(
+      () => new Promise<number>((resolve) => {
+        pending.push(resolve)
+      }),
+    )
+    return {
+      execute,
+      resolveAll(value: number) {
+        for (const r of pending.splice(0)) r(value)
+      },
+    }
+  }
+
+  const q = defineQuery({
+    engine: 'duckdb',
+    output: z.number(),
+    sql: 'SELECT 1',
+  }) as unknown as QueryDefinition<unknown, unknown>
+
+  async function mountWithData(engine: ReturnType<typeof makeDeferredEngine>) {
+    const hook = renderHook(() => useAppQuery<undefined, number>('q'), {
+      wrapper: wrapperWith({
+        registry: makeRegistry({ queries: { q } }),
+        engines: { duckdb: { execute: engine.execute } },
+      }),
+    })
+    await waitFor(() => expect(engine.execute).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      engine.resolveAll(1)
+    })
+    await waitFor(() => expect(hook.result.current.data).toBe(1))
+    return hook
+  }
+
+  it('{ cancelRefetch: false } joins an in-flight read (queryFn called once)', async () => {
+    const engine = makeDeferredEngine()
+    const { result } = await mountWithData(engine)
+
+    let first!: Promise<void>
+    let second!: Promise<void>
+    await act(async () => {
+      first = result.current.refetch()
+    })
+    expect(engine.execute).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      second = result.current.refetch({ cancelRefetch: false })
+    })
+    // Joined the in-flight read — no new engine call.
+    expect(engine.execute).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      engine.resolveAll(2)
+      await Promise.all([first, second])
+    })
+    await waitFor(() => expect(result.current.data).toBe(2))
+    expect(engine.execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('no-arg refetch() still cancels and restarts an in-flight read', async () => {
+    const engine = makeDeferredEngine()
+    const { result } = await mountWithData(engine)
+
+    let first!: Promise<void>
+    let second!: Promise<void>
+    await act(async () => {
+      first = result.current.refetch()
+    })
+    expect(engine.execute).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      second = result.current.refetch()
+    })
+    // Cancelled the in-flight read and started a new one.
+    expect(engine.execute).toHaveBeenCalledTimes(3)
+
+    await act(async () => {
+      engine.resolveAll(3)
+      await Promise.all([first, second])
+    })
+    await waitFor(() => expect(result.current.data).toBe(3))
+  })
+
+  it('rxdb refetch accepts the same options and is a no-op', async () => {
+    const execute = vi.fn(async () => 0)
+    const rq = defineQuery({
+      engine: 'rxdb',
+      output: z.number(),
+      query: () => ({ subscribe: () => ({ unsubscribe() {} }) }),
+    }) as unknown as QueryDefinition<unknown, unknown>
+
+    const { result } = renderHook(() => useAppQuery<undefined, number>('live'), {
+      wrapper: wrapperWith({
+        registry: makeRegistry({ queries: { live: rq } }),
+        engines: { rxdb: { db: {}, execute } },
+      }),
+    })
+
+    await act(async () => {
+      await expect(result.current.refetch({ cancelRefetch: false })).resolves.toBeUndefined()
+      await expect(result.current.refetch()).resolves.toBeUndefined()
+    })
+    expect(execute).not.toHaveBeenCalled()
+  })
+})
+
 // --- T-12 · useAppQuery (rxdb) ----------------------------------------
 
 /**

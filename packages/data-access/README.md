@@ -164,6 +164,7 @@ Returns `{ data, loading, error, refetch, isStale }`.
 
 - For **duckdb** / **kv**, backed by TanStack `useQuery`. Subscribes to every `invalidatedBy` pattern on mount and invalidates its own cache when a match fires.
 - For **rxdb**, subscribes to the observable via `useEffect`. `refetch()` is a no-op — the stream drives updates. Zod-parses on every emission; parse failure surfaces as `error`.
+- `refetch(options?)` — with no argument, a read already in flight is cancelled and restarted (TanStack default). Pass `{ cancelRefetch: false }` to join the in-flight read instead. Use it when a refresh may already be running: DuckDB reads take no abort signal, so a cancelled read still runs and the restart costs a second read. Options type: `AppQueryRefetchOptions`.
 - Cache defaults: `staleTime = 30_000`, `gcTime = 300_000`, both overridable in the query definition.
 
 ### `useAppMutation<Input, Output>(name)`
