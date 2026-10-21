@@ -25,4 +25,17 @@ describe('sync barrel: sleep-correction read path', () => {
     expect(sql).toContain('TEMP VIEW smoke_activity')
     expect(sql).not.toContain('stg_')
   })
+
+  it('cannot be redirected through the exported defaults', () => {
+    expect(Object.isFrozen(SLEEP_CORRECTION_RELATIONS)).toBe(true)
+    expect(() => {
+      (SLEEP_CORRECTION_RELATIONS as { sleep: string }).sleep = 'elsewhere'
+    }).toThrow()
+  })
+
+  it('rejects a relation name that is not an identifier before writing any SQL', () => {
+    const scope = { brand: 'b', familyId: 'f', userId: 'u', deviceId: 'd', localCatalog: 'local' }
+    expect(() => sleepStagingViewsSql(scope, { sleep: 'x; DROP TABLE y', heartrate: 'h', activity: 'a' }))
+      .toThrow(/invalid relation name/)
+  })
 })

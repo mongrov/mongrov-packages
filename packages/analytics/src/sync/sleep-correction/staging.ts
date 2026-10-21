@@ -34,7 +34,7 @@
 
 import type { SleepRelations } from './sql'
 
-import { DEFAULT_RELATIONS } from './sql'
+import { DEFAULT_RELATIONS, rel } from './sql'
 
 export interface StagingScope {
   brand: string
@@ -79,18 +79,18 @@ export function stagingViewsSql(
     throw new Error(`sleep-correction: invalid catalog ${JSON.stringify(catalog)}`)
   const tenant = `user_id = ${lit(scope.userId)} AND device_id = ${lit(scope.deviceId)}`
   return [
-    `CREATE OR REPLACE TEMP VIEW ${r.sleep} AS
+    `CREATE OR REPLACE TEMP VIEW ${rel(r.sleep)} AS
 SELECT CAST(epoch(ts) AS BIGINT) AS date,
        quality,
        CAST(epoch(ts_session_start) AS BIGINT) AS start,
        unit_length AS "unitLength"
 FROM ${catalog}.main.sleep_raw
 WHERE brand = ${lit(scope.brand)} AND family_id = ${lit(scope.familyId)} AND ${tenant}${since(bounds.sleepFromEpoch)}`,
-    `CREATE OR REPLACE TEMP VIEW ${r.heartrate} AS
+    `CREATE OR REPLACE TEMP VIEW ${rel(r.heartrate)} AS
 SELECT CAST(epoch(ts) AS BIGINT) AS date, bpm AS "singleHR"
 FROM v_heart_rate
 WHERE ${tenant}`,
-    `CREATE OR REPLACE TEMP VIEW ${r.activity} AS
+    `CREATE OR REPLACE TEMP VIEW ${rel(r.activity)} AS
 SELECT CAST(epoch(ts) AS BIGINT) AS date, steps AS step
 FROM v_activity
 WHERE ${tenant}${since(bounds.activityFromEpoch)}`,
