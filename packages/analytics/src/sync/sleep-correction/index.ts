@@ -21,6 +21,7 @@ export {
   type CorrectSleepResult,
   type NightOutcome,
   nightsForEpochs,
+  stagingBoundsFor,
 } from './orchestrate'
 export { computeSettleMin, recoveredMinutes } from './settle'
 export {
@@ -32,4 +33,4 @@ export {
   morningVitalsSql,
   type SleepRelations,
 } from './sql'
-export { type StagingScope, stagingViewsSql } from './staging'
+export { type StagingBounds, type StagingScope, stagingViewsSql } from './staging'

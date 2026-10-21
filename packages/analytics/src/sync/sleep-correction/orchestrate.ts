@@ -15,6 +15,7 @@
 import type { ClassifiedRow } from './classify'
 import type { SqlRunner } from './correct'
 import type { SleepRelations } from './sql'
+import type { StagingBounds } from './staging'
 
 import { describeError } from '../../core/errors'
 import { correctNight, detectHrTier, globalBaselines } from './correct'
@@ -78,6 +79,24 @@ export async function correctSleepNights(db: SqlRunner, input: CorrectSleepInput
     }
   }
   return { hrIntervalMin, p75, p90, nights }
+}
+
+/**
+ * The staging bounds a `correctSleepNights` run over these nights needs
+ * (see `StagingBounds`): the earliest `date` each relation is read at.
+ *
+ *   sleep     the earliest night window (`hasSleepDataSql`, Phase 2), and
+ *             `cutoff - 30` (the baseline join's ±30 s)
+ *   activity  the earliest night window (`morningVitalsSql`)
+ *
+ * No nights ⇒ no activity read, but the bound is left off rather than
+ * guessed; the baselines still read sleep from the cutoff.
+ */
+export function stagingBoundsFor(input: Pick<CorrectSleepInput, 'nights' | 'timeZone' | 'cutoffEpoch'>): StagingBounds {
+  const starts = input.nights.map(n => nightWindow(n, input.timeZone).windowStart)
+  const firstWindow = starts.length > 0 ? Math.min(...starts) : undefined
+  const sleepFromEpoch = Math.min(input.cutoffEpoch - 30, firstWindow ?? Number.POSITIVE_INFINITY)
+  return { sleepFromEpoch, activityFromEpoch: firstWindow }
 }
 
 /**

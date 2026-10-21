@@ -34,7 +34,7 @@ import { tailId } from '../core/logger'
 import { sessionsFromCorrected } from './mapper/sleep'
 import { computeNightOf } from './mapper/time'
 import { logError } from './scheduler'
-import { correctSleepNights, nightsForEpochs } from './sleep-correction/orchestrate'
+import { correctSleepNights, nightsForEpochs, stagingBoundsFor } from './sleep-correction/orchestrate'
 import { stagingViewsSql } from './sleep-correction/staging'
 
 interface PendingRange {
@@ -195,14 +195,16 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       userTimezone: timeZone,
     }
     await rekeyNights(ctx)
-    for (const sql of stagingViewsSql({ ...ctx, localCatalog: catalog }))
-      await deps.engine.execute(sql)
-
-    const result = await correctSleepNights(deps.engine as unknown as SqlRunner, {
+    const input = {
       nights: nightsBetween(p.minEpoch, p.maxEpoch, timeZone),
       timeZone,
       cutoffEpoch: Math.floor(now() / 1000) - lookbackDays * 86400,
-    })
+    }
+    // Bounded to what this run reads, so the views prune on `ts` (#460).
+    for (const sql of stagingViewsSql({ ...ctx, localCatalog: catalog }, undefined, stagingBoundsFor(input)))
+      await deps.engine.execute(sql)
+
+    const result = await correctSleepNights(deps.engine as unknown as SqlRunner, input)
 
     const sessions: SleepSessionRow[] = []
     const stages: SleepStageRow[] = []
