@@ -73,6 +73,13 @@ export type FlusherState = 'idle' | 'flushing' | 'error'
 export interface FlushedEvent {
   table: string
   rowsFlushed: number
+  /**
+   * Rows that were NEW to the warehouse (`ON CONFLICT DO NOTHING` kept the
+   * rest out). `rowsFlushed` counts rows drained; a re-sync of rows already
+   * held drains plenty and inserts none. Equal to `rowsFlushed` when the
+   * engine does not report a count (zivaone_app#460 P17).
+   */
+  rowsInserted: number
   reason: FlushReason
   /**
    * Distinct userIds observed across drained buffer entries. Empty when the
@@ -109,6 +116,12 @@ export interface BatchCompleteEvent {
   batchId: string
   /** Tables that flushed at least one row in this batch. */
   affectedTables: string[]
+  /**
+   * The subset of `affectedTables` that inserted at least one NEW row. Rules
+   * evaluate against this: a table whose rows all already existed has nothing
+   * new for a rule to find (zivaone_app#460 P17).
+   */
+  insertedTables: string[]
   affectedUserIds: string[]
   brand?: string
   familyId?: string
@@ -127,6 +140,7 @@ export type SyncEmitter = (event:
 interface BatchRecord {
   reason: FlushReason
   tables: Set<string>
+  insertedTables: Set<string>
   userIds: Set<string>
   rowCounts: Record<string, number>
   brand?: string
@@ -242,6 +256,7 @@ export class BatchFlusher {
     this.#batches.set(id, {
       reason,
       tables: new Set(),
+      insertedTables: new Set(),
       userIds: new Set(),
       rowCounts: {},
     })
@@ -265,6 +280,7 @@ export class BatchFlusher {
     const payload: BatchCompleteEvent = {
       batchId,
       affectedTables: [...record.tables],
+      insertedTables: [...record.insertedTables],
       affectedUserIds: [...record.userIds],
       brand: record.brand,
       familyId: record.familyId,
@@ -284,6 +300,7 @@ export class BatchFlusher {
     batchId: string | undefined,
     table: string,
     rowsFlushed: number,
+    rowsInserted: number,
     userIds: string[],
     brand: string | undefined,
     familyId: string | undefined,
@@ -296,6 +313,8 @@ export class BatchFlusher {
     if (!record)
       return
     record.tables.add(table)
+    if (rowsInserted > 0)
+      record.insertedTables.add(table)
     record.rowCounts[table] = (record.rowCounts[table] ?? 0) + rowsFlushed
     for (const id of userIds) record.userIds.add(id)
     record.brand ??= brand
@@ -339,8 +358,9 @@ export class BatchFlusher {
     let rejectedSample: string | undefined
     try {
       let rowsFlushed: number
+      let rowsInserted: number
       try {
-        rowsFlushed = await this.#write(table, drained)
+        ({ appended: rowsFlushed, inserted: rowsInserted } = await this.#write(table, drained))
       }
       catch (writeError) {
         // One unwritable value must not cost the table forever
@@ -362,7 +382,9 @@ export class BatchFlusher {
           throw writeError
         rowsRejected = bad.length
         rejectedSample = describeRejection(writeError)
-        rowsFlushed = good.length > 0 ? await this.#write(table, rebuildEntries(good)) : 0
+        ;({ appended: rowsFlushed, inserted: rowsInserted } = good.length > 0
+          ? await this.#write(table, rebuildEntries(good))
+          : { appended: 0, inserted: 0 })
       }
       // Only now is it safe to forget the durable copies. If this commit
       // itself fails, the rows stay on disk and are written again next time,
@@ -374,12 +396,13 @@ export class BatchFlusher {
       const affectedUserIds = distinctUserIds(drained)
       const brand = drained[0]?.brand
       const familyId = drained[0]?.familyId
-      this.#recordInBatch(batchId, table, rowsFlushed, affectedUserIds, brand, familyId)
+      this.#recordInBatch(batchId, table, rowsFlushed, rowsInserted, affectedUserIds, brand, familyId)
       this.#emit?.({
         type: 'flushed',
         payload: {
           table,
           rowsFlushed,
+          rowsInserted,
           reason,
           affectedUserIds,
           brand,
@@ -390,6 +413,7 @@ export class BatchFlusher {
       return {
         table,
         rowsFlushed,
+        rowsInserted,
         ok: true,
         ...(rowsRejected > 0 ? { rowsRejected, rejectedSample } : {}),
       }
@@ -514,11 +538,11 @@ export class BatchFlusher {
    * keyless tables (`tool_call_audit` is append-only by design) take the
    * direct path.
    *
-   * Returns rows APPENDED, not rows inserted. The count feeds buffer
-   * accounting and the batch record, both of which are about what was
-   * drained; a dedupe is not a failure to flush.
+   * Returns rows APPENDED (what was drained: buffer accounting and the batch
+   * record) and rows INSERTED (what was new: what rules evaluate against). A
+   * dedupe is not a failure to flush.
    */
-  async #write(table: string, entries: BufferEntry[]): Promise<number> {
+  async #write(table: string, entries: BufferEntry[]): Promise<{ appended: number, inserted: number }> {
     const cols = this.#columnOrder[table]
     if (!cols) {
       throw new SyncError(
@@ -527,8 +551,10 @@ export class BatchFlusher {
       )
     }
 
-    if (!isKeyed(table))
-      return this.#appendInto(table, table, entries)
+    if (!isKeyed(table)) {
+      const appended = this.#appendInto(table, table, entries)
+      return { appended, inserted: appended }
+    }
 
     const staging = `${table}__stg`
     // Unconstrained mirror of the target: `WHERE false` copies the column
@@ -544,12 +570,12 @@ export class BatchFlusher {
 
     const rowsAppended = this.#appendInto(staging, table, entries)
     const columnList = cols.join(', ')
-    await this.#engine.execute(
+    const result = await this.#engine.execute(
       `INSERT INTO ${table} (${columnList}) `
       + `SELECT ${columnList} FROM ${staging} ON CONFLICT DO NOTHING;`,
     )
     await this.#engine.execute(`DELETE FROM ${staging};`)
-    return rowsAppended
+    return { appended: rowsAppended, inserted: insertedCount(result) ?? rowsAppended }
   }
 
   /** Mirror the target's NOT NULL columns onto the probe, once per probe. */
@@ -712,4 +738,19 @@ function distinctUserIds(entries: BufferEntry[]): string[] {
       seen.add(entry.userId)
   }
   return Array.from(seen)
+}
+
+/**
+ * DuckDB answers an INSERT with one row, `{ Count }`: the rows actually
+ * inserted, so 0 when ON CONFLICT kept every row out. Read defensively;
+ * `undefined` (an engine that returns nothing) makes the caller assume every
+ * appended row was new, which keeps rules running rather than skipping them.
+ */
+function insertedCount(result: unknown): number | undefined {
+  const row = Array.isArray(result) ? result[0] as Record<string, unknown> | undefined : undefined
+  const raw = row?.Count ?? row?.count
+  if (raw === undefined || raw === null)
+    return undefined
+  const n = Number(raw)
+  return Number.isFinite(n) && n >= 0 ? n : undefined
 }

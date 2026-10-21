@@ -224,6 +224,37 @@ describe('rules-engine integration', () => {
     })
   })
 
+  it('skips rulesEngine when every row already existed (0 inserted, zivaone_app#460 P17)', async () => {
+    const evaluateOnBatch = vi.fn().mockResolvedValue([])
+    const rulesEngine = {
+      register: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+      list: vi.fn(() => []),
+      getActive: vi.fn(() => []),
+      evaluateOnBatch,
+      evaluateScheduled: vi.fn(),
+      on: vi.fn(() => () => {}),
+      subscribeRegistry: vi.fn(() => () => {}),
+    }
+    const fake = createFakeEngine()
+    const execute = fake.engine.execute.bind(fake.engine)
+    // DuckDB's answer to an INSERT that ON CONFLICT kept every row out of.
+    fake.engine.execute = (async (sql: string, params?: Record<string, unknown>) =>
+      sql.startsWith('INSERT INTO hrv') ? [{ Count: 0 }] : execute(sql, params)) as typeof fake.engine.execute
+    const mgr = createSyncManager({ ...baseConfig(), analytics: fake.engine as unknown as AnalyticsEngine, rulesEngine })
+    await mgr.sink.push({
+      table: 'hrv',
+      brand: 'ziva',
+      familyId: 'fam_A',
+      userId: 'u1',
+      deviceId: 'ring',
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+    })
+    await mgr.sink.flush()
+    expect(evaluateOnBatch).not.toHaveBeenCalled()
+  })
+
   it('skips rulesEngine when no userIds were affected (empty drain)', async () => {
     const evaluateOnBatch = vi.fn().mockResolvedValue([])
     const rulesEngine = {

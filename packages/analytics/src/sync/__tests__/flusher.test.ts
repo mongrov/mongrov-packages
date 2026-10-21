@@ -66,7 +66,7 @@ describe('BatchFlusher.flush (happy path)', () => {
     ]))
 
     const result = await flusher.flush('hrv', 'manual')
-    expect(result).toEqual({ table: 'hrv', rowsFlushed: 2, ok: true })
+    expect(result).toEqual({ table: 'hrv', rowsFlushed: 2, rowsInserted: 2, ok: true })
     // Appends land in the unconstrained staging mirror; a set-based
     // `INSERT ... ON CONFLICT DO NOTHING` moves them into `hrv`
     // (principle 66). Column order is what this assertion is really about.
