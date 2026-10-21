@@ -210,3 +210,24 @@ describe('provider rejection is not silent', () => {
     await expect(drain(client.chat(MESSAGES))).resolves.toBe('')
   })
 })
+
+describe('request failure logging', () => {
+  it('logs status and kind at error, never the provider message', async () => {
+    const log = logger()
+    const failure = Object.assign(new Error('Incorrect API key provided: sk-secret'), {
+      name: 'AI_APICallError',
+      statusCode: 401,
+      isRetryable: false,
+    })
+    generateTextMock.mockRejectedValue(failure)
+    const client = createAIClient({ model: fakeModel, logger: log } as unknown as AIConfig)
+
+    await expect(client.complete('hi')).rejects.toBe(failure)
+    expect(log.error).toHaveBeenCalledWith('[ai] completion request failed', {
+      name: 'AI_APICallError',
+      statusCode: 401,
+      isRetryable: false,
+    })
+    expect(JSON.stringify(log.error.mock.calls)).not.toContain('sk-secret')
+  })
+})
