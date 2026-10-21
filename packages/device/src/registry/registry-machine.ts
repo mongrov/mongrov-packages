@@ -16,6 +16,7 @@
  */
 
 import type { ActorRefFrom } from 'xstate'
+import type { DeviceLogger } from '../ports'
 import type {
   DeviceAdapter,
   ErrorDetail,
@@ -53,6 +54,7 @@ export interface RegistryContext {
    */
   lastScanFinishedAt: number | undefined
   lastRejection: ErrorDetail | undefined
+  logger: DeviceLogger | undefined
 }
 
 export interface RegistryInput {
@@ -61,6 +63,8 @@ export interface RegistryInput {
   maxConnections?: number
   /** Overridable delays passed to spawned connection machines. */
   connectionDelays?: ConnectionDelays
+  /** Handed to every spawned connection actor for transition diagnostics. */
+  logger?: DeviceLogger
 }
 
 export type RegistryEvent
@@ -184,6 +188,7 @@ export function createRegistryMachine(
             deviceId: event.deviceId,
             adapter,
             candidate: event.candidate,
+            logger: context.logger,
           },
         }) as ConnectionActorRef
 
@@ -287,6 +292,7 @@ export function createRegistryMachine(
       scanCandidates: new Map(),
       lastScanFinishedAt: undefined,
       lastRejection: undefined,
+      logger: input.logger,
     }),
     on: {
       SCAN_START: {

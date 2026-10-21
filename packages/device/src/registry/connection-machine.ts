@@ -22,8 +22,11 @@
  * only for its `ownership` shape (guards read the flag).
  */
 
+import type { DeviceLogger } from '../ports'
 import type {
   DeviceAdapter,
+  DeviceDiagnosticEvent,
+  DeviceErrorCategory,
   ErrorDetail,
   ScanCandidate,
 } from '../types'
@@ -68,12 +71,50 @@ export interface ConnectionContext {
    * multiple interrupts stack while suspended (no deep stacking).
    */
   suspendedReason: SuspendedReason | undefined
+  logger: DeviceLogger | undefined
 }
 
 export interface ConnectionInput {
   deviceId: string
   adapter: DeviceAdapter
   candidate?: ScanCandidate
+  /** Receives a diagnostic on failed / reconnecting / suspended / resumed. */
+  logger?: DeviceLogger
+}
+
+const SUSPENDED_CATEGORY: Record<SuspendedReason, DeviceErrorCategory> = {
+  'bt-off': 'bluetooth-off',
+  'permission-revoked': 'permission-denied',
+  'backgrounded': 'backgrounded',
+}
+
+/**
+ * The diagnostic for a transition. Native detail (`nativeCode` /
+ * `nativeMessage`) is carried through from `lastError` untouched — collapsing
+ * it is what the ErrorDetail contract forbids.
+ */
+function buildDiagnostic(
+  context: ConnectionContext,
+  trigger: Exclude<DeviceDiagnosticEvent['trigger'], 'sync-failed'>,
+): DeviceDiagnosticEvent {
+  const err = context.lastError
+  const suspendedCategory = context.suspendedReason
+    ? SUSPENDED_CATEGORY[context.suspendedReason]
+    : undefined
+  const useSuspended = trigger === 'suspended' || trigger === 'resumed'
+  return {
+    deviceId: context.deviceId,
+    adapterId: context.adapter.id,
+    trigger,
+    phase: useSuspended ? (context.priorPhase ?? 'idle') : (err?.phase ?? context.priorPhase ?? 'unknown'),
+    category: (useSuspended ? suspendedCategory : err?.category) ?? 'unknown',
+    rssi: context.rssi,
+    attempt: context.attemptsCount > 0 ? context.attemptsCount : undefined,
+    durationMs: context.phaseEnteredAt !== undefined ? Date.now() - context.phaseEnteredAt : undefined,
+    nativeCode: err?.nativeCode,
+    nativeMessage: err?.nativeMessage,
+    ts: Date.now(),
+  }
 }
 
 export type ConnectionEvent
@@ -234,6 +275,9 @@ export function createConnectionMachine(
           event.type === 'CONNECT_FAILURE' ? event.detail : undefined,
       }),
       clearError: assign({ lastError: undefined }),
+      emitDiagnostic: ({ context }, params: { trigger: Exclude<DeviceDiagnosticEvent['trigger'], 'sync-failed'> }) => {
+        context.logger?.log(buildDiagnostic(context, params.trigger))
+      },
     },
     delays: {
       scan: delays.scanTimeoutMs,
@@ -257,6 +301,7 @@ export function createConnectionMachine(
       attemptsCount: 0,
       priorPhase: undefined,
       suspendedReason: undefined,
+      logger: input.logger,
     }),
 
     // Global interrupts — apply from every state.
@@ -433,7 +478,12 @@ export function createConnectionMachine(
       },
 
       reconnecting: {
-        entry: ['setPriorPhaseReconnecting', 'setPhaseEnteredAt'],
+        // Diagnostic first: it reads the phase timing of the link that dropped.
+        entry: [
+          { type: 'emitDiagnostic', params: { trigger: 'reconnecting' } },
+          'setPriorPhaseReconnecting',
+          'setPhaseEnteredAt',
+        ],
         initial: 'branching',
         states: {
           branching: {
@@ -501,7 +551,10 @@ export function createConnectionMachine(
         // from the root `on:` block; the entry action stamps which one. If
         // another interrupt fires while already suspended, `recordSuspendedReason`
         // runs again (most-recent-wins) — machine coalesces, does not stack.
-        entry: 'recordSuspendedReason',
+        entry: [
+          'recordSuspendedReason',
+          { type: 'emitDiagnostic', params: { trigger: 'suspended' } },
+        ],
         on: {
           RESUMED: [
             // Thin reflector coming back from a live link → re-enter reconnecting,
@@ -509,38 +562,63 @@ export function createConnectionMachine(
             {
               guard: 'priorPhaseIsConnected',
               target: 'reconnecting',
-              actions: ['clearPriorPhase', 'clearSuspendedReason'],
+              actions: [
+                { type: 'emitDiagnostic', params: { trigger: 'resumed' } },
+                'clearPriorPhase',
+                'clearSuspendedReason',
+              ],
             },
             {
               guard: 'priorPhaseIsScanning',
               target: 'scanning',
-              actions: ['clearPriorPhase', 'clearSuspendedReason'],
+              actions: [
+                { type: 'emitDiagnostic', params: { trigger: 'resumed' } },
+                'clearPriorPhase',
+                'clearSuspendedReason',
+              ],
             },
             {
               guard: 'priorPhaseIsConnecting',
               target: 'connecting',
-              actions: ['clearPriorPhase', 'clearSuspendedReason'],
+              actions: [
+                { type: 'emitDiagnostic', params: { trigger: 'resumed' } },
+                'clearPriorPhase',
+                'clearSuspendedReason',
+              ],
             },
             {
               guard: 'priorPhaseIsDiscovering',
               target: 'discovering',
-              actions: ['clearPriorPhase', 'clearSuspendedReason'],
+              actions: [
+                { type: 'emitDiagnostic', params: { trigger: 'resumed' } },
+                'clearPriorPhase',
+                'clearSuspendedReason',
+              ],
             },
             {
               guard: 'priorPhaseIsEnabling',
               target: 'enabling',
-              actions: ['clearPriorPhase', 'clearSuspendedReason'],
+              actions: [
+                { type: 'emitDiagnostic', params: { trigger: 'resumed' } },
+                'clearPriorPhase',
+                'clearSuspendedReason',
+              ],
             },
             {
               // Fallback: nothing to resume; return to idle.
               target: 'idle',
-              actions: ['clearPriorPhase', 'clearSuspendedReason'],
+              actions: [
+                { type: 'emitDiagnostic', params: { trigger: 'resumed' } },
+                'clearPriorPhase',
+                'clearSuspendedReason',
+              ],
             },
           ],
         },
       },
 
       failed: {
+        entry: { type: 'emitDiagnostic', params: { trigger: 'failed' } },
         on: {
           CONNECT: {
             target: 'connecting',

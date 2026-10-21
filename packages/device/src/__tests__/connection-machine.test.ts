@@ -366,3 +366,52 @@ describe('connection-machine — global interrupts', () => {
     expect(value(actor)).toBe('idle')
   })
 })
+
+describe('connection-machine — DeviceLogger diagnostics', () => {
+  function buildLogged() {
+    const adapter = createFakeAdapter({})
+    const logger = { log: jest.fn() }
+    const actor = createActor(createConnectionMachine(TEST_DELAYS), {
+      input: { deviceId: 'dev-1', adapter, logger },
+    }).start()
+    return { actor, logger }
+  }
+
+  it('emits failed with the native detail carried through', () => {
+    const { actor, logger } = buildLogged()
+    actor.send({ type: 'CONNECT' })
+    actor.send({
+      type: 'CONNECT_FAILURE',
+      detail: { category: 'rejected', phase: 'connecting', canRetry: true, nativeCode: 147, nativeMessage: 'GATT 147' },
+    })
+    expect(actor.getSnapshot().value).toBe('failed')
+    expect(logger.log).toHaveBeenCalledTimes(1)
+    expect(logger.log).toHaveBeenCalledWith(expect.objectContaining({
+      deviceId: 'dev-1',
+      trigger: 'failed',
+      phase: 'connecting',
+      category: 'rejected',
+      nativeCode: 147,
+      nativeMessage: 'GATT 147',
+    }))
+  })
+
+  it('emits suspended then resumed around a BT_OFF', () => {
+    const { actor, logger } = buildLogged()
+    actor.send({ type: 'CONNECT' })
+    actor.send({ type: 'BT_OFF' })
+    actor.send({ type: 'RESUMED' })
+    const triggers = logger.log.mock.calls.map(([event]) => [event.trigger, event.category, event.phase])
+    expect(triggers).toEqual([
+      ['suspended', 'bluetooth-off', 'connecting'],
+      ['resumed', 'bluetooth-off', 'connecting'],
+    ])
+  })
+
+  it('runs without a logger', () => {
+    const { actor } = build()
+    actor.send({ type: 'CONNECT' })
+    actor.send({ type: 'CONNECT_FAILURE', detail: { category: 'timeout', phase: 'connecting', canRetry: true } })
+    expect(actor.getSnapshot().value).toBe('failed')
+  })
+})
