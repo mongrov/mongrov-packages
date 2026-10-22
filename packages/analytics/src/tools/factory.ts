@@ -94,7 +94,7 @@ const DESCRIPTIONS = {
     + 'compares to their usual range. Args: userId, days (1..90).',
   getTemperature: 'Return a user\'s daily temperature in Celsius — average, high and low per day — alongside their own usual range. Says how it compares to their usual, never whether it is high. Args: userId, days (1..90).',
   getHeartRate: 'Return a user\'s daily heart rate in beats per minute — average, low and high per day, on the user\'s own days — alongside their usual daily average. Says how it compares to their usual, never whether it is high. Args: userId, days (1..90).',
-  getStress: 'Return a user\'s daily stress score (0-100) — average and high per day, on the user\'s own days, excluding moving or off-wrist readings — alongside their usual daily average. Compares to their usual; never calls a day tense on its own. Args: userId, days (1..90).',
+  getStress: 'Return a user\'s daily stress score (0-100) — average and high per day, on the user\'s own days, counting the same readings the app shows (off-wrist and warm-up readings left out) — alongside their usual daily average. Compares to their usual; never calls a day tense on its own. Args: userId, days (1..90).',
   getInsights: 'Return recent AI-generated insights for a user. Args: userId, '
     + 'days (1..30, default 7), optional severity (info|warn|urgent).',
 } as const

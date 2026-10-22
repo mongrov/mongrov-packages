@@ -32,6 +32,7 @@
  * Windows step every 7 minutes (coprime with the 5-minute cadence and the
  * 240-minute bursts) so every edge lands at every offset.
  */
+import type { QualityOptions } from '../../core/reading-quality'
 import { describe, expect, it } from 'vitest'
 import { HybridDuckDB } from '../../core/engine'
 import {
@@ -58,7 +59,7 @@ const at = (minute: number) => `TIMESTAMP '${iso(day0 + minute * 60_000)}'`
 /** Minute of the day for generated row `g` at `step` minutes. */
 const MOD = (step: number) => `((g * ${step}) % 1440)`
 
-async function openSeeded(): Promise<HybridDuckDB> {
+async function openSeeded(quality: QualityOptions = {}): Promise<HybridDuckDB> {
   const db = new HybridDuckDB(() => createRealDuckDB(['icu']))
   await db.open()
   for (const t of TABLE_NAMES) await db.execute(LOCAL_SCHEMAS[t])
@@ -113,7 +114,7 @@ async function openSeeded(): Promise<HybridDuckDB> {
     SELECT ${T0} + INTERVAL (g * 5) MINUTE, '${B}','${F}','${U2}','ring_2', 110
     FROM ${every(5)}`)
 
-  await createViews(db, { brand: B, familyId: F, localCatalog: 'memory' })
+  await createViews(db, { brand: B, familyId: F, localCatalog: 'memory', quality })
   return db
 }
 
@@ -139,8 +140,13 @@ function windows(): [string, string][] {
 }
 
 describe('bounded quality macros', () => {
-  it('return exactly the rows of the views, for every table, flag and window', async () => {
-    const db = await openSeeded()
+  // Both motion-filter settings (zivaone_app#377): the macros and the views
+  // share one body per table, and must agree whichever the app configures.
+  it.each([
+    ['off (default)', {}],
+    ['on', { motionFilter: true }],
+  ] as const)('return exactly the rows of the views, for every table, flag and window — motion filter %s', async (_label, quality: QualityOptions) => {
+    const db = await openSeeded(quality)
     const wins = windows()
 
     for (const table of QUALITY_TABLES) {

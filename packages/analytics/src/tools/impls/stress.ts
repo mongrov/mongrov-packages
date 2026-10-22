@@ -30,8 +30,11 @@ interface BaselineRow {
  * Daily stress score against the user's own usual range (zivaone_app#24).
  *
  * Reads `v_hrv_clean`, whose `stress` is NULL for a reading that is not
- * stress-clean (off-wrist, warm-up, moving) — so an active hour does not read
- * as a tense one, the same masking the rules and the Stress screen apply.
+ * stress-clean: off-wrist or warming up, and moving only when
+ * `QualityOptions.motionFilter` is on (off by default, zivaone_app#377). The
+ * same relation the rules and the Stress screen read, so the tool counts
+ * exactly what the user is shown (principle 69). Its description must not
+ * name an exclusion that depends on the option.
  * Compares to the user's own band; never labels a day tense on its own
  * authority.
  */
