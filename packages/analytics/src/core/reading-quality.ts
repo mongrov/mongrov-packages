@@ -3,8 +3,10 @@
  *
  * Alpha ships processed metrics, not raw firmware values: a user must never
  * see a claim computed from a reading the ring could not honestly have taken
- * — a temperature from a ring on the nightstand, a 10x Android decode, an
- * SpO2 taken mid-gesture, one 190 bpm spike between two 60s.
+ * — a temperature from a ring on the nightstand, a 10x Android decode, one
+ * 190 bpm spike between two 60s. (An SpO2 taken mid-gesture was on this list;
+ * since zivaone_app#377 the motion gate is `QualityOptions.motionFilter`, off
+ * by default, and whatever is shown is also what claims count.)
  *
  * Two view layers per vital, on top of the `v_{table}` union views:
  *
