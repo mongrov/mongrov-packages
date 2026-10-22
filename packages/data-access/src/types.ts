@@ -202,18 +202,87 @@ export interface EventDefinition<TPayload> {
 }
 
 /**
+ * Any query definition, whatever its input and output (mongrov-packages#4).
+ *
+ * Not `QueryDefinition<unknown, unknown>`: `TInput` sits in function
+ * parameters (`authorize`, `keyBuilder`, `query`) and in covariant ones
+ * (`input`, `__types`), so it is invariant and no concrete definition
+ * extends the `unknown` form. That erasure is why every registry used to be
+ * double-cast at the provider boundary. `any` is the one type parameter that
+ * relates to both positions, and it is confined to these two aliases.
+ */
+
+export type AnyQueryDefinition = QueryDefinition<any, any>
+/** Any mutation definition. Same reason as `AnyQueryDefinition`. */
+
+export type AnyMutationDefinition = MutationDefinition<any, any>
+
+/** A map of query names to definitions, as an app registry holds them. */
+export type QueryMap = Record<string, AnyQueryDefinition>
+/** A map of mutation names to definitions. */
+export type MutationMap = Record<string, AnyMutationDefinition>
+/**
+ * A map of event names to definitions. `undefined` marks an untyped event —
+ * a valid registry entry whose name is subscribable but whose payload
+ * carries no schema.
+ */
+export type EventMap = Record<string, EventDefinition<unknown> | undefined>
+
+/**
  * App-provided registry object shape. Apps assemble concrete registries
  * (typically `as const`) and pass them to DataAccessProvider.
+ *
+ * Generic over its maps (mongrov-packages#4) so a concrete registry keeps its
+ * entry types: `const r: Registry<typeof queries> = …` and
+ * `<DataAccessProvider registry={registry}>` both type-check without a cast.
+ * The defaults accept every concrete map, so `Registry` written bare still
+ * means "any registry".
  */
-export interface Registry {
-  queries: Record<string, QueryDefinition<unknown, unknown>>
-  mutations: Record<string, MutationDefinition<unknown, unknown>>
-  /**
-   * `undefined` marks an untyped event — a valid registry entry whose
-   * name is subscribable but whose payload carries no schema.
-   */
-  events: Record<string, EventDefinition<unknown> | undefined>
+export interface Registry<
+  TQueries extends QueryMap = QueryMap,
+  TMutations extends MutationMap = MutationMap,
+  TEvents extends EventMap = EventMap,
+> {
+  queries: TQueries
+  mutations: TMutations
+  events: TEvents
 }
+
+/**
+ * Declaration-merging hook: an app registers its registry type once and the
+ * package's `useAppQuery` / `useAppMutation` then infer names, inputs and
+ * outputs from it, with no factory (mongrov-packages#4).
+ *
+ * ```ts
+ * declare module '@mongrov/data-access' {
+ *   interface Register { registry: typeof registry }
+ * }
+ * ```
+ *
+ * Unregistered, the hooks keep their caller-asserted `<TInput, TOutput>`
+ * form. `createRegistryHooks` remains for apps that prefer a factory.
+ */
+
+export interface Register {}
+
+/** The registered registry, or `never` when the app has not registered one. */
+export type RegisteredRegistry = Register extends { registry: infer R extends Registry } ? R : never
+/** Whether the app has registered its registry type. */
+export type IsRegistryRegistered = [RegisteredRegistry] extends [never] ? false : true
+/**
+ * Registered query map; an EMPTY map (not `never`) when nothing is
+ * registered, so `keyof` is `never` and indexing it stays well-formed —
+ * overloads built on a `never` map are rejected as incompatible with their
+ * implementation.
+ */
+export type RegisteredQueries = IsRegistryRegistered extends true ? RegisteredRegistry['queries'] : Record<never, never>
+/** Registered mutation map; empty when nothing is registered. */
+export type RegisteredMutations = IsRegistryRegistered extends true ? RegisteredRegistry['mutations'] : Record<never, never>
+
+/** Input type a `defineMutation` was declared with. See `QueryInputOf`. */
+export type MutationInputOf<T> = T extends MutationDefinition<infer I, infer _O> ? I : never
+/** Output type a `defineMutation` was declared with. */
+export type MutationOutputOf<T> = T extends MutationDefinition<infer _I, infer O> ? O : never
 
 /**
  * DataAccessProvider input contract. Consumers pass a registry, an

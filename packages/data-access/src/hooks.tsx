@@ -17,9 +17,14 @@ import type { DataAccessRuntime } from './context'
 import type { EngineAdapters } from './dispatcher'
 import type {
   EventBus,
+  IsRegistryRegistered,
   MutationContext,
   MutationDefinition,
+  MutationInputOf,
+  MutationOutputOf,
   QueryDefinition,
+  RegisteredMutations,
+  RegisteredQueries,
   RequestContext,
   RxdbQueryConfig,
 } from './types'
@@ -99,14 +104,62 @@ interface MinimalObservable<T> {
 }
 
 /**
+ * A registered query name — `never` when no registry is registered, so the
+ * inferring overload below matches nothing and the caller-asserted one
+ * applies.
+ */
+type RegisteredQueryName = keyof RegisteredQueries & string
+type RegisteredMutationName = keyof RegisteredMutations & string
+/**
+ * The name the caller-asserted form accepts: any string until an app
+ * registers its registry, then only registered names (a typo stops
+ * compiling even where explicit type arguments are still passed).
+ */
+type QueryNameArg = IsRegistryRegistered extends true ? RegisteredQueryName : string
+type MutationNameArg = IsRegistryRegistered extends true ? RegisteredMutationName : string
+/**
+ * The caller-asserted form's input. Once a registry is registered it must
+ * not INFER its input from the argument: a call with no type arguments and
+ * a wrong input would then fall through to it and compile. `NoInfer` leaves
+ * `TInput` at its `never` default unless the caller writes it explicitly.
+ */
+type LegacyInput<T> = IsRegistryRegistered extends true ? NoInfer<T> : T
+
+/**
  * T-11 (duckdb) + T-12 (rxdb) + T-13 (kv) — screen-facing query hook.
  *
  * duckdb/kv → TanStack `useQuery` + invalidation subscription.
  * rxdb → observable subscription; each emission is Zod-parsed and
  *        pushed into local state. `refetch` is a no-op (the observable
  *        drives updates) and ignores its options.
+ *
+ * Typing (mongrov-packages#4): once an app registers its registry (see
+ * `Register`), the input and output come from the entry the name selects. The
+ * second signature is the original caller-asserted `<TInput, TOutput>` form,
+ * kept so existing call sites compile unchanged.
  */
+export function useAppQuery<TName extends RegisteredQueryName>(
+  name: TName,
+  input?: QueryInputOf<RegisteredQueries[TName]>,
+): UseAppQueryResult<QueryOutputOf<RegisteredQueries[TName]>>
+export function useAppQuery<TInput = never, TOutput = unknown>(
+  name: QueryNameArg,
+  input?: LegacyInput<TInput>,
+): UseAppQueryResult<TOutput>
 export function useAppQuery<TInput, TOutput>(
+  name: string,
+  input?: TInput,
+): UseAppQueryResult<TOutput> {
+  return useQueryByName<TInput, TOutput>(name, input)
+}
+
+/**
+ * `useAppQuery`'s body, without the overloads. Internal callers
+ * (`createRegistryHooks`) use it so they compile whether or not the program
+ * registered a registry type: once one is registered, the public overloads
+ * accept only registered names, which a generic `string` is not.
+ */
+function useQueryByName<TInput, TOutput>(
   name: string,
   input?: TInput,
 ): UseAppQueryResult<TOutput> {
@@ -359,8 +412,31 @@ export function useAppQuery<TInput, TOutput>(
  * bus so subscribing queries invalidate their caches. If `optimistic`
  * is defined, the returned `data` reflects the optimistic value while
  * the mutation is pending and reverts on failure.
+ *
+ * Typed from the registered registry when there is one; see `useAppQuery`.
  */
+export function useAppMutation<TName extends RegisteredMutationName>(
+  name: TName,
+): UseAppMutationResult<
+  MutationInputOf<RegisteredMutations[TName]>,
+  MutationOutputOf<RegisteredMutations[TName]>
+>
 export function useAppMutation<TInput, TOutput>(
+  name: MutationNameArg,
+): UseAppMutationResult<TInput, TOutput>
+// The implementation signature is invisible to callers. Its return is `any`-
+// typed because `TInput` sits in a parameter (`mutate`), so no single generic
+// result is compatible with both overloads; the overloads above are the
+// contract.
+export function useAppMutation(
+  name: string,
+
+): UseAppMutationResult<any, any> {
+  return useMutationByName(name)
+}
+
+/** `useAppMutation`'s body, without the overloads. See `useQueryByName`. */
+function useMutationByName<TInput, TOutput>(
   name: string,
 ): UseAppMutationResult<TInput, TOutput> {
   const runtime = useDataAccessRuntime()
@@ -687,9 +763,9 @@ export type QueryOutputOf<T> = T extends QueryDefinition<infer _I, infer O> ? O 
  * export const { useAppQuery } = createRegistryHooks<typeof registry.queries>()
  * ```
  *
- * The untyped `useAppQuery` remains exported and unchanged — the `Registry`
- * interface erases variance, so a registry cannot be typed at the provider
- * boundary without breaking every existing consumer.
+ * The package-level `useAppQuery` infers the same way once the app registers
+ * its registry type (`Register`, mongrov-packages#4); this factory stays for
+ * apps that prefer not to augment the module.
  */
 export function createRegistryHooks<
   // Structural constraint, not `QueryDefinition<never, unknown>`: TInput
@@ -699,15 +775,25 @@ export function createRegistryHooks<
   // are conditional types and infer regardless of the constraint, so this
   // only needs to be tight enough to reject non-registries.
   TQueries extends Record<string, { readonly __kind: 'query' }>,
+  // Optional, so `createRegistryHooks<typeof registry.queries>()` keeps
+  // compiling. With no mutation map the typed `useAppMutation` accepts no
+  // name, which is the honest answer.
+  TMutations extends Record<string, { readonly __kind: 'mutation' }> = Record<never, never>,
 >() {
   return {
     useAppQuery<TName extends keyof TQueries & string>(
       name: TName,
       input?: QueryInputOf<TQueries[TName]>,
     ): UseAppQueryResult<QueryOutputOf<TQueries[TName]>> {
-      return useAppQuery(name, input) as UseAppQueryResult<
-        QueryOutputOf<TQueries[TName]>
-      >
+      return useQueryByName<QueryInputOf<TQueries[TName]>, QueryOutputOf<TQueries[TName]>>(name, input)
+    },
+    useAppMutation<TName extends keyof TMutations & string>(
+      name: TName,
+    ): UseAppMutationResult<
+      MutationInputOf<TMutations[TName]>,
+      MutationOutputOf<TMutations[TName]>
+    > {
+      return useMutationByName<MutationInputOf<TMutations[TName]>, MutationOutputOf<TMutations[TName]>>(name)
     },
   }
 }

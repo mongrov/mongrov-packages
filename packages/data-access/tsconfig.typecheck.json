@@ -4,5 +4,5 @@
     "noEmit": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist", "**/__tests__/**", "**/__mocks__/**"]
+  "exclude": ["node_modules", "dist", "**/__tests__/**", "**/__mocks__/**", "**/__typetests_registered__/**"]
 }
