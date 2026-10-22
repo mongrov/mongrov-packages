@@ -18,6 +18,7 @@
     "dist",
     "**/__tests__/**",
     "**/__mocks__/**",
-    "**/__typetests__/**"
+    "**/__typetests__/**",
+    "**/__typetests_registered__/**"
   ]
 }
