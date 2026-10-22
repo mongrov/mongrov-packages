@@ -25,7 +25,7 @@
 import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine, EventBus } from '../core/types'
 import type { SchedulerLogger } from './scheduler'
-import { executeBounded } from '../core/bounded-read'
+import { boundedRelation, daysInterval, executeBounded, SPARE_DAYS } from '../core/bounded-read'
 import { AnalyticsError, describeError } from '../core/errors'
 import {
   BASELINE_MIN_DAYS,
@@ -36,7 +36,7 @@ import {
   METRIC_METADATA,
 
 } from '../core/metric_metadata'
-import { readViewFor, STILL_FLOOR, STILL_WINDOW_MINUTES } from '../core/reading-quality'
+import { isQualityTable, readViewFor, STILL_FLOOR, STILL_WINDOW_MINUTES } from '../core/reading-quality'
 import { minDayReadings } from '../rules/compiler'
 import { buildHrPhaseBandsSql } from './hr-phase-bands'
 
@@ -82,15 +82,42 @@ export interface BaselineComputeResult {
 }
 
 /**
+ * Whether `metric`'s baseline has a bounded form (mongrov-packages#44).
+ *
+ * True when it reads a vital's clean view, which is a window function over
+ * the tenant's whole history and has a `_between` macro. Steps and sleep read
+ * plain union views with no macro and no history-wide window, so they have
+ * nothing to bound.
+ */
+export function baselineHasBoundedForm(metric: MetricId): boolean {
+  const aggregate = baselineAggregateFor(metric)
+  return aggregate !== undefined && aggregate !== 'session' && isQualityTable(METRIC_METADATA[metric].table)
+}
+
+/**
  * Build the day-first aggregate SQL for one (metric, window).
  *
  * Exported for snapshot tests — the shape of this query IS the correctness
  * property, so it is worth asserting directly rather than only through
  * results.
+ *
+ * ## `bounded` (mongrov-packages#44)
+ *
+ * Reads the clean view's `_between` macro over `now - (scan + spare day)`
+ * instead of the view, so a 7-day baseline stops paying for every reading the
+ * ring ever took. Each path keeps its own `ts` filter unchanged; the bound
+ * only has to be a superset of what that filter admits, and the spare day
+ * (bounded-read) covers a lost session-zone pin. The macro returns exactly
+ * the view's rows in its window (`bounded-quality-equivalence.test.ts`), with
+ * its own pads for the flags that look at neighbours (spike, warm-up onset).
+ * `computeOne` runs this form only when `analytics.boundedReads` is set, and
+ * retries the view form if it throws (`executeBounded`). Ignored for metrics
+ * without a bounded form (`baselineHasBoundedForm`).
  */
 export function buildBaselineSql(
   metric: MetricId,
   _windowDays: BaselineWindowDays,
+  opts: { bounded?: boolean } = {},
 ): string {
   const meta = METRIC_METADATA[metric]
   const aggregate = baselineAggregateFor(metric)
@@ -98,6 +125,11 @@ export function buildBaselineSql(
   // Baselines read clean readings only (T-25): a spike or an off-wrist
   // temperature must not move "your usual".
   const view = readViewFor(meta.table)
+  const bounded = opts.bounded === true && baselineHasBoundedForm(metric)
+  /** The clean relation, bounded `scanDays` (a SQL BIGINT expr) + the spare day back. */
+  const relation = (scanDays: string): string => bounded
+    ? boundedRelation(view, { back: daysInterval(`(${scanDays} + ${SPARE_DAYS})`) })
+    : view
 
   // DuckDB cannot bind a parameter inside an INTERVAL literal, but it can
   // multiply a static unit interval by a bound integer. Same trick the
@@ -159,7 +191,7 @@ export function buildBaselineSql(
       WITH daily_values AS (
         SELECT date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', s.ts_end))) AS day,
                MIN(m.${column}) AS daily_value
-        FROM ${view} m
+        FROM ${relation('CAST($windowDays AS BIGINT)')} m
         JOIN v_sleep_session s
           ON s.user_id = m.user_id AND s.brand = m.brand AND s.family_id = m.family_id
          AND m.ts >= s.ts_start AND m.ts < s.ts_end
@@ -258,7 +290,7 @@ export function buildBaselineSql(
       daily_values AS (
         SELECT date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', m.ts))) AS day,
                avg(m.${column}) AS daily_value
-        FROM ${view} m
+        FROM ${relation('CAST($windowDays AS BIGINT) + 1')} m
         ASOF LEFT JOIN motion mp
           ON mp.user_id = m.user_id AND mp.brand = m.brand AND mp.family_id = m.family_id
          AND m.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mp.ts
@@ -354,7 +386,7 @@ export function buildBaselineSql(
   return `
     WITH daily_values AS (
       SELECT ${dailySelect}
-      FROM ${view}
+      FROM ${relation('CAST($windowDays AS BIGINT) + 1')}
       WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
         AND ${tsColumn} > now() - ${scanBind}
       GROUP BY day
@@ -464,14 +496,26 @@ export function createBaselineComputer(
     ctx: BaselineComputeContext,
     onUpdated: (update: BaselineUpdate) => void = update => announce(ctx, update),
   ): Promise<boolean> {
-    const sql = buildBaselineSql(metric, windowDays)
-    const rows = await analytics.execute<BaselineRow>(sql, {
-      userId: ctx.userId,
-      brand: ctx.brand,
-      familyId: ctx.familyId,
-      tz: ctx.userTimezone,
-      windowDays,
-    })
+    // mongrov-packages#44 — the bounded form when the engine has every macro
+    // and the metric reads a clean view, retried as the view form if it
+    // throws. Same row either way.
+    const rows = await executeBounded<BaselineRow>(
+      analytics,
+      {
+        bounded: analytics.boundedReads === true && baselineHasBoundedForm(metric)
+          ? buildBaselineSql(metric, windowDays, { bounded: true })
+          : undefined,
+        view: buildBaselineSql(metric, windowDays),
+      },
+      {
+        userId: ctx.userId,
+        brand: ctx.brand,
+        familyId: ctx.familyId,
+        tz: ctx.userTimezone,
+        windowDays,
+      },
+      cause => logger?.warn('baseline.bounded_failed', { metric, windowDays, error: describeError(cause) }),
+    )
 
     // HAVING filtered it out — fewer than BASELINE_MIN_DAYS distinct days.
     // Not an error: a new user simply has no baseline yet, and consumers
