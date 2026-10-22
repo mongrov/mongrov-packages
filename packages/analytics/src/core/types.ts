@@ -7,6 +7,8 @@
  * MetricId + METRIC_METADATA land in T-07.
  */
 
+import type { QualityOptions } from './reading-quality'
+
 // -------------------- primitives --------------------
 
 /** Fire-and-forget unsubscribe. */
@@ -123,6 +125,12 @@ interface CommonAnalyticsConfig {
   dbPath?: string
   duckdb?: { memoryLimit?: string, threads?: string }
   eventBus?: EventBus
+  /**
+   * How readings are judged clean. Applied at every attach, when the quality
+   * views are recreated. See `QualityOptions`. `motionFilter` is off when
+   * omitted.
+   */
+  quality?: QualityOptions
 }
 
 /**

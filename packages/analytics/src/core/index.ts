@@ -83,7 +83,7 @@ export {
   STILL_STEPS_PER_HOUR,
   STILL_WINDOW_MINUTES,
 } from './reading-quality'
-export type { QualityTable, QualityView } from './reading-quality'
+export type { QualityOptions, QualityTable, QualityView } from './reading-quality'
 
 // Effective sampling cadence (Sprint 5 T-41, principle 22). Chart data
 // providers and gap detection should resolve cadence through this rather

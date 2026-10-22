@@ -49,9 +49,17 @@ async function probeLayout(otherRingSteps: number | null) {
   // day's worth of steps that must stay OUT of the count.
   await db.execute(`INSERT INTO activity (ts, ${COLS}, steps) VALUES (TIMESTAMP '2026-09-30T01:20:22', ${ids('ringB')}, 5000);`)
   const inWindow: Array<[string, number]> = [
-    ['01:31:19', 0], ['01:32:19', 0], ['01:37:19', 40],
-    ['01:38:19', 0], ['01:39:19', 0], ['01:40:19', 0], ['01:41:19', 0],
-    ['01:42:19', 0], ['01:43:19', 0], ['01:44:19', 0], ['01:45:19', 0],
+    ['01:31:19', 0],
+    ['01:32:19', 0],
+    ['01:37:19', 40],
+    ['01:38:19', 0],
+    ['01:39:19', 0],
+    ['01:40:19', 0],
+    ['01:41:19', 0],
+    ['01:42:19', 0],
+    ['01:43:19', 0],
+    ['01:44:19', 0],
+    ['01:45:19', 0],
   ]
   for (const [t, steps] of inWindow)
     await db.execute(`INSERT INTO activity (ts, ${COLS}, steps) VALUES (TIMESTAMP '2026-10-01T${t}', ${ids('ringB')}, ${steps});`)

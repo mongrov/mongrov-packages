@@ -321,6 +321,32 @@ export function stillEnoughSql(alias = ''): string {
 
 const STILL_ENOUGH = stillEnoughSql()
 
+/** What the quality DDL can be built with. */
+export interface QualityOptions {
+  /**
+   * Whether a MOVING reading (`still = false`) is excluded from the clean
+   * relations of the vitals the motion gate applies to: SpO2, HRV and
+   * stress. Default **off** (zivaone_app#377).
+   *
+   * Off, a moving reading is clean if it passes every other gate, and that is
+   * deliberate on BOTH sides of the clean relations. Screens read them, and so
+   * do alerts, verdicts and baselines, so a reading the user can see is a
+   * reading an alert can fire on. A screen showing a value that no alert
+   * reacts to reads to the customer as a broken alert. The rule is that
+   * alerts follow what is shown, never a stricter set.
+   *
+   * The `still` flag is computed either way: `v_{table}_q` keeps it for
+   * diagnostics (`READING_QUALITY_COUNTS_SQL.moving`) and for turning the
+   * gate back on without re-deriving the window.
+   */
+  motionFilter?: boolean
+}
+
+/** The motion term of a clean predicate: the still gate, or no gate at all. */
+function motionGateSql(opts: QualityOptions): string {
+  return opts.motionFilter === true ? STILL_ENOUGH : 'TRUE'
+}
+
 function sharedFlags(): string {
   return `${WORN} AS worn,
          ${WARM_UP} AS warm_up,
@@ -349,9 +375,10 @@ FROM (
 ) f`
 }
 
-function spo2QBody(src: QualitySources): string {
-  // Motion corrupts the optical read, so a moving SpO2 is excluded outright.
-  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND ${STILL_ENOUGH}, FALSE) AS clean
+function spo2QBody(src: QualitySources, opts: QualityOptions): string {
+  // Motion can corrupt the optical read; whether a moving SpO2 is excluded
+  // for it is `QualityOptions.motionFilter`.
+  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND ${motionGateSql(opts)}, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags()},
          COALESCE(m.spo2 BETWEEN ${SPO2_MIN} AND ${SPO2_MAX}, FALSE) AS plausible
@@ -376,16 +403,17 @@ FROM (
 ) f`
 }
 
-function hrvQBody(src: QualitySources): string {
+function hrvQBody(src: QualitySources, opts: QualityOptions): string {
   // One row carries two vitals with different gates, so cleanliness is per
-  // column. HRV: clamp + still (§13c). Stress: no clamp, but an `active`
-  // reading is masked from alerting and tense-day counts (§13c) — the raw
-  // raster still shows it, reading `v_hrv`. HRV 0 is below the 5 ms clamp:
+  // column. HRV: clamp, plus still when `motionFilter` is on (§13c). Stress:
+  // no clamp; with `motionFilter` on, an `active` reading is masked from
+  // alerting and tense-day counts (§13c) — the raw raster still shows it,
+  // reading `v_hrv`. HRV 0 is below the 5 ms clamp:
   // the firmware reports it when RR variance is under its floor, which is a
   // real observation of "unmeasurable", not a measurement.
   return `SELECT *,
-       COALESCE(hrv_ms IS NOT NULL AND worn AND NOT warm_up AND plausible AND ${STILL_ENOUGH}, FALSE) AS hrv_clean,
-       COALESCE(stress IS NOT NULL AND worn AND NOT warm_up AND ${STILL_ENOUGH}, FALSE) AS stress_clean
+       COALESCE(hrv_ms IS NOT NULL AND worn AND NOT warm_up AND plausible AND ${motionGateSql(opts)}, FALSE) AS hrv_clean,
+       COALESCE(stress IS NOT NULL AND worn AND NOT warm_up AND ${motionGateSql(opts)}, FALSE) AS stress_clean
 FROM (
   SELECT m.*, ${sharedFlags()},
          COALESCE(m.hrv_ms BETWEEN ${HRV_MIN} AND ${HRV_MAX}, FALSE) AS plausible
@@ -427,7 +455,7 @@ interface QualitySources {
   motion: string
 }
 
-const Q_BODY: Readonly<Record<QualityTable, (src: QualitySources) => string>> = {
+const Q_BODY: Readonly<Record<QualityTable, (src: QualitySources, opts: QualityOptions) => string>> = {
   heart_rate: heartRateQBody,
   hrv: hrvQBody,
   spo2: spo2QBody,
@@ -438,10 +466,10 @@ function viewSources(table: QualityTable): QualitySources {
   return { base: `v_${table}`, wear: WEAR_VIEW, motion: MOTION_VIEW }
 }
 
-const Q_DDL: Readonly<Record<QualityTable, () => string>> = Object.fromEntries(
-  QUALITY_TABLES.map(t => [t, () => `CREATE OR REPLACE VIEW ${qualityViewFor(t)} AS
-${Q_BODY[t](viewSources(t))};`]),
-) as Record<QualityTable, () => string>
+function qualityViewDdl(table: QualityTable, opts: QualityOptions): string {
+  return `CREATE OR REPLACE VIEW ${qualityViewFor(table)} AS
+${Q_BODY[table](viewSources(table), opts)};`
+}
 
 export interface QualityView {
   name: string
@@ -454,12 +482,12 @@ export interface QualityView {
  * views underneath already bake it in — so they are recreated alongside them
  * on every attach and need no context.
  */
-export function qualityViewDdls(): QualityView[] {
+export function qualityViewDdls(opts: QualityOptions = {}): QualityView[] {
   return [
     { name: WEAR_VIEW, sql: wearViewDdl() },
     // After the wear view, before the `_q` views that join it.
     { name: MOTION_VIEW, sql: motionViewDdl() },
-    ...QUALITY_TABLES.map(t => ({ name: qualityViewFor(t), sql: Q_DDL[t]() })),
+    ...QUALITY_TABLES.map(t => ({ name: qualityViewFor(t), sql: qualityViewDdl(t, opts) })),
     ...QUALITY_TABLES.map(t => ({ name: cleanViewFor(t), sql: cleanViewDdl(t) })),
   ]
 }
@@ -594,7 +622,7 @@ function motionMacroDdl(): string {
 ${motionSlice(LO, HI)};`
 }
 
-function qualityMacroDdl(table: QualityTable): string {
+function qualityMacroDdl(table: QualityTable, opts: QualityOptions): string {
   const basePad = table === 'heart_rate' ? SPIKE_NEIGHBOUR_MINUTES : 0
   const sources: QualitySources = { base: '_base', wear: '_wear', motion: '_motion' }
   return `CREATE OR REPLACE MACRO ${qualityMacroFor(table)}(lo, hi) AS TABLE
@@ -616,7 +644,7 @@ _base AS (
   WHERE ts >= ${LO} - INTERVAL ${basePad} MINUTE AND ts < ${HI} + INTERVAL ${basePad} MINUTE
 )
 SELECT * FROM (
-${Q_BODY[table](sources)}
+${Q_BODY[table](sources, opts)}
 ) q
 WHERE ts >= ${LO} AND ts < ${HI};`
 }
@@ -632,10 +660,10 @@ ${cleanBody(table, `${qualityMacroFor(table)}(${LO}, ${HI})`)};`
  * Kept apart from `qualityViewDdls` on purpose: callers drop that list with
  * `DROP VIEW`, which fails on a macro.
  */
-export function qualityMacroDdls(): QualityView[] {
+export function qualityMacroDdls(opts: QualityOptions = {}): QualityView[] {
   return [
     { name: MOTION_MACRO, sql: motionMacroDdl() },
-    ...QUALITY_TABLES.map(t => ({ name: qualityMacroFor(t), sql: qualityMacroDdl(t) })),
+    ...QUALITY_TABLES.map(t => ({ name: qualityMacroFor(t), sql: qualityMacroDdl(t, opts) })),
     ...QUALITY_TABLES.map(t => ({ name: cleanMacroFor(t), sql: cleanMacroDdl(t) })),
   ]
 }
@@ -688,7 +716,8 @@ WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
  * Diagnostic count of excluded readings per vital and reason (§13d: a
  * `scale_suspect` temperature surfaces here, never on a user-facing
  * surface). Binds `$userId`, `$brand`, `$familyId`, `$days`. Counts are
- * BIGINT. `moving` is reported for every vital but gates only SpO2 and HRV.
+ * BIGINT. `moving` is reported for every vital; it gates SpO2 and HRV only
+ * when `QualityOptions.motionFilter` is on.
  */
 export const READING_QUALITY_COUNTS_SQL = [
   countsFor('heart_rate', 'NOT clean', { spike: true }),
