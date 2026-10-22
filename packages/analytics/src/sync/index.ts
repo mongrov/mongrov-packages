@@ -11,6 +11,7 @@ export {
   type BaselineComputeContext,
   type BaselineComputer,
   type BaselineComputeResult,
+  baselineHasBoundedForm,
   buildBaselineSql,
   createBaselineComputer,
 } from './baseline-compute'
