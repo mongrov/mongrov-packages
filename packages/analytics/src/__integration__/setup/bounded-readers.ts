@@ -39,18 +39,21 @@
  * just inside each window start so that every reader's answer depends on
  * those rows. The mutation suite requires each reader to notice.
  */
+import type { BaselineWindowDays } from '../../core/metric_metadata'
 import type { AnalyticsEngine } from '../../core/types'
 import type { Rule } from '../../rules/schema'
 import type { CompiledRule } from '../../rules/types'
 import type { ToolImpl } from '../../tools/types'
 import { expect } from 'vitest'
 import { HybridDuckDB } from '../../core/engine'
+import { getBaselineMetricIds } from '../../core/metric_metadata'
 import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../core/schemas'
 import { createViews } from '../../core/warehouse'
 import { BAND_SCALE_PARAM, BASELINE_OFFSET_PARAM, compileRule, USER_SETTING_PARAM } from '../../rules/compiler'
 import { luminxDefaults, vivaDefaults, yogaringDefaults, zivaDefaults } from '../../rules/defaults'
 import { RuleSchema } from '../../rules/schema'
 import { validateRule } from '../../rules/validator'
+import { baselineHasBoundedForm, buildBaselineSql } from '../../sync/baseline-compute'
 import { buildHrPhaseBandsSql } from '../../sync/hr-phase-bands'
 import { detectAnomaly } from '../../tools/impls/anomaly'
 import { compareTrend } from '../../tools/impls/compare'
@@ -432,6 +435,63 @@ export async function comparePhaseBands(
       if (canon(view) !== canon(bounded)) {
         t.differ.push(`phase-bands ${windowDays}d ${tz} @${clock}`)
         t.differIds.add(`${windowDays}`)
+      }
+    }
+  }
+}
+
+// ── baselines ──────────────────────────────────────────────────────────────
+
+/**
+ * Two baseline results equal up to float summation order: every number within
+ * 1e-9 relative. `canon`'s 12 significant digits are not enough here: the
+ * VIEW form alone varies run to run in the 15th digit of `mean` / `stddev`
+ * (DuckDB's parallel aggregation sums in varying order), and two such values
+ * either side of a rounding boundary differ at the 12th. A lost or extra day
+ * moves a percentile or `sample_count` far more than 1e-9.
+ */
+function sameBaseline(a: unknown[], b: unknown[]): boolean {
+  if (a.length !== b.length)
+    return false
+  return a.every((row, i) => {
+    const x = row as Record<string, unknown>
+    const y = b[i] as Record<string, unknown>
+    const keys = Object.keys(x)
+    if (keys.length !== Object.keys(y).length)
+      return false
+    return keys.every((k) => {
+      const [p, q] = [x[k], y[k]]
+      if (typeof p === 'number' && typeof q === 'number')
+        return Math.abs(p - q) <= 1e-9 * Math.max(1, Math.abs(p), Math.abs(q))
+      return String(p) === String(q)
+    })
+  })
+}
+
+/** Every metric whose baseline reads a clean view, so has a bounded form. */
+export const BOUNDED_BASELINE_METRICS = getBaselineMetricIds().filter(baselineHasBoundedForm)
+
+export async function compareBaselines(
+  db: Db,
+  clock: string | undefined,
+  t: Tally,
+  opts: CompareOpts & { windows?: BaselineWindowDays[], zones?: string[] } = {},
+): Promise<void> {
+  const mutate = opts.mutate ?? (s => s)
+  for (const metric of BOUNDED_BASELINE_METRICS) {
+    for (const windowDays of opts.windows ?? [7, 30, 90] as BaselineWindowDays[]) {
+      for (const tz of opts.zones ?? ['UTC', 'Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
+        const params = { userId: U, brand: B, familyId: F, tz, windowDays }
+        const view = await db.execute(atClock(buildBaselineSql(metric, windowDays), clock), params)
+        const bounded = await db.execute(atClock(mutate(buildBaselineSql(metric, windowDays, { bounded: true })), clock), params)
+        t.compared += 1
+        const id = `${metric}/${windowDays}`
+        if (view.length > 0)
+          t.nonEmpty.add(id)
+        if (!sameBaseline(view, bounded)) {
+          t.differ.push(`baseline ${id} ${tz} @${clock}`)
+          t.differIds.add(id)
+        }
       }
     }
   }
