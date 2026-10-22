@@ -173,19 +173,20 @@ describe('bounded quality macros', () => {
     const [hr] = await db.execute<Record<string, number>>(`SELECT
         count(*) FILTER (WHERE spike)::INTEGER AS spike,
         count(*) FILTER (WHERE NOT plausible)::INTEGER AS implausible,
-        count(*) FILTER (WHERE warm_up)::INTEGER AS warm_up,
         count(*) FILTER (WHERE NOT worn)::INTEGER AS off_wrist,
         count(*) FILTER (WHERE still)::INTEGER AS still,
         count(*) FILTER (WHERE NOT still)::INTEGER AS moving
       FROM v_heart_rate_q WHERE user_id = '${U}'`)
     const [temp] = await db.execute<Record<string, number>>(
-      `SELECT count(*) FILTER (WHERE scale_suspect)::INTEGER AS scale_suspect FROM v_temperature_q`,
+      `SELECT count(*) FILTER (WHERE scale_suspect)::INTEGER AS scale_suspect,
+         count(*) FILTER (WHERE warm_up)::INTEGER AS warm_up
+       FROM v_temperature_q WHERE user_id = '${U}'`,
     )
     // The onset whose predecessor lies OUTSIDE the wear pad: on-wrist at 150
     // after nothing since 55. Without a warm-up row here, the ASOF-onset path
     // is not being tested at all.
     const [gapOnset] = await db.execute<{ n: number }>(`SELECT count(*)::INTEGER AS n
-      FROM v_heart_rate_q WHERE user_id = '${U}' AND warm_up
+      FROM v_temperature_q WHERE user_id = '${U}' AND warm_up
         AND (epoch(ts)::BIGINT / 60) % 1440 BETWEEN 150 AND 159`)
 
     for (const [k, v] of Object.entries({ ...hr!, ...temp!, gapOnset: gapOnset!.n }))

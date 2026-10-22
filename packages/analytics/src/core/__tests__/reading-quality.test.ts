@@ -134,12 +134,12 @@ describe('heart rate — spike rejection', () => {
     expect(spikes).toEqual([190, 250])
   })
 
-  it('drops off-wrist, warm-up, spike and clamped readings — 19 survive', async () => {
+  it('drops off-wrist, spike and clamped readings — 20 survive', async () => {
     const bpm = await column<number>(`SELECT bpm AS v FROM v_heart_rate_clean WHERE user_id = $u ORDER BY ts`)
-    expect(bpm).toHaveLength(19)
+    expect(bpm).toHaveLength(20)
     expect(bpm).not.toContain(190)
-    expect(bpm).not.toContain(88) // warm-up
-    expect(bpm.slice(0, 3)).toEqual([70, 66, 64]) // 07:00-07:30 gone
+    // The 07:30 re-wear reading stays: warm-up is a temperature gate (#377).
+    expect(bpm.slice(0, 4)).toEqual([88, 70, 66, 64]) // 06:00-07:00 off-wrist gone
     expect(Math.max(...bpm)).toBe(120)
   })
 
@@ -150,9 +150,9 @@ describe('heart rate — spike rejection', () => {
 })
 
 describe('SpO2 — motion gate', () => {
-  it('excludes the mid-walk 88, the warm-up and the clamped 65', async () => {
+  it('excludes the mid-walk 88 and the clamped 65; keeps the re-wear 94', async () => {
     const spo2 = await column<number>(`SELECT spo2 AS v FROM v_spo2_clean WHERE user_id = $u ORDER BY ts`)
-    expect(spo2).toEqual([97, 97, 96, 97, 97])
+    expect(spo2).toEqual([94, 97, 97, 96, 97, 97])
   })
 })
 
@@ -196,11 +196,13 @@ describe('diagnostic counts', () => {
     expect(n('temperature', 'excluded')).toBe(5)
     expect(n('temperature', 'off_wrist')).toBe(3)
     expect(n('heart_rate', 'spike')).toBe(2)
-    expect(n('heart_rate', 'excluded')).toBe(6)
-    expect(n('spo2', 'excluded')).toBe(3)
+    expect(n('heart_rate', 'excluded')).toBe(5)
+    expect(n('spo2', 'excluded')).toBe(2)
     expect(n('hrv', 'excluded')).toBe(2)
-    for (const m of ['heart_rate', 'spo2', 'hrv'])
+    for (const m of ['heart_rate', 'spo2', 'hrv']) {
       expect(n(m, 'scale_suspect')).toBe(0)
+      expect(n(m, 'warm_up')).toBe(0) // a temperature gate only (#377)
+    }
   })
 })
 
@@ -279,11 +281,11 @@ describe('motion filter off (the default) — moving readings are shown, and ale
     await createViews(db, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' })
   })
 
-  it('keeps the mid-walk 88; still drops the warm-up and the clamped 65', async () => {
+  it('keeps the mid-walk 88; still drops the clamped 65', async () => {
     const spo2 = await column<number>(`SELECT spo2 AS v FROM v_spo2_clean WHERE user_id = $u ORDER BY ts`)
     expect(spo2).toContain(88)
     expect(spo2).not.toContain(65)
-    expect(spo2).toHaveLength(6)
+    expect(spo2).toHaveLength(7)
   })
 
   it('the bounded macro agrees with the view', async () => {
