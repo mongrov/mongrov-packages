@@ -66,7 +66,7 @@ export const PLAUSIBLE_RANGES = {
 export const WEAR_TEMP_MIN_C = 30
 /** How long a temperature reading counts as wear evidence for later vitals. */
 export const WEAR_EVIDENCE_MINUTES = 60
-/** §13c: discard the first 10 minutes after the ring goes back on. */
+/** §13c: discard the first 10 minutes of TEMPERATURE after the ring goes back on. */
 export const WARM_UP_MINUTES = 10
 /** Same "still" test as the D-G resting metrics. See STILL_STEPS_PER_HOUR. */
 export const STILL_WINDOW_MINUTES = 15
@@ -349,9 +349,17 @@ function motionGateSql(opts: QualityOptions): string {
   return opts.motionFilter === true ? STILL_ENOUGH : 'TRUE'
 }
 
-function sharedFlags(): string {
+/**
+ * `warm_up` is a TEMPERATURE gate. Skin temperature takes minutes to settle
+ * after the ring goes back on; a heart rate, SpO2 or HRV read by PPG is good
+ * from the first beat. It once gated all four, which hid ordinary readings
+ * (82, 79, 87, 90 bpm) for ten minutes after every re-wear (zivaone_app#377).
+ * The other tables keep the column, always FALSE, so every `_q` view has the
+ * same shape and the exclusion counts stay honest.
+ */
+function sharedFlags(table: QualityTable): string {
   return `${WORN} AS worn,
-         ${WARM_UP} AS warm_up,
+         ${table === 'temperature' ? WARM_UP : 'FALSE'} AS warm_up,
          ${STILL} AS still`
 }
 
@@ -359,9 +367,9 @@ function heartRateQBody(src: QualitySources): string {
   // Spike needs both neighbours present and close; an edge reading or one
   // next to a gap cannot be judged and is kept. A step change (60 → 110 →
   // 120) is not a spike: the second reading agrees with the first.
-  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND NOT spike, FALSE) AS clean
+  return `SELECT *, COALESCE(worn AND plausible AND NOT spike, FALSE) AS clean
 FROM (
-  SELECT m.*, ${sharedFlags()},
+  SELECT m.*, ${sharedFlags('heart_rate')},
          COALESCE(m.bpm BETWEEN ${BPM_MIN} AND ${BPM_MAX}, FALSE) AS plausible
   FROM (
     SELECT *, COALESCE(
@@ -380,9 +388,9 @@ FROM (
 function spo2QBody(src: QualitySources, opts: QualityOptions): string {
   // Motion can corrupt the optical read; whether a moving SpO2 is excluded
   // for it is `QualityOptions.motionFilter`.
-  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible AND ${motionGateSql(opts)}, FALSE) AS clean
+  return `SELECT *, COALESCE(worn AND plausible AND ${motionGateSql(opts)}, FALSE) AS clean
 FROM (
-  SELECT m.*, ${sharedFlags()},
+  SELECT m.*, ${sharedFlags('spo2')},
          COALESCE(m.spo2 BETWEEN ${SPO2_MIN} AND ${SPO2_MAX}, FALSE) AS plausible
   FROM ${src.base} m
   ${wearJoin(src.wear)}
@@ -395,7 +403,7 @@ function temperatureQBody(src: QualitySources): string {
   // is flagged, never divided. Corrected data is fabricated data.
   return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible, FALSE) AS clean
 FROM (
-  SELECT m.*, ${sharedFlags()},
+  SELECT m.*, ${sharedFlags('temperature')},
          COALESCE(m.temp_c BETWEEN ${TEMP_MIN} AND ${TEMP_MAX}, FALSE) AS plausible,
          COALESCE(m.temp_c > ${TEMP_MAX}
            AND m.temp_c / 10 BETWEEN ${TEMP_MIN} AND ${TEMP_MAX}, FALSE) AS scale_suspect
@@ -414,10 +422,10 @@ function hrvQBody(src: QualitySources, opts: QualityOptions): string {
   // the firmware reports it when RR variance is under its floor, which is a
   // real observation of "unmeasurable", not a measurement.
   return `SELECT *,
-       COALESCE(hrv_ms IS NOT NULL AND worn AND NOT warm_up AND plausible AND ${motionGateSql(opts)}, FALSE) AS hrv_clean,
-       COALESCE(stress IS NOT NULL AND worn AND NOT warm_up AND ${motionGateSql(opts)}, FALSE) AS stress_clean
+       COALESCE(hrv_ms IS NOT NULL AND worn AND plausible AND ${motionGateSql(opts)}, FALSE) AS hrv_clean,
+       COALESCE(stress IS NOT NULL AND worn AND ${motionGateSql(opts)}, FALSE) AS stress_clean
 FROM (
-  SELECT m.*, ${sharedFlags()},
+  SELECT m.*, ${sharedFlags('hrv')},
          COALESCE(m.hrv_ms BETWEEN ${HRV_MIN} AND ${HRV_MAX}, FALSE) AS plausible
   FROM ${src.base} m
   ${wearJoin(src.wear)}
