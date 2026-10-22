@@ -34,6 +34,7 @@
  */
 
 import type { HybridDuckDB } from './engine'
+import type { QualityOptions } from './reading-quality'
 import type {
   AttachContext,
   FamilyMembersProvider,
@@ -374,6 +375,8 @@ export async function createViews(
     familyId: string
     localCatalog: string
     remoteCatalog?: string
+    /** How the clean views judge a reading. See `QualityOptions`. */
+    quality?: QualityOptions
   },
   opts: {
     /**
@@ -403,7 +406,7 @@ export async function createViews(
   // Signal-quality views (T-25) read the union views above, so they come
   // after them. A missing clean view would fail every rule and baseline, so
   // it fails the attach just as loudly.
-  for (const view of qualityViewDdls()) {
+  for (const view of qualityViewDdls(ctx.quality)) {
     try {
       await db.execute(view.sql)
     }
@@ -429,7 +432,7 @@ export async function createViews(
   // reported unavailable, and the package's own readers then stay on the
   // views (`AnalyticsEngine.boundedReads`).
   const unavailableMacros: string[] = []
-  for (const macro of qualityMacroDdls()) {
+  for (const macro of qualityMacroDdls(ctx.quality)) {
     try {
       await db.execute(macro.sql)
     }

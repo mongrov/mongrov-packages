@@ -12,6 +12,10 @@
  *   2. consumers: baselines, rules and tools read the clean views
  *   3. end to end: the same compiled rule fires on the raw view and stays
  *      silent on the clean one — the control that proves (1) and (2) compose
+ *
+ * The views are built with the motion filter ON, so every gate is exercised.
+ * The last block rebuilds them with the default (off) and checks the other
+ * half of the contract: a moving reading is shown AND alerts on.
  */
 import type { FirmwareExport, MapperContext } from '../../sync/mapper/types'
 import type { MetricId } from '../metric_metadata'
@@ -87,7 +91,7 @@ beforeAll(async () => {
   db = new HybridDuckDB(() => createRealDuckDB(['icu']))
   await db.open()
   for (const t of TABLE_NAMES) await db.execute(LOCAL_SCHEMAS[t])
-  await createViews(db, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' })
+  await createViews(db, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory', quality: { motionFilter: true } })
 
   const fw: FirmwareExport = JSON.parse(readFileSync(
     join(__dirname, '../../sync/mapper/__tests__/fixtures/firmware-dirty-readings.json'),
@@ -264,5 +268,51 @@ describe('a dirty reading can never fire an alert', () => {
 
   it('the quality view names are what the SQL reads', () => {
     for (const t of QUALITY_TABLES) expect(qualityViewFor(t)).toBe(`v_${t}_q`)
+  })
+})
+
+describe('motion filter off (the default) — moving readings are shown, and alert', () => {
+  // zivaone_app#377: alerts follow what is shown. Off, a moving reading is in
+  // the clean view the screens read, so the rules reading the same view must
+  // be able to fire on it; every other gate still applies.
+  beforeAll(async () => {
+    await createViews(db, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' })
+  })
+
+  it('keeps the mid-walk 88; still drops the warm-up and the clamped 65', async () => {
+    const spo2 = await column<number>(`SELECT spo2 AS v FROM v_spo2_clean WHERE user_id = $u ORDER BY ts`)
+    expect(spo2).toContain(88)
+    expect(spo2).not.toContain(65)
+    expect(spo2).toHaveLength(6)
+  })
+
+  it('the bounded macro agrees with the view', async () => {
+    const view = await column<number>(`SELECT spo2 AS v FROM v_spo2_clean WHERE user_id = $u ORDER BY ts`)
+    const bounded = await column<number>(
+      `SELECT spo2 AS v FROM v_spo2_clean_between(TIMESTAMP '2000-01-01', TIMESTAMP '2100-01-01') WHERE user_id = $u ORDER BY ts`,
+    )
+    expect(bounded).toEqual(view)
+  })
+
+  it('keeps the active stress hour; the HRV 0 is still nulled', async () => {
+    const stress = await column<number>(`SELECT stress AS v FROM v_hrv_clean WHERE user_id = $u ORDER BY ts`)
+    expect(stress).toContain(72)
+    const hrv = await column<number | null>(`SELECT hrv_ms AS v FROM v_hrv_clean WHERE user_id = $u ORDER BY ts`)
+    expect(hrv).toContain(null)
+  })
+
+  it('still computes the flag, so moving readings stay countable', async () => {
+    const moving = await column<number>(
+      `SELECT spo2 AS v FROM v_spo2_q WHERE user_id = $u AND still IS FALSE AND clean`,
+    )
+    expect(moving).toEqual([88])
+  })
+
+  it.each([
+    ['spo2', 'min', 'less_than', 90, 'the mid-walk 88'],
+    ['stress', 'max', 'greater_than_or_equal', 66, 'the active-hour 72'],
+  ] as const)('%s %s %s %d fires on %s', async (metric, agg, compare, value) => {
+    const compiled = compileRule(rule(metric, agg, compare, value))
+    expect(await fires(compiled.sql, compiled.params)).toBe(true)
   })
 })

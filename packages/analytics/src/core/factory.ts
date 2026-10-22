@@ -225,6 +225,7 @@ export function createAnalytics(
         familyId: ctx.tenantId,
         localCatalog,
         remoteCatalog,
+        quality: config.quality,
       }, {
         // Non-fatal by design (see createViews) — so it must be LOUD here.
         onMacroFailed: (name, cause) =>

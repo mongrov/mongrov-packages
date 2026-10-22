@@ -20,8 +20,9 @@
  * quality probe reports and what a future consumer would reason from.
  */
 
-import { describe, expect, it } from 'vitest'
+import type { QualityOptions } from '../reading-quality'
 
+import { describe, expect, it } from 'vitest'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { HybridDuckDB } from '../engine'
 import { qualityViewDdls } from '../reading-quality'
@@ -30,7 +31,7 @@ import { LOCAL_SCHEMAS } from '../schemas'
 const IDS = `'ziva','fam','u','ring'`
 const COLS = 'brand, family_id, user_id, device_id'
 
-async function rig() {
+async function rig(opts: QualityOptions = { motionFilter: true }) {
   const db = new HybridDuckDB(() => createRealDuckDB([]))
   await db.open()
   // Every quality table, since the `_q` views are created as a set.
@@ -39,7 +40,7 @@ async function rig() {
     await db.execute(LOCAL_SCHEMAS[t])
   for (const t of tables)
     await db.execute(`CREATE OR REPLACE VIEW v_${t} AS SELECT * FROM ${t};`)
-  for (const v of qualityViewDdls())
+  for (const v of qualityViewDdls(opts))
     await db.execute(v.sql)
   return db
 }
@@ -149,6 +150,25 @@ describe('still, with no motion evidence before the reading (#219)', () => {
     expect(rows[0].still).toBe(false)
     // And THIS one is dropped — moving is still a reason to exclude.
     expect(rows[0].clean).toBe(false)
+    await db.close()
+  })
+
+  it('keeps that moving reading clean when the motion filter is off (the default)', async () => {
+    const db = await rig({})
+    await seedWear(db, ['2026-09-10T08:00:00', '2026-09-10T09:00:00'])
+    await db.execute(
+      `INSERT INTO spo2 (ts, ${COLS}, spo2) VALUES (TIMESTAMP '2026-09-10T09:00:00', ${IDS}, 97);`,
+    )
+    for (const m of ['08:50', '08:55', '09:05'])
+      await db.execute(`INSERT INTO activity (ts, ${COLS}, steps) VALUES (TIMESTAMP '2026-09-10T${m}:00', ${IDS}, 200);`)
+
+    const rows = await db.execute<{ still: boolean | null, clean: boolean }>(
+      `SELECT still, clean FROM v_spo2_q WHERE ts = TIMESTAMP '2026-09-10T09:00:00'`,
+    )
+
+    // The flag still says moving; the filter just does not act on it.
+    expect(rows[0].still).toBe(false)
+    expect(rows[0].clean).toBe(true)
     await db.close()
   })
 
