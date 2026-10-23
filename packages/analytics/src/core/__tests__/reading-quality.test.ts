@@ -318,3 +318,85 @@ describe('motion filter off (the default) — moving readings are shown, and ale
     expect(await fires(compiled.sql, compiled.params)).toBe(true)
   })
 })
+
+describe('gate switches off (v1 parity) — every reading is shown, and alerts', () => {
+  // Spec §13 amendment 2026-10-22: each gate is its own switch so they can be
+  // turned back on one at a time. A gate that is off makes its readings clean,
+  // so the alerts reading the same views count them (principle 69).
+  const ALL_OFF = { wearFilter: false, warmUpFilter: false, rangeFilter: false, spikeFilter: false }
+
+  async function withQuality(quality: Record<string, boolean>): Promise<void> {
+    await createViews(db, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory', quality })
+  }
+
+  it('all off: the clean views hold every reading of the raw views', async () => {
+    await withQuality(ALL_OFF)
+    for (const t of ['temperature', 'heart_rate', 'spo2'] as const) {
+      const raw = await column<number>(`SELECT count(*)::INTEGER AS v FROM v_${t} WHERE user_id = $u`)
+      const clean = await column<number>(`SELECT count(*)::INTEGER AS v FROM v_${t}_clean WHERE user_id = $u`)
+      expect(clean).toEqual(raw)
+    }
+    const temps = await column<number>(`SELECT temp_c::DOUBLE AS v FROM v_temperature_clean WHERE user_id = $u ORDER BY ts`)
+    expect(temps).toEqual([24, 23, 24, 35, 36, 36, 37, 365, 36, 36, 37])
+    const bpm = await column<number>(`SELECT bpm AS v FROM v_heart_rate_clean WHERE user_id = $u`)
+    expect(bpm).toEqual(expect.arrayContaining([190, 250]))
+    const hrv = await column<number | null>(`SELECT hrv_ms AS v FROM v_hrv_clean WHERE user_id = $u`)
+    expect(hrv).toContain(0)
+  })
+
+  it('all off: the flags are still computed, so diagnostics keep counting', async () => {
+    await withQuality(ALL_OFF)
+    const suspect = await column<number>(`SELECT temp_c::DOUBLE AS v FROM v_temperature_q WHERE user_id = $u AND scale_suspect`)
+    expect(suspect).toEqual([365])
+    const spikes = await column<number>(`SELECT bpm AS v FROM v_heart_rate_q WHERE user_id = $u AND spike ORDER BY ts`)
+    expect(spikes).toEqual([190, 250])
+  })
+
+  it('all off: the bounded macro agrees with the view', async () => {
+    await withQuality(ALL_OFF)
+    const view = await column<number>(`SELECT bpm AS v FROM v_heart_rate_clean WHERE user_id = $u ORDER BY ts`)
+    const bounded = await column<number>(
+      `SELECT bpm AS v FROM v_heart_rate_clean_between(TIMESTAMP '2000-01-01', TIMESTAMP '2100-01-01') WHERE user_id = $u ORDER BY ts`,
+    )
+    expect(bounded).toEqual(view)
+  })
+
+  it('all off: a clamped SpO2 the screen shows can fire the alert', async () => {
+    await withQuality(ALL_OFF)
+    const compiled = compileRule(rule('spo2', 'min', 'less_than', 70))
+    expect(await fires(compiled.sql, compiled.params)).toBe(true)
+  })
+
+  it('one switch at a time: range off shows the 10x value, wear still hides the nightstand run', async () => {
+    await withQuality({ rangeFilter: false })
+    const temps = await column<number>(`SELECT temp_c::DOUBLE AS v FROM v_temperature_clean WHERE user_id = $u ORDER BY ts`)
+    expect(temps).toContain(365)
+    expect(temps).not.toContain(24)
+  })
+
+  it('one switch at a time: spike off keeps the 190, range still drops the 250', async () => {
+    await withQuality({ spikeFilter: false })
+    const bpm = await column<number>(`SELECT bpm AS v FROM v_heart_rate_clean WHERE user_id = $u`)
+    expect(bpm).toContain(190)
+    expect(bpm).not.toContain(250)
+  })
+
+  it('one switch at a time: wear off keeps the off-wrist HR; spike and range still apply', async () => {
+    await withQuality({ wearFilter: false })
+    const kept = await column<number>(`SELECT bpm AS v FROM v_heart_rate_q WHERE user_id = $u AND NOT worn AND clean`)
+    expect(kept.length).toBeGreaterThan(0)
+    const bpm = await column<number>(`SELECT bpm AS v FROM v_heart_rate_clean WHERE user_id = $u`)
+    expect(bpm.length).toBeGreaterThan(20)
+    expect(bpm).not.toContain(190)
+    expect(bpm).not.toContain(250)
+    // The 24 °C nightstand temperatures are below the 30 °C clamp too.
+    const temps = await column<number>(`SELECT temp_c::DOUBLE AS v FROM v_temperature_clean WHERE user_id = $u`)
+    expect(temps).not.toContain(24)
+  })
+
+  it('one switch at a time: warm-up off keeps the re-wear onset', async () => {
+    await withQuality({ warmUpFilter: false })
+    const temps = await column<number>(`SELECT temp_c::DOUBLE AS v FROM v_temperature_clean WHERE user_id = $u ORDER BY ts`)
+    expect(temps).toEqual([35, 36, 36, 37, 36, 36, 37])
+  })
+})
