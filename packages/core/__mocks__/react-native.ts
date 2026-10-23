@@ -20,3 +20,17 @@ export const Platform = {
   OS: 'ios',
   select: (options: any) => options.ios ?? options.default,
 }
+
+type AppStateListener = (state: string) => void
+const appStateListeners = new Set<AppStateListener>()
+export const AppState = {
+  currentState: 'active',
+  addEventListener: jest.fn((_event: string, listener: AppStateListener) => {
+    appStateListeners.add(listener)
+    return { remove: () => appStateListeners.delete(listener) }
+  }),
+  // Test seam: deliver an AppState change to every listener.
+  __emit(state: string) {
+    for (const listener of appStateListeners) listener(state)
+  },
+}

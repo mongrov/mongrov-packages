@@ -2,6 +2,7 @@ import type { Logger } from '../logger'
 import type { LoggerConfig } from '../types'
 import * as React from 'react'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
 import { createLogger } from '../logger'
 import { setNetworkStateLogger } from '../network-state'
 
@@ -64,6 +65,21 @@ export function LoggingProvider({ config, children }: LoggingProviderProps) {
           console.warn('[Logger] destroy failed', String(error))
       })
     }
+  }, [logger])
+
+  // iOS may suspend or kill a backgrounded app at any moment (a BLE sync
+  // wakes it, then it is gone), so whatever is still batched goes to disk on
+  // the way out rather than with the next line.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'background' && state !== 'inactive')
+        return
+      logger.flush().catch((error: unknown) => {
+        if (__DEV__)
+          console.warn('[Logger] flush on background failed', String(error))
+      })
+    })
+    return () => subscription.remove()
   }, [logger])
 
   return (

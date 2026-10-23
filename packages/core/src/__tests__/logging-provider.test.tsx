@@ -8,8 +8,15 @@ import { LoggingProvider, useLogger } from '../context/logging-provider'
 import * as loggerModule from '../logger'
 
 // Mock react-native
+const mockAppStateListeners = new Set<(state: string) => void>()
 jest.mock('react-native', () => ({
   Platform: { OS: 'ios' },
+  AppState: {
+    addEventListener: (_event: string, listener: (state: string) => void) => {
+      mockAppStateListeners.add(listener)
+      return { remove: () => mockAppStateListeners.delete(listener) }
+    },
+  },
 }))
 
 // Mock network-state
@@ -104,5 +111,29 @@ describe('LoggingProvider under Strict Mode', () => {
     await act(async () => {})
 
     expect(destroyed.has(result.current)).toBe(false)
+  })
+})
+
+describe('LoggingProvider and AppState', () => {
+  it.each(['background', 'inactive'])('flushes the logger when the app goes %s', (state) => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <LoggingProvider config={{ appVersion: '1.0.0', ringBuffer: true }}>
+        {children}
+      </LoggingProvider>
+    )
+    const { result, unmount } = renderHook(() => useLogger(), { wrapper })
+    const flush = jest.spyOn(result.current, 'flush')
+
+    act(() => {
+      for (const listener of mockAppStateListeners) listener('active')
+    })
+    expect(flush).not.toHaveBeenCalled()
+    act(() => {
+      for (const listener of mockAppStateListeners) listener(state)
+    })
+    expect(flush).toHaveBeenCalledTimes(1)
+
+    unmount()
+    expect(mockAppStateListeners.size).toBe(0)
   })
 })

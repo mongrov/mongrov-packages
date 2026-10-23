@@ -55,12 +55,12 @@ function currentEncoder(): Utf8Encoder | undefined {
   return (globalThis as { TextEncoder?: Utf8Encoder }).TextEncoder
 }
 
-/** `null` on expo-file-system before v19, or without a TextEncoder. */
+/** `null` on expo-file-system before v19 (no `File` / `Paths`), or without a TextEncoder. */
 function getAppendFile(): AppendFileCtor | null {
   if (AppendFileClass === undefined) {
     try {
-      const mod = require('expo-file-system') as { File?: AppendFileCtor }
-      AppendFileClass = typeof mod.File === 'function' && currentEncoder() ? mod.File : null
+      const mod = require('expo-file-system') as { File?: AppendFileCtor, Paths?: unknown }
+      AppendFileClass = typeof mod.File === 'function' && mod.Paths !== undefined && currentEncoder() ? mod.File : null
     }
     catch {
       AppendFileClass = null
@@ -75,7 +75,7 @@ export function resetFileApiForTests(): void {
 }
 
 // UTC, the same clock as every entry's `timestamp`, so a file's name and the
-// lines inside it agree on which day they belong to.
+// lines inside it agree on which hour they belong to.
 function formatDate(date: Date): string {
   const y = date.getUTCFullYear()
   const m = String(date.getUTCMonth() + 1).padStart(2, '0')
@@ -83,8 +83,38 @@ function formatDate(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
-function todayFilename(): string {
-  return `logs-${formatDate(new Date())}.txt`
+function formatHour(date: Date): string {
+  return `${formatDate(date)}T${String(date.getUTCHours()).padStart(2, '0')}`
+}
+
+/**
+ * `logs-YYYY-MM-DDTHH-NNN.txt`: a new file every UTC hour, and a new `NNN`
+ * when the current one passes `maxFileSizeKB`. Names sort chronologically,
+ * and a pre-0.7 day file (`logs-YYYY-MM-DD.txt`) sorts before the same day's
+ * hourly files (`.` < `T`), so legacy and new files read in one order.
+ */
+function rotatedName(hour: string, seq: number): string {
+  return `logs-${hour}-${String(seq).padStart(3, '0')}.txt`
+}
+
+const ROTATED_RE = /^logs-(\d{4}-\d{2}-\d{2}T\d{2})-(\d{3,})\.txt$/
+const DATE_RE = /^logs-(\d{4}-\d{2}-\d{2})/
+
+function isLogFile(name: string): boolean {
+  return name.startsWith('logs-') && name.endsWith('.txt')
+}
+
+/** The UTC day a log file belongs to, legacy or hourly; `null` if neither. */
+function fileDay(name: string): string | null {
+  return DATE_RE.exec(name)?.[1] ?? null
+}
+
+interface CurrentFile {
+  hour: string
+  seq: number
+  name: string
+  /** Bytes on disk, tracked so rotation needs no stat per batch. */
+  size: number
 }
 
 export class FileTransport implements LogTransport {
@@ -92,15 +122,18 @@ export class FileTransport implements LogTransport {
 
   private readonly directory: string
   private readonly maxSizeMB: number
+  private readonly maxFileBytes: number
   private readonly retentionDays: number
   private readonly log: InternalLogger
   private readonly writeFailures = new FailureGate()
   private initialized = false
+  private fallbackReported = false
+  private current: CurrentFile | null = null
 
   // Entries waiting for the next write, and the callers waiting on them.
   // Lines that arrive while a write is in flight are coalesced into the next
-  // one. That matters most on the fallback path (expo-file-system before v19,
-  // no append), where every write reads and rewrites the whole day file.
+  // one: one open (or one read+rewrite, on the fallback) per batch, not per
+  // line.
   private pending: LogEntry[] = []
   private pendingWaiters: Array<() => void> = []
   private writing: Promise<void> | null = null
@@ -120,6 +153,7 @@ export class FileTransport implements LogTransport {
     this.directory
       = config?.directory ?? `${fs.documentDirectory ?? ''}logs/`
     this.maxSizeMB = config?.maxSizeMB ?? 5
+    this.maxFileBytes = (config?.maxFileSizeKB ?? 1024) * 1024
     this.retentionDays = config?.retentionDays ?? 7
   }
 
@@ -154,17 +188,16 @@ export class FileTransport implements LogTransport {
   private async doWrite(entries: LogEntry[]): Promise<void> {
     try {
       await this.ensureDirectory()
+      const target = await this.targetFile(new Date())
 
       const now = Date.now()
       if (now - this.lastCleanup >= this.cleanupIntervalMs) {
-        await this.cleanupIfNeeded()
+        await this.cleanupIfNeeded(target.name)
         this.lastCleanup = now
       }
 
       const lines = `${entries.map(e => JSON.stringify(e)).join('\n')}\n`
-      const filePath = `${this.directory}${todayFilename()}`
-
-      await this.append(filePath, lines)
+      target.size += await this.append(`${this.directory}${target.name}`, lines)
       const failed = this.writeFailures.recover()
       if (failed > 0)
         this.log.info('[FileTransport] writes recovered', { failedWrites: failed })
@@ -182,25 +215,64 @@ export class FileTransport implements LogTransport {
   }
 
   /**
-   * Appends at the end of the file. Reading the whole day file (up to
-   * `maxSizeMB`) and rewriting it for every batch made file I/O on the JS
-   * thread grow with the file under debug-level volume.
+   * The file this batch goes to. A new UTC hour starts a new file; so does a
+   * current file at or past `maxFileSizeKB`. On the first write of an hour
+   * (a relaunch, say) it continues the newest file already on disk for that
+   * hour, so a restart does not leave a run of near-empty files.
    */
-  private async append(filePath: string, lines: string): Promise<void> {
+  private async targetFile(at: Date): Promise<CurrentFile> {
+    const hour = formatHour(at)
+    if (this.current?.hour !== hour)
+      this.current = await this.resumeHour(hour)
+    if (this.current.size >= this.maxFileBytes) {
+      const seq = this.current.seq + 1
+      this.current = { hour, seq, name: rotatedName(hour, seq), size: 0 }
+    }
+    return this.current
+  }
+
+  private async resumeHour(hour: string): Promise<CurrentFile> {
+    const fs = getFileSystem()
+    const latest = (await fs.readDirectoryAsync(this.directory))
+      .map(name => ROTATED_RE.exec(name))
+      .filter((m): m is RegExpExecArray => m !== null && m[1] === hour)
+      .map(m => Number(m[2]))
+      .sort((a, b) => a - b)
+      .pop()
+    if (latest === undefined)
+      return { hour, seq: 0, name: rotatedName(hour, 0), size: 0 }
+    const name = rotatedName(hour, latest)
+    const info = await fs.getInfoAsync(`${this.directory}${name}`)
+    return { hour, seq: latest, name, size: info.size ?? 0 }
+  }
+
+  /**
+   * Appends at the end of the file and returns the bytes written. Never reads
+   * the file on the append path: a kill mid-write can at worst cut the last
+   * line, not the lines already on disk.
+   */
+  private async append(filePath: string, lines: string): Promise<number> {
     const AppendFileCtor = getAppendFile()
     if (AppendFileCtor) {
+      const bytes = new (currentEncoder() as Utf8Encoder)().encode(lines)
       const file = new AppendFileCtor(filePath)
       if (!file.exists)
         file.create()
       const handle = file.open()
       try {
         handle.offset = handle.size ?? 0
-        handle.writeBytes(new (currentEncoder() as Utf8Encoder)().encode(lines))
+        handle.writeBytes(bytes)
       }
       finally {
         handle.close()
       }
-      return
+      return bytes.length
+    }
+    if (!this.fallbackReported) {
+      this.fallbackReported = true
+      this.log.info('[FileTransport] append API unavailable; rewriting the file per batch', {
+        reason: 'expo-file-system < 19 (no File / Paths) or no TextEncoder',
+      })
     }
     const fs = getFileSystem()
     const info = await fs.getInfoAsync(filePath)
@@ -211,16 +283,15 @@ export class FileTransport implements LogTransport {
     else {
       await fs.writeAsStringAsync(filePath, lines)
     }
+    return lines.length
   }
 
+  /** Newest first. */
   async getLogFiles(): Promise<string[]> {
     try {
       const fs = getFileSystem()
       const files = await fs.readDirectoryAsync(this.directory)
-      return files
-        .filter(f => f.startsWith('logs-') && f.endsWith('.txt'))
-        .sort()
-        .reverse()
+      return files.filter(isLogFile).sort().reverse()
     }
     catch {
       // expected: no directory yet means no files have been written.
@@ -234,9 +305,10 @@ export class FileTransport implements LogTransport {
   }
 
   /**
-   * Every retained day file, oldest first: one JSON entry per line, oldest
-   * line first. Unlike the ring buffer this survives an app restart or crash.
-   * Waits for pending writes first, so the result includes everything sent.
+   * Every retained file, legacy day files and hourly files together, oldest
+   * first: one JSON entry per line, oldest line first. Unlike the ring buffer
+   * this survives an app restart or crash. Waits for pending writes first, so
+   * the result includes everything sent.
    */
   async readAll(): Promise<string> {
     await this.flush()
@@ -264,58 +336,48 @@ export class FileTransport implements LogTransport {
     this.initialized = true
   }
 
-  private async cleanupIfNeeded(): Promise<void> {
+  /**
+   * Deletes whole files only, never `current` (the file being written):
+   * first those older than `retentionDays`, then the oldest until the
+   * directory is under `maxSizeMB`. No file is ever cut, so every line left
+   * on disk is a line as it was written.
+   */
+  private async cleanupIfNeeded(current: string): Promise<void> {
     try {
       const fs = getFileSystem()
-      const files = await fs.readDirectoryAsync(this.directory)
-      const logFiles = files
-        .filter(f => f.startsWith('logs-') && f.endsWith('.txt'))
+      const files = (await fs.readDirectoryAsync(this.directory))
+        .filter(isLogFile)
         .sort()
 
-      // Delete files older than retentionDays
       const cutoffDate = new Date()
-      cutoffDate.setDate(cutoffDate.getDate() - this.retentionDays)
-      const cutoffStr = formatDate(cutoffDate)
+      cutoffDate.setUTCDate(cutoffDate.getUTCDate() - this.retentionDays)
+      const cutoff = formatDate(cutoffDate)
 
-      for (const file of logFiles) {
-        const dateStr = file.replace('logs-', '').replace('.txt', '')
-        if (dateStr < cutoffStr) {
+      const kept: string[] = []
+      for (const file of files) {
+        const day = fileDay(file)
+        if (file !== current && day !== null && day < cutoff)
           await fs.deleteAsync(`${this.directory}${file}`, { idempotent: true })
-        }
+        else
+          kept.push(file)
       }
 
-      // Check total size and delete oldest if exceeding maxSizeMB. Today's
-      // file is never deleted — it holds the session being diagnosed. If it
-      // alone is over the cap, its oldest lines are dropped instead.
-      const today = todayFilename()
+      const sizes = new Map<string, number>()
       let totalSize = 0
-      const remaining = (await fs.readDirectoryAsync(this.directory))
-        .filter(f => f.startsWith('logs-') && f.endsWith('.txt'))
-        .sort()
-
-      for (const file of remaining) {
-        const info = await fs.getInfoAsync(`${this.directory}${file}`)
-        totalSize += info.size ?? 0
+      for (const file of kept) {
+        const size = (await fs.getInfoAsync(`${this.directory}${file}`)).size ?? 0
+        sizes.set(file, size)
+        totalSize += size
       }
 
       const maxSizeBytes = this.maxSizeMB * 1024 * 1024
-      const older = remaining.filter(f => f !== today)
-      let i = 0
-      while (totalSize > maxSizeBytes && i < older.length) {
-        const file = older[i]
-        const info = await fs.getInfoAsync(`${this.directory}${file}`)
+      for (const file of kept) {
+        if (totalSize <= maxSizeBytes)
+          break
+        if (file === current)
+          continue
         await fs.deleteAsync(`${this.directory}${file}`, { idempotent: true })
-        totalSize -= info.size ?? 0
-        i++
-      }
-
-      if (totalSize > maxSizeBytes && remaining.includes(today)) {
-        const path = `${this.directory}${today}`
-        const content = await fs.readAsStringAsync(path)
-        // Keep the newest half of the cap, cut at a line boundary.
-        const tail = content.slice(content.length - Math.floor(maxSizeBytes / 2))
-        const firstBreak = tail.indexOf('\n')
-        await fs.writeAsStringAsync(path, firstBreak >= 0 ? tail.slice(firstBreak + 1) : '')
+        totalSize -= sizes.get(file) ?? 0
       }
     }
     catch (error) {

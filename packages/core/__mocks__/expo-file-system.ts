@@ -67,6 +67,9 @@ const ExpoFileSystem = {
   get File() {
     return mockState.noFileClass ? undefined : MockFile
   },
+  get Paths() {
+    return mockState.noFileClass ? undefined : { document: { uri: '/mock/documents/' } }
+  },
   // Expose for test manipulation
   __mockFiles: mockFiles,
   __mockState: mockState,
