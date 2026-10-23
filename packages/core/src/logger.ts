@@ -11,6 +11,7 @@ import type {
 } from './types'
 import { FailureGate } from './internal-log'
 import { defaultRedact } from './redact'
+import { SessionMarker } from './session-marker'
 import { FileTransport } from './transports/file'
 import { RingBufferTransport } from './transports/ring-buffer'
 import { WebhookTransport } from './transports/webhook'
@@ -195,6 +196,8 @@ function isDev(): boolean {
 }
 
 export interface Logger {
+  /** This logger's session; every entry carries it as `context.sessionId`. */
+  readonly sessionId: string
   debug: (message: string, data?: Record<string, unknown>) => void
   info: (message: string, data?: Record<string, unknown>) => void
   warn: (message: string, data?: Record<string, unknown>) => void
@@ -204,6 +207,12 @@ export interface Logger {
   setUser: (userId: string) => void
   setScreen: (screenName: string) => void
   setContext: (key: string, value: string) => void
+  /**
+   * The id of the last crash report the app sent (e.g. a Sentry event id),
+   * kept in the session marker so the next start's
+   * `logger.session.unclean-exit` can name it. No-op without `sessionMarker`.
+   */
+  setLastCrashReportId: (id: string) => void
 
   getLogs: (filter?: LogFilter) => LogEntry[]
   exportLogs: (filter?: LogFilter) => string
@@ -289,6 +298,60 @@ export function createLogger(config: LoggerConfig): Logger {
 
   if (fileUnavailable !== null)
     log('warn', '[Logger] file transport unavailable; file log disabled', { error: fileUnavailable })
+
+  // Session marker: did the previous session end cleanly?
+  let sessionMarker: SessionMarker | null = null
+  let appStateSubscription: { remove: () => void } | null = null
+  if (config.sessionMarker) {
+    const fileConfig: FileConfig | undefined = typeof config.file === 'object' ? config.file : undefined
+    try {
+      sessionMarker = new SessionMarker(sessionId, fileConfig?.directory, internalLogger('session-marker'))
+    }
+    catch (error) {
+      log('warn', '[Logger] session marker unavailable', { error: String(error) })
+    }
+  }
+  if (sessionMarker) {
+    const marker = sessionMarker
+    marker.start().then(({ record, unreadable }) => {
+      if (unreadable) {
+        log('info', 'logger.session.marker-unreadable')
+        return
+      }
+      if (!record || record.state === 'closed')
+        return
+      const previous = {
+        previousSessionId: record.sessionId,
+        startedAt: record.startedAt,
+        lastSeenAt: record.updatedAt,
+        lastCrashReportId: record.lastCrashReportId ?? null,
+      }
+      // Foreground death (crash, OOM, watchdog) is the case worth a warn; the
+      // OS reclaiming a backgrounded app is routine, so it is info.
+      if (record.state === 'running')
+        log('warn', 'logger.session.unclean-exit', previous, true)
+      else
+        log('info', 'logger.session.ended-in-background', previous)
+    })
+    // Checkpoints follow the app's own lifecycle, so a logger created at
+    // module load (before any provider) is covered too. `inactive` is a
+    // transient iOS state (an incoming call, Control Centre) and is ignored.
+    try {
+      const { AppState } = require('react-native')
+      if (AppState && typeof AppState.addEventListener === 'function') {
+        appStateSubscription = AppState.addEventListener('change', (state: string) => {
+          if (state === 'background')
+            void marker.mark('backgrounded')
+          else if (state === 'active')
+            void marker.mark('running')
+        })
+      }
+    }
+    catch {
+      // expected: no react-native (tests, node): the marker still records
+      // start and destroy.
+    }
+  }
   if (minLevelUnknown)
     log('warn', '[Logger] unknown minLevel; using the default', { configured: String(config.minLevel), using: minLevel })
 
@@ -397,6 +460,7 @@ export function createLogger(config: LoggerConfig): Logger {
   }
 
   const logger: Logger = {
+    sessionId,
     debug: (message, data) => log('debug', message, data),
     info: (message, data) => log('info', message, data),
     warn: (message, data) => log('warn', message, data),
@@ -434,6 +498,10 @@ export function createLogger(config: LoggerConfig): Logger {
       ;(extraContext as Record<string, string>)[key] = value
     },
 
+    setLastCrashReportId(id: string) {
+      void sessionMarker?.setLastCrashReportId(id)
+    },
+
     getLogs(filter?: LogFilter): LogEntry[] {
       if (!ringBuffer) {
         throw new Error('Ring buffer not configured. Enable ringBuffer in LoggerConfig.')
@@ -463,6 +531,9 @@ export function createLogger(config: LoggerConfig): Logger {
     },
 
     async destroy() {
+      appStateSubscription?.remove()
+      appStateSubscription = null
+      await sessionMarker?.mark('closed')
       if (webhookTransport) {
         await webhookTransport.destroy()
       }

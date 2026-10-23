@@ -13,6 +13,8 @@ export { addNetworkStateListener, getNetworkState, setNetworkStateLogger, useNet
 export { OfflineQueue } from './offline-queue'
 // Redaction (the default `LoggerConfig.redact`, for composing app rules)
 export { defaultRedact, REDACTED } from './redact'
+// Session marker (`LoggerConfig.sessionMarker`): how the previous session ended
+export type { SessionRecord, SessionState } from './session-marker'
 export { FileTransport } from './transports/file'
 
 // Transports (for custom composition)
