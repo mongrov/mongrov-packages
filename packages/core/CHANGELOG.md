@@ -5,6 +5,18 @@ All notable changes to `@mongrov/core` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-22
+
+### Added
+- **`LoggingProvider` accepts `logger`** (mongrov-packages#66): pass an app-created logger so React
+  and non-React code share one instance. The provider never destroys a logger it was given.
+
+### Changed
+- **`captureException` keeps the error's own fields** (`code`, `status`, …) and its `cause`;
+  context can no longer overwrite `stack` or `name`.
+- **A throwing custom transport is contained**; it no longer throws into the code that logged.
+- **An unknown `minLevel` and a failed background flush are logged** (warn), so they show in release.
+
 ## [0.7.0] - 2026-10-22
 
 ### Changed
