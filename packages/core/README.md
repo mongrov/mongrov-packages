@@ -102,6 +102,9 @@ interface LoggerConfig {
   // Callback hooks
   onError?: (entry: LogEntry) => void
   onException?: (error: Error, context?: Record<string, unknown>) => void
+
+  // Report how the previous session ended (default false; needs expo-file-system)
+  sessionMarker?: boolean
 }
 ```
 
@@ -128,6 +131,33 @@ including pre-0.7 `logs-YYYY-MM-DD.txt` day files.
 ```typescript
 { file: true }                          // defaults: 5 MB, 7 days, 1024 KB per file
 { file: { maxSizeMB: 10, retentionDays: 14, maxFileSizeKB: 512 } }
+```
+
+### Session Marker
+
+`sessionMarker: true` keeps a small `session-marker.json` next to the file logs
+(`file.directory` when set) recording this session's id and state: `running` at
+start and on every return to the foreground, `backgrounded` when the app goes to
+the background, `closed` on `destroy()`. The logger follows `AppState` itself, so
+a logger created at module load, before any provider, is covered.
+
+At the next start, the previous session's last state is reported once:
+
+| Previous state | Logged |
+|---|---|
+| `running` (died in the foreground: crash, OOM, watchdog) | `logger.session.unclean-exit` at **warn** |
+| `backgrounded` (the OS reclaimed it; routine on iOS) | `logger.session.ended-in-background` at info |
+| `closed`, or no marker | nothing |
+
+Both carry `{ previousSessionId, startedAt, lastSeenAt, lastCrashReportId }`.
+`lastCrashReportId` is whatever the app passed to `logger.setLastCrashReportId(id)`
+(e.g. the Sentry event id from `beforeSend`), so the warn can name the report.
+Marker failures are reported once (`[Logger] session marker failed`) and never
+throw into callers.
+
+```typescript
+const logger = createLogger({ appVersion, ringBuffer: true, file: true, sessionMarker: true })
+logger.sessionId // the id every entry carries as context.sessionId
 ```
 
 ### Webhook Transport
@@ -180,6 +210,8 @@ const logger = createLogger({
 | `setUser(userId)` | Set user ID in context |
 | `setScreen(screenName)` | Set current screen in context |
 | `setContext(key, value)` | Set custom context key |
+| `setLastCrashReportId(id)` | Keep a crash report id for the next start's `unclean-exit` (needs `sessionMarker`) |
+| `sessionId` | This session's id (every entry's `context.sessionId`) |
 | `getLogs(filter?)` | Get logs from ring buffer |
 | `exportLogs(filter?)` | Export logs as JSON string |
 | `flush()` | Force-push queued webhook entries |

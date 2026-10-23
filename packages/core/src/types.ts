@@ -68,4 +68,13 @@ export interface LoggerConfig {
    * to add app rules, or pass `false` to log verbatim.
    */
   redact?: ((entry: LogEntry) => LogEntry) | false
+  /**
+   * Record whether the previous session ended cleanly (needs
+   * expo-file-system). At start a previous session still marked `running`
+   * (the process died in the foreground) is logged once at warn as
+   * `logger.session.unclean-exit`; one that ended in the background is
+   * logged at info. The marker lives next to the file logs (`file.directory`
+   * when set). Default off: no file IO.
+   */
+  sessionMarker?: boolean
 }

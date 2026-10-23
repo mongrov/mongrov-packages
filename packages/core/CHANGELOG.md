@@ -5,6 +5,16 @@ All notable changes to `@mongrov/core` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - Unreleased
+
+### Added
+- **Session marker** (`LoggerConfig.sessionMarker`, default off; SUP-1). A previous session
+  that died in the foreground is logged once at warn as `logger.session.unclean-exit` with its
+  session id, start time, last-seen time and the last crash report id; one the OS reclaimed in
+  the background is logged at info as `logger.session.ended-in-background`. The marker follows
+  `AppState` itself, so a logger created before any provider is covered.
+- `logger.sessionId` and `logger.setLastCrashReportId(id)`.
+
 ## [0.8.0] - 2026-10-22
 
 ### Added
