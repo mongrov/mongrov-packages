@@ -342,11 +342,49 @@ export interface QualityOptions {
    * gate back on without re-deriving the window.
    */
   motionFilter?: boolean
+  /*
+   * The other gates, one switch each so they can be turned back on one at a
+   * time. Default **on**; `false` turns that gate off. Off, the readings it
+   * would exclude are clean, and so are shown AND counted by alerts, verdicts
+   * and baselines, the same rule as `motionFilter`. Its flag is still
+   * computed for diagnostics. ZivaOne turns all four off for the v1 parity
+   * check (spec §13 amendment 2026-10-22).
+   */
+  /** `worn`: no reading while the ring reads as off the finger (all vitals). */
+  wearFilter?: boolean
+  /** `warm_up`: temperature in the first minutes after the ring goes back on. */
+  warmUpFilter?: boolean
+  /**
+   * `plausible`: the §13b clamps. Off, the Android 10x temperature value
+   * (`scale_suspect`) is no longer caught.
+   */
+  rangeFilter?: boolean
+  /** `spike`: an isolated heart rate far from both neighbours. */
+  spikeFilter?: boolean
 }
 
 /** The motion term of a clean predicate: the still gate, or no gate at all. */
 function motionGateSql(opts: QualityOptions): string {
   return opts.motionFilter === true ? STILL_ENOUGH : 'TRUE'
+}
+
+/** A gate's term while its switch is on (the default), `off` while it is off. */
+function gateSql(on: boolean | undefined, term: string, off = 'TRUE'): string {
+  return on === false ? off : term
+}
+
+/**
+ * The wear term, for consumers that read the `_q` flags directly (the stress
+ * raster keeps `active` hours, so it cannot read `_clean`). Reading `worn`
+ * bare would hide readings that `wearFilter: false` shows.
+ */
+export function wearGateSql(opts: QualityOptions, alias = ''): string {
+  return gateSql(opts.wearFilter, `${alias}worn`)
+}
+
+/** `plausible` while `rangeFilter` is on; off, just "the value is present". */
+function rangeGateSql(opts: QualityOptions, column: string): string {
+  return gateSql(opts.rangeFilter, 'plausible', `${column} IS NOT NULL`)
 }
 
 /**
@@ -363,11 +401,12 @@ function sharedFlags(table: QualityTable): string {
          ${STILL} AS still`
 }
 
-function heartRateQBody(src: QualitySources): string {
+function heartRateQBody(src: QualitySources, opts: QualityOptions): string {
   // Spike needs both neighbours present and close; an edge reading or one
   // next to a gap cannot be judged and is kept. A step change (60 → 110 →
   // 120) is not a spike: the second reading agrees with the first.
-  return `SELECT *, COALESCE(worn AND plausible AND NOT spike, FALSE) AS clean
+  return `SELECT *, COALESCE(${wearGateSql(opts)} AND ${rangeGateSql(opts, 'bpm')}
+         AND ${gateSql(opts.spikeFilter, 'NOT spike')}, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags('heart_rate')},
          COALESCE(m.bpm BETWEEN ${BPM_MIN} AND ${BPM_MAX}, FALSE) AS plausible
@@ -388,7 +427,8 @@ FROM (
 function spo2QBody(src: QualitySources, opts: QualityOptions): string {
   // Motion can corrupt the optical read; whether a moving SpO2 is excluded
   // for it is `QualityOptions.motionFilter`.
-  return `SELECT *, COALESCE(worn AND plausible AND ${motionGateSql(opts)}, FALSE) AS clean
+  return `SELECT *, COALESCE(${wearGateSql(opts)} AND ${rangeGateSql(opts, 'spo2')}
+         AND ${motionGateSql(opts)}, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags('spo2')},
          COALESCE(m.spo2 BETWEEN ${SPO2_MIN} AND ${SPO2_MAX}, FALSE) AS plausible
@@ -398,10 +438,11 @@ FROM (
 ) f`
 }
 
-function temperatureQBody(src: QualitySources): string {
+function temperatureQBody(src: QualitySources, opts: QualityOptions): string {
   // Android 10x guard: a value that only lands in range when divided by ten
   // is flagged, never divided. Corrected data is fabricated data.
-  return `SELECT *, COALESCE(worn AND NOT warm_up AND plausible, FALSE) AS clean
+  return `SELECT *, COALESCE(${wearGateSql(opts)} AND ${gateSql(opts.warmUpFilter, 'NOT warm_up')}
+         AND ${rangeGateSql(opts, 'temp_c')}, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags('temperature')},
          COALESCE(m.temp_c BETWEEN ${TEMP_MIN} AND ${TEMP_MAX}, FALSE) AS plausible,
@@ -422,8 +463,9 @@ function hrvQBody(src: QualitySources, opts: QualityOptions): string {
   // the firmware reports it when RR variance is under its floor, which is a
   // real observation of "unmeasurable", not a measurement.
   return `SELECT *,
-       COALESCE(hrv_ms IS NOT NULL AND worn AND plausible AND ${motionGateSql(opts)}, FALSE) AS hrv_clean,
-       COALESCE(stress IS NOT NULL AND worn AND ${motionGateSql(opts)}, FALSE) AS stress_clean
+       COALESCE(hrv_ms IS NOT NULL AND ${wearGateSql(opts)} AND ${rangeGateSql(opts, 'hrv_ms')}
+         AND ${motionGateSql(opts)}, FALSE) AS hrv_clean,
+       COALESCE(stress IS NOT NULL AND ${wearGateSql(opts)} AND ${motionGateSql(opts)}, FALSE) AS stress_clean
 FROM (
   SELECT m.*, ${sharedFlags('hrv')},
          COALESCE(m.hrv_ms BETWEEN ${HRV_MIN} AND ${HRV_MAX}, FALSE) AS plausible

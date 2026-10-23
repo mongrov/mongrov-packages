@@ -82,6 +82,7 @@ export {
   STILL_FLOOR,
   STILL_STEPS_PER_HOUR,
   STILL_WINDOW_MINUTES,
+  wearGateSql,
 } from './reading-quality'
 export type { QualityOptions, QualityTable, QualityView } from './reading-quality'
 

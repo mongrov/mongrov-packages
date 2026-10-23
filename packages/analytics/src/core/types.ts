@@ -128,7 +128,7 @@ interface CommonAnalyticsConfig {
   /**
    * How readings are judged clean. Applied at every attach, when the quality
    * views are recreated. See `QualityOptions`. `motionFilter` is off when
-   * omitted.
+   * omitted; the wear, warm-up, range and spike gates are on when omitted.
    */
   quality?: QualityOptions
 }
