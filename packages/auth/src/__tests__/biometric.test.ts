@@ -96,3 +96,31 @@ describe('useBiometricGate', () => {
     expect(result.current.isAuthenticated).toBe(false)
   })
 })
+
+describe('useBiometricGate without expo-local-authentication', () => {
+  afterEach(() => {
+    jest.dontMock('expo-local-authentication')
+    jest.resetModules()
+  })
+
+  it('passes the gate open and says so once per logger, at error', async () => {
+    jest.resetModules()
+    jest.doMock('expo-local-authentication', () => {
+      throw new Error('Module not found')
+    })
+    // Loaded after doMock so the missing module is what it sees; the testing
+    // library too (its `pure` entry, which registers no hooks), so both use
+    // the same fresh copy of React.
+    const { useBiometricGate: gate } = require('../biometric') as typeof import('../biometric')
+    const rtl = require('@testing-library/react/pure') as typeof import('@testing-library/react')
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    const { result } = rtl.renderHook(() => gate({ logger }))
+
+    await rtl.act(async () => {
+      expect(await result.current.authenticate()).toBe(true)
+      expect(await result.current.authenticate()).toBe(true)
+    })
+    expect(logger.error).toHaveBeenCalledTimes(1)
+    expect(logger.error).toHaveBeenCalledWith('[auth] expo-local-authentication unavailable; biometric gate passes without a prompt')
+  })
+})

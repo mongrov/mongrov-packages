@@ -60,6 +60,26 @@ function MyScreen() {
 }
 ```
 
+### One logger for React and non-React code
+
+Code outside the tree (a database, an auth client, module-level helpers)
+needs a logger before the first render. Create it once and hand the same
+instance to the provider, so there is one ring buffer for `exportLogs`, one
+file writer and one sessionId:
+
+```typescript
+// logger.ts
+export const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true, file: true })
+
+// _layout.tsx
+<LoggingProvider logger={logger}>
+  <Stack />
+</LoggingProvider>
+```
+
+The app owns a logger passed this way: the provider wires screen tracking,
+connectivity reports and the background flush to it, but never destroys it.
+
 ## Configuration
 
 ```typescript

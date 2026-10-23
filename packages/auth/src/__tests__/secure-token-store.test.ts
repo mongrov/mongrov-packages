@@ -1,6 +1,6 @@
 import { __resetSecureStore } from '../../__mocks__/expo-secure-store'
 import { __resetMMKV } from '../../__mocks__/react-native-mmkv'
-import { __resetStoreModules, SecureTokenStore } from '../secure-token-store'
+import { __resetStoreModules, createSecureTokenStore, SecureTokenStore } from '../secure-token-store'
 
 beforeEach(() => {
   __resetStoreModules()
@@ -54,6 +54,18 @@ describe('SecureTokenStore', () => {
       await SecureTokenStore.setAccessToken('mmkv-token')
       const token = await SecureTokenStore.getAccessToken()
       expect(token).toBe('mmkv-token')
+    })
+
+    it('warns every logger about the MMKV fallback, not only the first store to hit it', async () => {
+      __resetStoreModules()
+      // The default store's no-op logger hits the fallback first.
+      await SecureTokenStore.setAccessToken('mmkv-token')
+      const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      const store = createSecureTokenStore({ logger })
+      await store.getAccessToken()
+      await store.getRefreshToken()
+      expect(logger.warn).toHaveBeenCalledTimes(1)
+      expect(logger.warn).toHaveBeenCalledWith('[auth] expo-secure-store unavailable; tokens stored in MMKV (unencrypted)')
     })
 
     it('clear works with MMKV fallback', async () => {

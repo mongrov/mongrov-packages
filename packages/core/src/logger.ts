@@ -31,15 +31,15 @@ function isLogLevel(value: unknown): value is LogLevel {
  * `'INFO'` or a typo is easy. An unknown level used to index LEVEL_ORDER to
  * `undefined`, every comparison came out false, and nothing was filtered.
  */
-function resolveMinLevel(configured: unknown, fallback: LogLevel): LogLevel {
+function resolveMinLevel(configured: unknown, fallback: LogLevel): { level: LogLevel, unknown: boolean } {
   if (configured == null || configured === '')
-    return fallback
+    return { level: fallback, unknown: false }
   const normalized = typeof configured === 'string' ? configured.trim().toLowerCase() : configured
   if (isLogLevel(normalized))
-    return normalized
-  if (isDev())
-    console.warn(`[Logger] unknown minLevel ${JSON.stringify(configured)}; using '${fallback}'`)
-  return fallback
+    return { level: normalized, unknown: false }
+  // Reported through the logger once it exists (below), so a bad
+  // `EXPO_PUBLIC_LOG_LEVEL` in a release build is in the export, not lost.
+  return { level: fallback, unknown: true }
 }
 
 const MAX_DEPTH = 6
@@ -220,7 +220,7 @@ export interface Logger {
 
 export function createLogger(config: LoggerConfig): Logger {
   const dev = isDev()
-  const minLevel = resolveMinLevel(config.minLevel, dev ? 'debug' : 'info')
+  const { level: minLevel, unknown: minLevelUnknown } = resolveMinLevel(config.minLevel, dev ? 'debug' : 'info')
   const minLevelNum = LEVEL_ORDER[minLevel]
 
   const sessionId = generateSessionId()
@@ -289,6 +289,8 @@ export function createLogger(config: LoggerConfig): Logger {
 
   if (fileUnavailable !== null)
     log('warn', '[Logger] file transport unavailable; file log disabled', { error: fileUnavailable })
+  if (minLevelUnknown)
+    log('warn', '[Logger] unknown minLevel; using the default', { configured: String(config.minLevel), using: minLevel })
 
   function buildEntry(level: LogLevel, message: string, data?: Record<string, unknown>): LogEntry {
     const entry: LogEntry = {
@@ -316,7 +318,17 @@ export function createLogger(config: LoggerConfig): Logger {
     for (const transport of transports) {
       if (transport.name === skip)
         continue
-      transport.send([entry]).then(
+      // A custom transport that throws synchronously, or returns no promise,
+      // must not throw into the caller of `logger.*`. Called synchronously
+      // still: the ring buffer must hold the line by the time `log` returns.
+      let sent: Promise<void>
+      try {
+        sent = Promise.resolve(transport.send([entry]))
+      }
+      catch (error) {
+        sent = Promise.reject(error)
+      }
+      sent.then(
         () => {
           const failed = sendFailures.get(transport.name)?.recover() ?? 0
           if (failed > 0)
@@ -394,12 +406,12 @@ export function createLogger(config: LoggerConfig): Logger {
       // JS callers hand over whatever was thrown; a non-Error must not turn
       // into an `undefined` message.
       const err = error instanceof Error ? error : new Error(String(error))
-      // Recorded whatever `minLevel` says.
-      log('error', err.message, {
-        stack: err.stack,
-        name: err.name,
-        ...context,
-      }, true)
+      // The same serialization as any logged Error, so own fields (`code`,
+      // `status`) and `cause` survive; it used to keep only stack and name.
+      // The error's fields go last: a context key can no longer overwrite
+      // `stack` or `name`. Recorded whatever `minLevel` says.
+      const { name, stack, message: _message, ...detail } = serializeError(err, new WeakSet(), 0, 0)
+      log('error', err.message, { ...context, ...detail, name, stack }, true)
       if (config.onException) {
         try {
           config.onException(err, context)

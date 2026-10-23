@@ -85,6 +85,19 @@ describe('auth logging', () => {
     client2.destroy()
   })
 
+  it('logs an offline sign-in at warn: the user retries, nothing is broken', async () => {
+    const logger = createLogger()
+    const client = createAuthClient({
+      adapter: adapter({ login: jest.fn().mockRejectedValue(new Error('Network request failed')) }),
+      logger,
+    })
+    await expect(client.signIn({})).rejects.toBeDefined()
+    expect(logger.lines.find(([, m]) => m === '[auth] signIn failed')).toEqual(
+      ['warn', '[auth] signIn failed', expect.objectContaining({ code: 'NETWORK_ERROR' })],
+    )
+    client.destroy()
+  })
+
   it('describeError redacts email-shaped text', () => {
     expect(describeError(new Error('no user jane@example.com'))).toBe('Error: no user [email]')
   })

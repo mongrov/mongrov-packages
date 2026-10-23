@@ -131,6 +131,26 @@ describe('useQuery', () => {
     __clearAllDatabases()
   })
 
+  it('logs a failed query once to the provider logger, with the collection and no document data', async () => {
+    const db = await createTestDatabase('query-fail-test')
+    const collection = (db as unknown as Record<string, { find: () => unknown }>).messages
+    jest.spyOn(collection, 'find').mockImplementation(() => {
+      throw new Error('invalid selector')
+    })
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <DatabaseProvider database={db} logger={logger}>{children}</DatabaseProvider>
+    )
+
+    const { result } = renderHook(() => useQuery('messages', { selector: { content: 'x' } }), { wrapper })
+
+    await waitFor(() => {
+      expect(result.current.error?.message).toBe('invalid selector')
+    })
+    expect(logger.error).toHaveBeenCalledTimes(1)
+    expect(logger.error).toHaveBeenCalledWith('[@mongrov/db] query failed', { collection: 'messages', error: 'Error: invalid selector' })
+  })
+
   it('should return empty data initially', async () => {
     const db = await createTestDatabase('query-test')
 

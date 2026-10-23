@@ -21,6 +21,16 @@ export interface RefreshManager {
 
 const ABANDONED_MESSAGE = 'Token refresh abandoned: the session ended before it completed'
 
+/**
+ * Whether a refresh rejection is the "abandoned" one: the session that asked
+ * for it ended first. Not a failure, and nothing to sign out.
+ */
+export function isAbandonedRefresh(err: unknown): boolean {
+  return typeof err === 'object'
+    && err !== null
+    && (err as AuthError).message === ABANDONED_MESSAGE
+}
+
 export function createRefreshManager(config: RefreshManagerConfig): RefreshManager {
   const { adapter, tokenStore, onRefreshed, onRefreshFailed, proactiveRefresh, refreshThreshold } = config
   const log = config.logger ?? noopLogger
@@ -89,7 +99,7 @@ export function createRefreshManager(config: RefreshManagerConfig): RefreshManag
       return tokens
     }
     catch (err) {
-      if (isAbandoned(err))
+      if (isAbandonedRefresh(err))
         throw err
       const error: AuthError = {
         code: 'REFRESH_FAILED',
@@ -117,12 +127,6 @@ export function createRefreshManager(config: RefreshManagerConfig): RefreshManag
       code: 'REFRESH_FAILED',
       message: ABANDONED_MESSAGE,
     }
-  }
-
-  function isAbandoned(err: unknown): boolean {
-    return typeof err === 'object'
-      && err !== null
-      && (err as AuthError).message === ABANDONED_MESSAGE
   }
 
   function scheduleRefresh(expiresIn: number): void {

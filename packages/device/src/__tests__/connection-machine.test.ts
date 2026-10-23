@@ -408,6 +408,20 @@ describe('connection-machine — DeviceLogger diagnostics', () => {
     ])
   })
 
+  it('still transitions when the app logger mapping throws', () => {
+    const adapter = createFakeAdapter({})
+    const logger = { log: jest.fn(() => {
+      throw new Error('mapping bug')
+    }) }
+    const actor = createActor(createConnectionMachine(TEST_DELAYS), {
+      input: { deviceId: 'dev-1', adapter, logger },
+    }).start()
+    actor.send({ type: 'CONNECT' })
+    actor.send({ type: 'CONNECT_FAILURE', detail: { category: 'timeout', phase: 'connecting', canRetry: true } })
+    expect(logger.log).toHaveBeenCalledTimes(1)
+    expect(actor.getSnapshot().value).toBe('failed')
+  })
+
   it('runs without a logger', () => {
     const { actor } = build()
     actor.send({ type: 'CONNECT' })

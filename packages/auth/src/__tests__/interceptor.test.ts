@@ -27,6 +27,16 @@ function createMockAuthClient(overrides?: Partial<AuthClient>): AuthClient {
   }
 }
 
+async function rejectWith401(config: unknown): Promise<never> {
+  throw new axios.AxiosError('Unauthorized', '401', config as never, null, {
+    status: 401,
+    statusText: 'Unauthorized',
+    data: {},
+    headers: {},
+    config: config as never,
+  })
+}
+
 describe('createAuthInterceptor', () => {
   it('attaches Authorization header to requests', async () => {
     const instance = axios.create()
@@ -130,6 +140,40 @@ describe('createAuthInterceptor', () => {
 
     await expect(instance.get('/protected')).rejects.toBeDefined()
     expect(signOutFn).toHaveBeenCalled()
+  })
+
+  it('does not sign out when the refresh was abandoned (the session already ended)', async () => {
+    const instance = axios.create()
+    const signOutFn = jest.fn()
+    const debug = jest.fn()
+    const client = createMockAuthClient({
+      refreshToken: jest.fn().mockRejectedValue({
+        code: 'REFRESH_FAILED',
+        message: 'Token refresh abandoned: the session ended before it completed',
+      }),
+      signOut: signOutFn,
+    })
+    createAuthInterceptor(instance, client, { logger: { debug, info: jest.fn(), warn: jest.fn(), error: jest.fn() } })
+    instance.defaults.adapter = rejectWith401
+
+    await expect(instance.get('/protected')).rejects.toBeDefined()
+    expect(signOutFn).not.toHaveBeenCalled()
+    expect(debug).toHaveBeenCalledWith('[auth] 401 retry: refresh abandoned; request rejected', { status: 401 })
+  })
+
+  it('does not sign out a second time when the client has already left the session', async () => {
+    const instance = axios.create()
+    const signOutFn = jest.fn()
+    const client = createMockAuthClient({
+      getState: jest.fn(() => ({ status: 'idle' as const, user: null, error: null, isAuthenticated: false, isLoading: false })),
+      refreshToken: jest.fn().mockRejectedValue(new Error('Refresh failed')),
+      signOut: signOutFn,
+    })
+    createAuthInterceptor(instance, client)
+    instance.defaults.adapter = rejectWith401
+
+    await expect(instance.get('/protected')).rejects.toBeDefined()
+    expect(signOutFn).not.toHaveBeenCalled()
   })
 
   it('does not retry on non-401 errors', async () => {
