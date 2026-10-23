@@ -343,6 +343,48 @@ describe('useTyping', () => {
     expect(adapter.sendTypingCalls[0]).toEqual({ conversationId: 'conv-1', isTyping: true })
   })
 
+  it('logs a failing typing send once at warn, then at debug until one succeeds', async () => {
+    const adapter = new MockAdapter()
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    const config: CollabConfig = { adapter, logger }
+    const sendTyping = jest.spyOn(adapter, 'sendTyping').mockRejectedValue(new Error('503'))
+
+    const { result } = renderHook(() => {
+      const collab = useCollab()
+      const typing = useTyping('conv-1')
+      return { collab, typing }
+    }, {
+      wrapper: ({ children }) => (
+        <CollabProvider config={config}>{children}</CollabProvider>
+      ),
+    })
+    await act(async () => {
+      result.current.collab.connect({ serverUrl: 'wss://test.com' })
+    })
+    await waitFor(() => {
+      expect(result.current.collab.isConnected).toBe(true)
+    })
+
+    const typingWarns = () => logger.warn.mock.calls.filter(([m]) => m === '[Collab] send typing failed')
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        result.current.typing.sendTyping(true)
+      })
+    }
+    expect(typingWarns()).toHaveLength(1)
+    expect(logger.debug).toHaveBeenCalledWith('[Collab] send typing failed', { failures: 3, error: 'Error: 503' })
+
+    // One success re-arms the warning.
+    sendTyping.mockResolvedValueOnce(undefined)
+    await act(async () => {
+      result.current.typing.sendTyping(true)
+    })
+    await act(async () => {
+      result.current.typing.sendTyping(true)
+    })
+    expect(typingWarns()).toHaveLength(2)
+  })
+
   it('should auto-remove typing user after timeout', async () => {
     jest.useFakeTimers()
     const adapter = new MockAdapter()

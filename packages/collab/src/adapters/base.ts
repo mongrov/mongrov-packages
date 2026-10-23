@@ -148,7 +148,8 @@ export abstract class BaseAdapter implements CollabAdapter {
    * @example
    * ```typescript
    * const unsubscribe = adapter.on('message:received', (message) => {
-   *   console.log('New message:', message.content)
+   *   // Log ids, never message bodies.
+   *   logger.debug('[Collab] message received', { id: message.id })
    * })
    *
    * // Later, to stop listening:

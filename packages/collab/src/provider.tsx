@@ -360,7 +360,8 @@ export function usePresence(userIds: string[]): {
     setup().then((cleanup) => {
       cleanupPresence = cleanup
     }, (err: unknown) => {
-      logger.error('[Collab] presence subscribe failed', { users: userIds.length, error: String(err) })
+      // `warn`: presence is a degraded feature, not lost data.
+      logger.warn('[Collab] presence subscribe failed', { users: userIds.length, error: String(err) })
       setIsLoading(false)
     })
 
@@ -435,13 +436,26 @@ export function useTyping(conversationId: string): {
     }
   }, [adapter, isConnected, conversationId])
 
+  // Consecutive typing sends that failed. Typing fires per keystroke, so a
+  // failing server used to write one warn per key.
+  const typingFailuresRef = useRef(0)
   const sendTyping = useCallback(
     (isTyping: boolean) => {
       if (isConnected) {
         // Best effort: a lost typing indicator is degraded, not data loss.
-        sendTypingToServer(conversationId, isTyping).catch((err: unknown) => {
-          logger.warn('[Collab] send typing failed', { error: String(err) })
-        })
+        sendTypingToServer(conversationId, isTyping).then(
+          () => {
+            typingFailuresRef.current = 0
+          },
+          (err: unknown) => {
+            typingFailuresRef.current += 1
+            const data = { failures: typingFailuresRef.current, error: String(err) }
+            if (typingFailuresRef.current === 1)
+              logger.warn('[Collab] send typing failed', data)
+            else
+              logger.debug('[Collab] send typing failed', data)
+          },
+        )
       }
     },
     [isConnected, conversationId, logger, sendTypingToServer],
