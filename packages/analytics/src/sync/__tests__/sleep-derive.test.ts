@@ -9,7 +9,7 @@
  */
 import type { FirmwareSleepRawRow, MapperContext } from '../mapper/types'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
@@ -45,6 +45,7 @@ async function rig(opts: {
   resolveTimezone?: () => Promise<string>
   hrWindows?: readonly (readonly [string, string])[]
   now?: number
+  logger?: { debug: () => void, info: () => void, warn: () => void, error: () => void }
 } = {}) {
   const db = new HybridDuckDB(() => createRealDuckDB([]))
   await db.open()
@@ -77,6 +78,7 @@ async function rig(opts: {
     flusher,
     resolveTimezone: opts.resolveTimezone ?? (async () => 'UTC'),
     now: () => opts.now ?? at('2026-06-20T00:00:00'),
+    logger: opts.logger,
   })
 
   /** One sync: raw rows in, flush, derive, close the batch. */
@@ -157,6 +159,39 @@ describe('sleep derive inside the batch', () => {
     const done = await r.sync(rawNight('2026-06-17T23:00:00', 300))
     expect(done?.affectedTables).toEqual(['sleep_raw'])
     expect(await r.sessions()).toEqual([])
+    await r.db.close()
+  }, 60_000)
+})
+
+describe('a replace that fails part-way', () => {
+  it('writes the nights already replaced, leaves later nights alone, and says so', async () => {
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const r = await rig({ logger })
+    await r.sync([...rawNight('2026-06-17T23:00:00', 300), ...rawNight('2026-06-18T23:00:00', 300)])
+    const [, night2] = await r.sessions()
+
+    // Both nights re-derive; the second night's first delete throws, after
+    // night 1's stored rows were already deleted.
+    const execute = r.db.execute.bind(r.db)
+    r.db.execute = (async (sql: string, params?: Record<string, unknown>) => {
+      if (sql.includes('DELETE FROM memory.main.sleep_stage') && params?.night === night2.night)
+        throw new Error('disk I/O error')
+      return execute(sql, params)
+    }) as typeof r.db.execute
+    await r.sync([
+      ...rawNight('2026-06-18T04:00:00', 60, '2026-06-17T23:00:00'),
+      ...rawNight('2026-06-19T04:00:00', 60, '2026-06-18T23:00:00'),
+    ])
+
+    const after = await r.sessions()
+    expect(after).toHaveLength(2)
+    expect(after[0].night).toBe('2026-06-17')
+    expect(after[0].total_minutes).toBeGreaterThan(300) // the corrected night 1 was written, not lost
+    expect(after[1]).toEqual(night2) // night 2 untouched
+    expect(logger.error).toHaveBeenCalledWith(
+      'sync.sleep-derive: correction stopped part-way; stopped night may be missing rows',
+      expect.objectContaining({ nightsReplaced: 1, stoppedAt: expect.any(String) }),
+    )
     await r.db.close()
   }, 60_000)
 })

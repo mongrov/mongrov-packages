@@ -12,7 +12,7 @@
  * Design.md §sync/scheduler.ts is the source of truth for the surface.
  */
 
-import type { AttachContext } from '../core/types'
+import type { AnalyticsLogger, AttachContext } from '../core/types'
 import { describeError } from '../core/errors'
 import { SyncError } from './errors'
 
@@ -76,12 +76,7 @@ export interface StepResult {
  * Matches `@mongrov/core`'s logger shape narrowly. `error` is optional so
  * existing three-method loggers still fit; without it errors log at `warn`.
  */
-export interface SchedulerLogger {
-  debug: (msg: string, meta?: Record<string, unknown>) => void
-  info: (msg: string, meta?: Record<string, unknown>) => void
-  warn: (msg: string, meta?: Record<string, unknown>) => void
-  error?: (msg: string, meta?: Record<string, unknown>) => void
-}
+export type SchedulerLogger = Omit<AnalyticsLogger, 'error'> & Partial<Pick<AnalyticsLogger, 'error'>>
 
 /**
  * Log at `error`, or at `warn` for a logger without `error` (the method is

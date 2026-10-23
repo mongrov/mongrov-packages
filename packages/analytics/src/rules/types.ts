@@ -10,6 +10,7 @@ import type { MetricId } from '../core/metric_metadata'
 import type { TableName } from '../core/schemas'
 import type {
   AnalyticsEngine,
+  AnalyticsLogger,
   EventBus,
   FamilyMembersProvider,
   KVStore,
@@ -108,13 +109,8 @@ export interface RuleViolation {
   evidence: Record<string, unknown>
 }
 
-/** Structured logger (subset of AnalyticsLogger). */
-export interface RulesLogger {
-  debug: (message: string, meta?: Record<string, unknown>) => void
-  info: (message: string, meta?: Record<string, unknown>) => void
-  warn: (message: string, meta?: Record<string, unknown>) => void
-  error: (message: string, meta?: Record<string, unknown>) => void
-}
+/** The package's one logger shape; the name is kept for existing imports. */
+export type RulesLogger = AnalyticsLogger
 
 /** Injected by tests; production defaults to `new Date()`. */
 export type Clock = () => Date

@@ -6,11 +6,13 @@ export type { InternalLogger } from './internal-log'
 export { createLogger } from './logger'
 
 export type { Logger } from './logger'
-
 // Network (used internally, exported for convenience)
 export { addNetworkStateListener, getNetworkState, setNetworkStateLogger, useNetworkState } from './network-state'
+
 // Offline queue (exported for advanced usage)
 export { OfflineQueue } from './offline-queue'
+// Redaction (the default `LoggerConfig.redact`, for composing app rules)
+export { defaultRedact, REDACTED } from './redact'
 export { FileTransport } from './transports/file'
 
 // Transports (for custom composition)

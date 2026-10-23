@@ -183,6 +183,12 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
     nights: number
     failedNights: string[]
     firstNightError?: string
+    /**
+     * Set when replacing a night's stored rows threw. The `nightsReplaced`
+     * nights before it were already deleted, so their corrected rows must
+     * still be written; later nights were never touched.
+     */
+    stopped?: { night: string, nightsReplaced: number, error: unknown }
   }
 
   async function deriveRange(p: PendingRange): Promise<DerivedRange> {
@@ -212,6 +218,7 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
     // and a sick query fails every one of them identically.
     const failedNights: string[] = []
     let firstNightError: string | undefined
+    let nightsReplaced = 0
     for (const n of result.nights) {
       if (n.status === 'failed') {
         failedNights.push(n.night)
@@ -231,9 +238,19 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
         storedNightOf(n.windowStart, timeZone),
         ...out.sleep_session.map(s => s.night_of.toISOString().slice(0, 10)),
       ])
-      for (const night of nights)
-        await replaceNight(ctx, night)
-      await deleteByIds(out.sleep_session.map(s => s.session_id))
+      try {
+        for (const night of nights)
+          await replaceNight(ctx, night)
+        await deleteByIds(out.sleep_session.map(s => s.session_id))
+      }
+      catch (error) {
+        // Stop: the nights before this one are already deleted, so what was
+        // collected for them is returned and still written. This night may
+        // have lost some stored rows; writing its corrected ones now could
+        // duplicate the ones that survived, so it waits for the next sync.
+        return { sessions, stages, nights: result.nights.length, failedNights, firstNightError, stopped: { night: n.night, nightsReplaced, error } }
+      }
+      nightsReplaced += 1
       sessions.push(...out.sleep_session)
       stages.push(...out.sleep_stage)
     }
@@ -288,10 +305,21 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       const startedAt = now()
       const totals = { ranges: ranges.length, nights: 0, sessions: 0, stages: 0, failedNights: 0, failedRanges: 0 }
       for (const p of ranges) {
+        let derived: DerivedRange | undefined
         try {
-          const derived = await deriveRange(p)
+          derived = await deriveRange(p)
           const { sessions, stages } = derived
           logRange(p, derived)
+          if (derived.stopped) {
+            totals.failedRanges += 1
+            logError(deps.logger, 'sync.sleep-derive: correction stopped part-way; stopped night may be missing rows', {
+              userId: tailId(p.userId),
+              deviceId: tailId(p.deviceId),
+              stoppedAt: derived.stopped.night,
+              nightsReplaced: derived.stopped.nightsReplaced,
+              err: describeError(derived.stopped.error),
+            })
+          }
           totals.nights += derived.nights
           totals.sessions += sessions.length
           totals.stages += stages.length
@@ -304,10 +332,14 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
         }
         catch (err) {
           // Unexpected: per-night failures are caught inside the pipeline,
-          // so this is the whole range failing — no nights were derived.
+          // and a failed replace is `derived.stopped`. Before `derived` the
+          // range failed with no night replaced; after it, the stored nights
+          // were replaced but their corrected rows never reached the buffer.
           totals.failedRanges += 1
-          logError(deps.logger, 'sync.sleep-derive: correction failed; raw sleep kept, nights unchanged', {
-            userId: p.userId,
+          logError(deps.logger, derived
+            ? 'sync.sleep-derive: corrected rows not buffered; replaced nights are missing'
+            : 'sync.sleep-derive: correction failed; raw sleep kept, nights unchanged', {
+            userId: tailId(p.userId),
             deviceId: tailId(p.deviceId),
             err: describeError(err),
           })

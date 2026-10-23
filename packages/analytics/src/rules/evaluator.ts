@@ -32,6 +32,7 @@ import type { Clock, CompiledRule, FlushSummary, RulesLogger, RuleViolation } fr
 import { nanoid } from 'nanoid'
 import { executeBounded } from '../core/bounded-read'
 import { AnalyticsError, describeError } from '../core/errors'
+import { tailId } from '../core/logger'
 import { METRIC_METADATA } from '../core/metric_metadata'
 import { BAND_SCALE_PARAM, BASELINE_OFFSET_PARAM, USER_SETTING_PARAM } from './compiler'
 
@@ -126,7 +127,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     }
     catch (err) {
       logger?.warn('rules.evaluator: userTimezoneProvider threw', {
-        userId,
+        userId: tailId(userId),
         err: describeError(err),
       })
       tz = undefined
@@ -175,7 +176,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       catch (err) {
         logger?.warn('rules.evaluator: user_setting read failed, using default', {
           ruleId,
-          userId,
+          userId: tailId(userId),
           key,
           err: describeError(err),
         })
@@ -201,7 +202,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     catch (err) {
       logger?.warn('rules.evaluator: band scale read failed, using default', {
         ruleId,
-        userId,
+        userId: tailId(userId),
         key: compiled.bandScaleKey,
         err: describeError(err),
       })
@@ -247,7 +248,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     catch (err) {
       logger?.error('rules.evaluator: insight insert failed', {
         ruleId: rule.id,
-        userId: violation.userId,
+        userId: tailId(violation.userId),
         err: describeError(err),
       })
       return null
@@ -286,7 +287,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     if (pass.noTimezone.size > 0) {
       logger?.warn('rules.evaluator: skipped day-cadence rules, no user timezone', {
         trigger,
-        userIds: [...pass.noTimezone],
+        userIds: Array.from(pass.noTimezone, tailId),
       })
     }
     if (pass.failures > 0) {
@@ -305,7 +306,19 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     pass: PassIssues,
   ): Promise<RuleViolation | null> {
     pass.evaluated += 1
-    const throttled = await throttle.isThrottled(rule.id, ctx.userId, rule.throttle)
+    let throttled: boolean
+    try {
+      throttled = await throttle.isThrottled(rule.id, ctx.userId, rule.throttle)
+    }
+    catch (err) {
+      // A KV throw here used to abort the whole pass, with no ruleId and no
+      // pass summary. Now it costs this rule only, counted like any other
+      // rule failure (`rules.evaluator: execute failed` names it).
+      pass.failures += 1
+      pass.failedRules.add(rule.id)
+      pass.firstError ??= `${rule.id}: throttle read failed: ${describeError(err)}`
+      return null
+    }
     if (throttled) {
       pass.throttled += 1
       return null
@@ -422,7 +435,14 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       },
     }
 
-    await throttle.recordFire(rule.id, ctx.userId)
+    try {
+      await throttle.recordFire(rule.id, ctx.userId)
+    }
+    catch (err) {
+      // The violation is real: persist and emit it regardless. Unrecorded,
+      // the next pass may fire it again, which is why this is loud.
+      logger?.error('rules.throttle.record_failed', { ruleId: rule.id, error: describeError(err) })
+    }
     const insightId = await persistInsight(rule, violation)
     emitter.emit('violation', violation)
     if (eventBus) {
@@ -505,7 +525,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       }
       catch (err) {
         logger?.error('rules.evaluator: familyMembersProvider failed', {
-          familyId,
+          familyId: tailId(familyId),
           err: describeError(err),
         })
         return []

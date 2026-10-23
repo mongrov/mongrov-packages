@@ -59,4 +59,10 @@ export interface LoggerConfig {
   appVersion: string
   updateId?: string
   onException?: (error: Error, context?: Record<string, unknown>) => void
+  /**
+   * Rewrites every entry before any transport sees it. Defaults to
+   * `defaultRedact` (secret-looking keys and emails masked); compose with it
+   * to add app rules, or pass `false` to log verbatim.
+   */
+  redact?: ((entry: LogEntry) => LogEntry) | false
 }

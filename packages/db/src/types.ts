@@ -288,9 +288,10 @@ export interface ReplicationConfig<T = RxDocumentType> {
   autoStart?: boolean
 
   /**
-   * Interval in milliseconds between pull cycles.
-   * Set to 0 for manual-only sync (use with live streams).
-   * @default 0
+   * Milliseconds RxDB waits before retrying a failed push or pull handler.
+   * RxDB's own default; `0` retries immediately, which on an offline device
+   * is a tight loop of failing requests.
+   * @default 5000
    */
   retryTime?: number
 
