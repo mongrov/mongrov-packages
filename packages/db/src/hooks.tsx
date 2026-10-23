@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react'
 
 import type {
+  DBLogger,
   MangoQueryType,
   RxCollectionType,
   RxDatabaseType,
@@ -21,12 +22,15 @@ import {
   useMemo,
   useState,
 } from 'react'
+import { describeError, devConsoleLogger } from './logger'
 
 // ─── Context ────────────────────────────────────────────────────────────────
 
 interface DatabaseContextValue {
   db: RxDatabaseType | null
   isReady: boolean
+  /** Receives query and document subscription failures. */
+  logger: DBLogger
 }
 
 const DatabaseContext = createContext<DatabaseContextValue | null>(null)
@@ -38,6 +42,12 @@ export interface DatabaseProviderProps {
   database: RxDatabaseType | null
   /** Child components */
   children: ReactNode
+  /**
+   * Receives `useQuery` / `useDocument` failures, which otherwise only reach
+   * the component's `error`. Default: dev console for warn/error, silent in
+   * release.
+   */
+  logger?: DBLogger
 }
 
 /**
@@ -60,13 +70,14 @@ export interface DatabaseProviderProps {
  * }
  * ```
  */
-export function DatabaseProvider({ database, children }: DatabaseProviderProps): ReactNode {
+export function DatabaseProvider({ database, children, logger = devConsoleLogger }: DatabaseProviderProps): ReactNode {
   const value = useMemo<DatabaseContextValue>(
     () => ({
       db: database,
       isReady: database !== null,
+      logger,
     }),
-    [database],
+    [database, logger],
   )
 
   return <DatabaseContext.Provider value={value}>{children}</DatabaseContext.Provider>
@@ -170,6 +181,7 @@ export function useQuery<T = RxDocumentType>(
   query: MangoQueryType = {},
 ): QueryResult<T> {
   const collection = useCollection(collectionName)
+  const { logger } = useDatabase()
   const [data, setData] = useState<T[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
@@ -208,12 +220,15 @@ export function useQuery<T = RxDocumentType>(
           setIsLoading(false)
         },
         error: (err: Error) => {
+          // A subscription ends on its first error, so this is once per run.
+          logger.error('[@mongrov/db] query subscription failed', { collection: collectionName, error: describeError(err) })
           setError(err)
           setIsLoading(false)
         },
       })
     }
     catch (err) {
+      logger.error('[@mongrov/db] query failed', { collection: collectionName, error: describeError(err) })
       setError(err instanceof Error ? err : new Error(String(err)))
       setIsLoading(false)
     }
@@ -221,7 +236,7 @@ export function useQuery<T = RxDocumentType>(
     return () => {
       subscription?.unsubscribe()
     }
-  }, [collection, queryKey, refetchTrigger])
+  }, [collection, collectionName, logger, queryKey, refetchTrigger])
 
   return { data, isLoading, error, refetch }
 }
@@ -265,6 +280,7 @@ export function useDocument<T = RxDocumentType>(
   id: string | null | undefined,
 ): DocumentResult<T> {
   const collection = useCollection(collectionName)
+  const { logger } = useDatabase()
   const [data, setData] = useState<T | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
@@ -301,12 +317,15 @@ export function useDocument<T = RxDocumentType>(
           setIsLoading(false)
         },
         error: (err: Error) => {
+          // Never the document id: it can be a user's own key.
+          logger.error('[@mongrov/db] document subscription failed', { collection: collectionName, error: describeError(err) })
           setError(err)
           setIsLoading(false)
         },
       })
     }
     catch (err) {
+      logger.error('[@mongrov/db] document read failed', { collection: collectionName, error: describeError(err) })
       setError(err instanceof Error ? err : new Error(String(err)))
       setIsLoading(false)
     }
@@ -314,7 +333,7 @@ export function useDocument<T = RxDocumentType>(
     return () => {
       subscription?.unsubscribe()
     }
-  }, [collection, id, refetchTrigger])
+  }, [collection, collectionName, id, logger, refetchTrigger])
 
   return { data, isLoading, error, refetch }
 }
