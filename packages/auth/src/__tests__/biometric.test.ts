@@ -111,10 +111,8 @@ describe('useBiometricGate without expo-local-authentication', () => {
     // Loaded after doMock so the missing module is what it sees; the testing
     // library too (its `pure` entry, which registers no hooks), so both use
     // the same fresh copy of React.
-    /* eslint-disable ts/no-require-imports */
     const { useBiometricGate: gate } = require('../biometric') as typeof import('../biometric')
     const rtl = require('@testing-library/react/pure') as typeof import('@testing-library/react')
-    /* eslint-enable ts/no-require-imports */
     const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
     const { result } = rtl.renderHook(() => gate({ logger }))
 
