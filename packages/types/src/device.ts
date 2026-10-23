@@ -170,11 +170,13 @@ export type SyncStatus = 'idle' | 'pulling' | 'draining' | 'failed' | 'cancelled
 
 // ─────────────────────────────────────────────────────────────────────────
 // Diagnostics — typed, not free-text. Emitted by machines on failure/recovery/interrupt.
-// Redaction + opt-in gate applied by the APP's logger mapping before REMOTE upload only.
+// Redaction + opt-in gate applied by the APP's logger mapping before ANY sink that
+// leaves the device: remote upload, but also the exported file log and Sentry
+// breadcrumbs. `deviceId` is a BLE MAC on Android.
 // ─────────────────────────────────────────────────────────────────────────
 
 export interface DeviceDiagnosticEvent {
-  /** Redact (hash) before remote upload — app responsibility. */
+  /** Redact (hash or tail) before any sink that leaves the device — app responsibility. */
   deviceId: string
   adapterId: string
   trigger: 'failed' | 'reconnecting' | 'suspended' | 'resumed' | 'sync-failed'

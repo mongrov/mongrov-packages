@@ -276,7 +276,14 @@ export function createConnectionMachine(
       }),
       clearError: assign({ lastError: undefined }),
       emitDiagnostic: ({ context }, params: { trigger: Exclude<DeviceDiagnosticEvent['trigger'], 'sync-failed'> }) => {
-        context.logger?.log(buildDiagnostic(context, params.trigger))
+        // The logger is the app's mapping; a throw in it must not break the
+        // transition it is reporting on.
+        try {
+          context.logger?.log(buildDiagnostic(context, params.trigger))
+        }
+        catch {
+          // expected: nowhere left to report it — the logger is what failed
+        }
       },
     },
     delays: {
