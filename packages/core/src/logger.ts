@@ -10,6 +10,7 @@ import type {
   RingBufferConfig,
 } from './types'
 import { FailureGate } from './internal-log'
+import { defaultRedact } from './redact'
 import { FileTransport } from './transports/file'
 import { RingBufferTransport } from './transports/ring-buffer'
 import { WebhookTransport } from './transports/webhook'
@@ -43,11 +44,20 @@ function resolveMinLevel(configured: unknown, fallback: LogLevel): LogLevel {
 
 const MAX_DEPTH = 6
 const MAX_CAUSE_DEPTH = 3
+// One logged readings array or document used to land in full in the file and
+// the webhook. Entries are capped instead; the marker says how much was cut.
+const MAX_STRING_LENGTH = 2000
+const MAX_STACK_LENGTH = 8000
+const MAX_ARRAY_ITEMS = 50
+
+function capString(text: string, max = MAX_STRING_LENGTH): string {
+  return text.length > max ? `${text.slice(0, max)}…[+${text.length - max} chars]` : text
+}
 
 function serializeError(error: Error, seen: WeakSet<object>, depth: number, causeDepth: number): Record<string, unknown> {
-  const out: Record<string, unknown> = { name: error.name, message: error.message }
+  const out: Record<string, unknown> = { name: error.name, message: capString(error.message) }
   if (error.stack)
-    out.stack = error.stack
+    out.stack = capString(error.stack, MAX_STACK_LENGTH)
   // Own enumerable fields (`code`, `status`, ...) carry the useful detail on
   // native and DB errors.
   for (const [key, value] of Object.entries(error)) {
@@ -70,6 +80,7 @@ function sanitizeValue(value: unknown, seen: WeakSet<object>, depth: number): un
     return value
   switch (typeof value) {
     case 'string':
+      return capString(value)
     case 'number':
     case 'boolean':
       return value
@@ -91,8 +102,12 @@ function sanitizeValue(value: unknown, seen: WeakSet<object>, depth: number): un
       return serializeError(obj, seen, depth, 0)
     if (obj instanceof Date)
       return Number.isNaN(obj.getTime()) ? 'Invalid Date' : obj.toISOString()
-    if (Array.isArray(obj))
-      return obj.map(item => sanitizeValue(item, seen, depth + 1))
+    if (Array.isArray(obj)) {
+      const items = obj.slice(0, MAX_ARRAY_ITEMS).map(item => sanitizeValue(item, seen, depth + 1))
+      if (obj.length > MAX_ARRAY_ITEMS)
+        items.push(`[+${obj.length - MAX_ARRAY_ITEMS} more]`)
+      return items
+    }
     const out: Record<string, unknown> = {}
     for (const [key, item] of Object.entries(obj))
       out[key] = sanitizeValue(item, seen, depth + 1)
@@ -210,6 +225,7 @@ export function createLogger(config: LoggerConfig): Logger {
 
   const sessionId = generateSessionId()
   const platform = getPlatform()
+  const redact = config.redact === false ? null : config.redact ?? defaultRedact
 
   // Mutable context
   const ctx: LogContext = {
@@ -275,13 +291,24 @@ export function createLogger(config: LoggerConfig): Logger {
     log('warn', '[Logger] file transport unavailable; file log disabled', { error: fileUnavailable })
 
   function buildEntry(level: LogLevel, message: string, data?: Record<string, unknown>): LogEntry {
-    return {
+    const entry: LogEntry = {
       id: generateId(),
       timestamp: new Date().toISOString(),
       level,
-      message,
+      message: capString(String(message)),
       data: sanitizeLogData(data),
       context: { ...ctx, ...extraContext } as unknown as LogContext,
+    }
+    if (!redact)
+      return entry
+    try {
+      return redact(entry)
+    }
+    catch (error) {
+      // A throwing app hook must not leak the line it failed on, nor throw
+      // into the caller: fall back to the default rules and say so.
+      const safe = defaultRedact(entry)
+      return { ...safe, data: { ...safe.data, redactFailed: String(error) } }
     }
   }
 
@@ -328,7 +355,7 @@ export function createLogger(config: LoggerConfig): Logger {
       return
     const entry = buildEntry(level, message, data)
     if (dev)
-      toConsole(level, message, data)
+      toConsole(level, entry.message, entry.data)
     route(entry)
   }
 
@@ -340,7 +367,7 @@ export function createLogger(config: LoggerConfig): Logger {
     try {
       const entry = buildEntry(level, message, data)
       if (dev)
-        toConsole(level, message, data)
+        toConsole(level, entry.message, entry.data)
       route(entry, source)
     }
     finally {

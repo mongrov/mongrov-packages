@@ -536,3 +536,64 @@ describe('minDays rules count LOCAL days, so they bind the user zone (QA #108)',
     expect(await withZone(undefined)).toHaveLength(0)
   })
 })
+
+describe('throttle store failures', () => {
+  async function rig(throttle: { isThrottled?: () => Promise<boolean>, recordFire?: () => Promise<void> }) {
+    const storage = createFakeStorage()
+    const clock = createFakeClock('2025-01-01T00:00:00Z')
+    const analytics = createFakeEngine()
+    const registry = createRulesRegistry({ storage })
+    const real = createThrottleStore({ storage, clock })
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    const emitter = createEmitter()
+    const evaluator = createEvaluator({
+      registry,
+      cache: createCompilerCache(),
+      throttle: {
+        ...real,
+        isThrottled: throttle.isThrottled ?? real.isThrottled,
+        recordFire: throttle.recordFire ?? real.recordFire,
+      },
+      emitter,
+      analytics,
+      brand: 'ziva',
+      familyId: 'fam1',
+      familyMembersProvider: async () => ['u1'],
+      clock,
+      logger,
+    })
+    await registry.register([hrvRule, stressRule])
+    analytics.__setResult([{ observed_value: 99, threshold_value: 40 }])
+    return { evaluator, logger, emitter }
+  }
+
+  it('a throttle read that throws costs that rule only, and the pass names it', async () => {
+    const r = await rig({
+      isThrottled: vi.fn(async (ruleId: string) => {
+        if (ruleId === hrvRule.id)
+          throw new Error('kv unavailable')
+        return false
+      }) as unknown as () => Promise<boolean>,
+    })
+    const out = await r.evaluator.evaluateOnBatch({ affectedUserIds: ['u1'], affectedTables: ['spo2', 'hrv'] })
+
+    expect(out.map(v => v.ruleId)).toEqual([stressRule.id])
+    expect(r.logger.error).toHaveBeenCalledWith('rules.evaluator: execute failed', expect.objectContaining({
+      ruleIds: [hrvRule.id],
+      firstError: expect.stringContaining('throttle read failed'),
+    }))
+    expect(r.logger.info).toHaveBeenCalledWith('rules.evaluator: pass complete', expect.anything())
+  })
+
+  it('a throttle write that throws still emits the violation, and logs it', async () => {
+    const r = await rig({ recordFire: vi.fn(async () => { throw new Error('kv full') }) })
+    const listener = vi.fn()
+    r.emitter.on('violation', listener)
+
+    const out = await r.evaluator.evaluateOnBatch({ affectedUserIds: ['u1'], affectedTables: ['spo2'] })
+
+    expect(out).toHaveLength(1)
+    expect(listener).toHaveBeenCalledOnce()
+    expect(r.logger.error).toHaveBeenCalledWith('rules.throttle.record_failed', expect.objectContaining({ ruleId: hrvRule.id }))
+  })
+})

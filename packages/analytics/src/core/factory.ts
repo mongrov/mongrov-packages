@@ -29,7 +29,7 @@ import { HybridDuckDB } from './engine'
 import { AnalyticsError, describeError, NotImplementedError } from './errors'
 import { bootstrapExtensions } from './extensions'
 import { dismissInsight as dismissInsightImpl } from './insight'
-import { resolveLogger } from './logger'
+import { resolveLogger, tailId } from './logger'
 import { analyticsMachine } from './machine'
 import { ensureMigrations } from './migrations'
 import {
@@ -227,9 +227,12 @@ export function createAnalytics(
         remoteCatalog,
         quality: config.quality,
       }, {
-        // Non-fatal by design (see createViews) — so it must be LOUD here.
+        // `warn`: the plain fallback macro is created next, so readers still
+        // answer (at the view's cost). It fires on every attach on a DuckDB
+        // build that rejects the macro, and the fallback failing too is
+        // reported at error as `bounded_reads_off` below.
         onMacroFailed: (name, cause) =>
-          log.error('analytics.attach.macro_failed', { macro: name, error: describeError(cause) }),
+          log.warn('analytics.attach.macro_failed', { macro: name, error: describeError(cause) }),
         onMacroUnavailable: (name, cause) => {
           unavailableCauses[name] = describeError(cause)
         },
@@ -394,13 +397,13 @@ export function createAnalytics(
       // Membership is an authorization input — a provider failure must not
       // be cached, and must not resolve to a permissive answer.
       log.error('analytics.getFamilyMembers: provider failed', {
-        familyId: currentCtx.tenantId,
+        familyId: tailId(currentCtx.tenantId),
         err: describeError(cause),
       })
       familyMembersCache = undefined
       throw new AnalyticsError(
         'family_members_failed',
-        `familyMembersProvider failed for ${currentCtx.tenantId}`,
+        `familyMembersProvider failed for …${tailId(currentCtx.tenantId)}`,
         cause,
       )
     }
@@ -505,7 +508,7 @@ export function createAnalytics(
       familyMembersCache = undefined
       log.info('analytics.attached', {
         brand: ctx.brand,
-        tenantId: ctx.tenantId,
+        tenantId: tailId(ctx.tenantId),
         tenantScope: ctx.tenantScope,
       })
       // Persistence + retention sweep are best-effort so a KV / DELETE
@@ -535,7 +538,7 @@ export function createAnalytics(
       if (ctxAtDetach) {
         log.info('analytics.detached', {
           brand: ctxAtDetach.brand,
-          tenantId: ctxAtDetach.tenantId,
+          tenantId: tailId(ctxAtDetach.tenantId),
         })
         try {
           await clearLastAttach(config.storage, ctxAtDetach.brand)

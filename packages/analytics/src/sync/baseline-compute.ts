@@ -27,6 +27,7 @@ import type { AnalyticsEngine, EventBus } from '../core/types'
 import type { SchedulerLogger } from './scheduler'
 import { boundedRelation, daysInterval, executeBounded, SPARE_DAYS } from '../core/bounded-read'
 import { AnalyticsError, describeError } from '../core/errors'
+import { tailId } from '../core/logger'
 import {
   BASELINE_MIN_DAYS,
   BASELINE_WINDOW_DAYS,
@@ -658,7 +659,7 @@ export function createBaselineComputer(
         })
       }
 
-      const summary = { userId: ctx.userId, computed, skipped, failed, durationMs: Date.now() - startedAt }
+      const summary = { userId: tailId(ctx.userId), computed, skipped, failed, durationMs: Date.now() - startedAt }
       if (failed > 0) {
         logger?.warn('baseline: compute cycle complete', {
           ...summary,

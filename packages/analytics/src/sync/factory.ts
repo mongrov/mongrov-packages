@@ -183,8 +183,9 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     onDrop: ({ table, droppedRowCount }) => {
       droppedPushes += 1
       droppedRows += droppedRowCount
+      // `error`: drop-newest overflow discards the readings for good.
       if (droppedPushes % 50 === 1) {
-        config.logger?.warn('sync.buffer.dropped', { table, droppedRowCount, droppedPushes, droppedRows })
+        logError(config.logger, 'sync.buffer.dropped', { table, droppedRowCount, droppedPushes, droppedRows })
       }
     },
   })
@@ -245,7 +246,8 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         config.logger?.warn('sync.flush.failed', meta)
     }
     if (event.type === 'flushed' && (event.payload.rowsRejected ?? 0) > 0) {
-      config.logger?.warn('sync.flush.rows_rejected', {
+      // `error`: poison-row isolation has discarded these rows for good.
+      logError(config.logger, 'sync.flush.rows_rejected', {
         table: event.payload.table,
         reason: event.payload.reason,
         rowsRejected: event.payload.rowsRejected,

@@ -175,13 +175,52 @@ describe('createReplicationState', () => {
     createReplicationState(config)
 
     const mockState = __getReplicationState('error-test')
-    const testError = new Error('Test sync error')
+    const testError = Object.assign(new Error('Test sync error {"pushRows":[{"bpm":61}]}'), { code: 'RC_STREAM' })
     mockState?._emitError(testError)
 
-    expect(logger.error).toHaveBeenCalledWith(
-      'Replication error',
-      expect.objectContaining({ error: 'Test sync error' }),
-    )
+    // Name and code only: an RxError message can embed the pushed rows.
+    expect(logger.error).toHaveBeenCalledWith('Replication error', {
+      replicationIdentifier: 'error-test',
+      name: 'Error',
+      code: 'RC_STREAM',
+    })
+  })
+
+  it('does not log the error$ copy of a handler failure again', () => {
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    createReplicationState({ replicationIdentifier: 'dup-test', collection: mockCollection, logger })
+
+    const mockState = __getReplicationState('dup-test')
+    mockState?._emitError(Object.assign(new Error('push failed'), { code: 'RC_PUSH' }))
+    mockState?._emitError(Object.assign(new Error('pull failed'), { code: 'RC_PULL' }))
+
+    expect(logger.error).not.toHaveBeenCalled()
+  })
+
+  it('retries a failed handler after 5 s by default, as RxDB does', () => {
+    createReplicationState({ replicationIdentifier: 'retry-test', collection: mockCollection })
+    expect(__getReplicationState('retry-test')?._options?.retryTime).toBe(5000)
+  })
+
+  it('warns on the first failure of a run, then debug, then one recovery line', async () => {
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    const pushHandler = jest.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue(undefined)
+    createReplicationState({ replicationIdentifier: 'run-test', collection: mockCollection, push: { handler: pushHandler }, logger })
+    const mockState = __getReplicationState('run-test')
+
+    for (let i = 0; i < 3; i++)
+      await expect(mockState?._triggerPush([{ id: '1' }])).rejects.toThrow('offline')
+    await mockState?._triggerPush([{ id: '1' }])
+
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+    expect(logger.warn).toHaveBeenCalledWith('Push failed', expect.objectContaining({ error: 'Error: offline' }))
+    expect(logger.debug).toHaveBeenCalledWith('Push failed', expect.objectContaining({ failedAttempts: 3 }))
+    expect(logger.info).toHaveBeenCalledWith('Replication recovered', { replicationIdentifier: 'run-test', direction: 'push', failedAttempts: 3 })
+    expect(logger.error).not.toHaveBeenCalled()
   })
 })
 

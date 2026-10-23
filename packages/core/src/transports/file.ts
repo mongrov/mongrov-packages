@@ -38,6 +38,42 @@ function getFileSystem(): FileSystem {
   return FileSystemModule
 }
 
+// The object API (expo-file-system v19+). Its FileHandle writes at an offset,
+// which is the only true append expo-file-system offers.
+interface AppendFile {
+  exists: boolean
+  create: () => void
+  open: () => { offset: number | null, size: number | null, writeBytes: (bytes: Uint8Array) => void, close: () => void }
+}
+type AppendFileCtor = new (uri: string) => AppendFile
+type Utf8Encoder = new () => { encode: (text: string) => Uint8Array }
+
+let AppendFileClass: AppendFileCtor | null | undefined
+
+// Hermes provides it; core's tsconfig has no DOM lib to declare it.
+function currentEncoder(): Utf8Encoder | undefined {
+  return (globalThis as { TextEncoder?: Utf8Encoder }).TextEncoder
+}
+
+/** `null` on expo-file-system before v19, or without a TextEncoder. */
+function getAppendFile(): AppendFileCtor | null {
+  if (AppendFileClass === undefined) {
+    try {
+      const mod = require('expo-file-system') as { File?: AppendFileCtor }
+      AppendFileClass = typeof mod.File === 'function' && currentEncoder() ? mod.File : null
+    }
+    catch {
+      AppendFileClass = null
+    }
+  }
+  return AppendFileClass
+}
+
+/** Test seam: forget the probed API so the next write probes again. */
+export function resetFileApiForTests(): void {
+  AppendFileClass = undefined
+}
+
 // UTC, the same clock as every entry's `timestamp`, so a file's name and the
 // lines inside it agree on which day they belong to.
 function formatDate(date: Date): string {
@@ -62,11 +98,9 @@ export class FileTransport implements LogTransport {
   private initialized = false
 
   // Entries waiting for the next write, and the callers waiting on them.
-  // expo-file-system has no append, so every write reads and rewrites the
-  // whole day file. Writing once per `send` made that cost per log line — a
-  // full ring sync logs hundreds of lines in seconds, each rewriting a file of
-  // up to `maxSizeMB`. Lines that arrive while a write is in flight are
-  // coalesced into the next one instead.
+  // Lines that arrive while a write is in flight are coalesced into the next
+  // one. That matters most on the fallback path (expo-file-system before v19,
+  // no append), where every write reads and rewrites the whole day file.
   private pending: LogEntry[] = []
   private pendingWaiters: Array<() => void> = []
   private writing: Promise<void> | null = null
@@ -130,17 +164,7 @@ export class FileTransport implements LogTransport {
       const lines = `${entries.map(e => JSON.stringify(e)).join('\n')}\n`
       const filePath = `${this.directory}${todayFilename()}`
 
-      const fs = getFileSystem()
-      const info = await fs.getInfoAsync(filePath)
-
-      if (info.exists) {
-        // Append by reading existing content + new lines
-        const existing = await fs.readAsStringAsync(filePath)
-        await fs.writeAsStringAsync(filePath, existing + lines)
-      }
-      else {
-        await fs.writeAsStringAsync(filePath, lines)
-      }
+      await this.append(filePath, lines)
       const failed = this.writeFailures.recover()
       if (failed > 0)
         this.log.info('[FileTransport] writes recovered', { failedWrites: failed })
@@ -154,6 +178,38 @@ export class FileTransport implements LogTransport {
           lost: entries.length,
         })
       }
+    }
+  }
+
+  /**
+   * Appends at the end of the file. Reading the whole day file (up to
+   * `maxSizeMB`) and rewriting it for every batch made file I/O on the JS
+   * thread grow with the file under debug-level volume.
+   */
+  private async append(filePath: string, lines: string): Promise<void> {
+    const AppendFileCtor = getAppendFile()
+    if (AppendFileCtor) {
+      const file = new AppendFileCtor(filePath)
+      if (!file.exists)
+        file.create()
+      const handle = file.open()
+      try {
+        handle.offset = handle.size ?? 0
+        handle.writeBytes(new (currentEncoder() as Utf8Encoder)().encode(lines))
+      }
+      finally {
+        handle.close()
+      }
+      return
+    }
+    const fs = getFileSystem()
+    const info = await fs.getInfoAsync(filePath)
+    if (info.exists) {
+      const existing = await fs.readAsStringAsync(filePath)
+      await fs.writeAsStringAsync(filePath, existing + lines)
+    }
+    else {
+      await fs.writeAsStringAsync(filePath, lines)
     }
   }
 

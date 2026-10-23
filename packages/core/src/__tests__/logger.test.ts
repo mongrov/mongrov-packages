@@ -458,3 +458,85 @@ describe('Logger file export', () => {
     await expect(logger.exportFileLogs()).rejects.toThrow('File transport not configured')
   })
 })
+
+describe('Logger redaction and entry caps', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation()
+    jest.spyOn(console, 'warn').mockImplementation()
+    jest.spyOn(console, 'error').mockImplementation()
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  async function logged(config: Partial<Parameters<typeof createLogger>[0]>, write: (l: ReturnType<typeof createLogger>) => void) {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true, ...config })
+    write(logger)
+    await new Promise(r => setTimeout(r, 10))
+    const logs = logger.getLogs()
+    await logger.destroy()
+    return logs
+  }
+
+  it('masks secret-looking keys and emails by default, in data and message', async () => {
+    const [entry] = await logged({}, l => l.warn('no user foo@bar.com', {
+      authToken: 'abc',
+      nested: { Authorization: 'Bearer x', refresh_token: 'r', tokenCount: 3 },
+      error: 'Error: login bob@example.org rejected',
+      email: 'a@b.co',
+      emailVerified: true,
+    }))
+
+    expect(entry.message).toBe('no user [email]')
+    expect(entry.data).toEqual({
+      authToken: '[redacted]',
+      nested: { Authorization: '[redacted]', refresh_token: '[redacted]', tokenCount: 3 },
+      error: 'Error: login [email] rejected',
+      email: '[redacted]',
+      emailVerified: true,
+    })
+  })
+
+  it('redacts a captured exception message before it is stored', async () => {
+    const [entry] = await logged({}, l => l.captureException(new Error('bad login x@y.io')))
+    expect(entry.message).toBe('bad login [email]')
+  })
+
+  it('applies a custom redact hook, and `false` logs verbatim', async () => {
+    const [custom] = await logged(
+      { redact: e => ({ ...e, data: { ...e.data, userId: 'tail' } }) },
+      l => l.info('x', { userId: 'u-123456', token: 't' }),
+    )
+    expect(custom.data).toEqual({ userId: 'tail', token: 't' })
+
+    const [raw] = await logged({ redact: false }, l => l.info('a@b.co', { token: 't' }))
+    expect(raw.message).toBe('a@b.co')
+    expect(raw.data).toEqual({ token: 't' })
+  })
+
+  it('falls back to the default rules when the hook throws', async () => {
+    const [entry] = await logged(
+      { redact: () => { throw new Error('boom') } },
+      l => l.info('x', { password: 'p' }),
+    )
+    expect(entry.data).toEqual({ password: '[redacted]', redactFailed: 'Error: boom' })
+  })
+
+  it('caps long strings, long arrays and the message', async () => {
+    const readings = Array.from({ length: 120 }, (_, i) => i)
+    const [entry] = await logged({}, l => l.info('m'.repeat(2500), { readings, body: 'b'.repeat(3000) }))
+
+    expect(entry.message).toHaveLength(2000 + '…[+500 chars]'.length)
+    const data = entry.data as { readings: unknown[], body: string }
+    expect(data.readings).toHaveLength(51)
+    expect(data.readings[50]).toBe('[+70 more]')
+    expect(data.body.endsWith('…[+1000 chars]')).toBe(true)
+  })
+
+  it('keeps more of a stack than of an ordinary string', async () => {
+    const error = new Error('e')
+    error.stack = 's'.repeat(5000)
+    const [entry] = await logged({}, l => l.error('failed', { error }))
+    expect((entry.data as { error: { stack: string } }).error.stack).toHaveLength(5000)
+  })
+})

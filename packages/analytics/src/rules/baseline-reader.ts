@@ -22,6 +22,7 @@ import type { BaselineWindowDays, MetricId } from '../core/metric_metadata'
 import type { AnalyticsEngine } from '../core/types'
 import type { RulesLogger } from './types'
 import { describeError } from '../core/errors'
+import { tailId } from '../core/logger'
 import {
   BASELINE_MIN_DAYS,
 
@@ -166,7 +167,7 @@ export function createBaselineReader(
         // not, but it must not take down the evaluation pass — the rule
         // simply doesn't fire this cycle.
         logger?.warn('rules.baseline: read failed', {
-          userId,
+          userId: tailId(userId),
           metric,
           windowDays,
           err: describeError(err),

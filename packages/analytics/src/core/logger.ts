@@ -37,9 +37,11 @@ export function resolveLogger(provided: AnalyticsLogger | undefined): AnalyticsL
 }
 
 /**
- * The last five characters of a device id, for log lines. A ring's id is a
- * BLE address; the tail is enough to tell two rings apart in an export
- * without writing the whole identifier into it.
+ * The last five characters of an id, for log lines. A ring's id is a BLE
+ * address, and user and tenant ids identify a person or a family; the tail is
+ * enough to tell two apart in an export without writing the whole identifier
+ * into it. Every user, tenant/family and device id in analytics log meta goes
+ * through this.
  */
 export function tailId(id: string | undefined): string | undefined {
   return typeof id === 'string' ? id.slice(-5) : id

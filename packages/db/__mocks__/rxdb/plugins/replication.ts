@@ -26,6 +26,7 @@ interface MockReplicationState {
   _triggerPush: (docs: unknown[]) => Promise<void>
   _triggerPull: (checkpoint: unknown, batchSize: number) => Promise<{ documents: unknown[], checkpoint: unknown }>
   _emitError: (error: Error) => void
+  _options: { retryTime?: number }
 }
 
 // Store created replication states for testing
@@ -99,6 +100,7 @@ export function replicateRxCollection(options: {
     _emitError(error: Error) {
       error$.next(error)
     },
+    _options: { retryTime: options.retryTime },
   }
 
   replicationStates.set(options.replicationIdentifier, state)

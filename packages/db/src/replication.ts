@@ -72,7 +72,7 @@ export function createReplicationState<T>(
     push,
     pull,
     autoStart = true,
-    retryTime = 0,
+    retryTime = 5000,
     live = false,
     logger = noopLogger,
   } = config
@@ -94,18 +94,43 @@ export function createReplicationState<T>(
     live,
   }
 
+  // A failing handler is retried every `retryTime` until it lands, so an
+  // offline device fails the same way again and again. `warn` (the retry
+  // recovers it) on the first failure of a run, `debug` for the rest, and
+  // one `info` with the count once that handler succeeds again. One run per
+  // direction, so a pull landing does not hide a push still failing.
+  const failureRun = (direction: 'push' | 'pull') => {
+    let failedAttempts = 0
+    return {
+      failed(message: string, data: Record<string, unknown>) {
+        failedAttempts += 1
+        if (failedAttempts === 1)
+          logger.warn(message, data)
+        else
+          logger.debug(message, { ...data, failedAttempts })
+      },
+      succeeded() {
+        if (failedAttempts > 0)
+          logger.info('Replication recovered', { replicationIdentifier, direction, failedAttempts })
+        failedAttempts = 0
+      },
+    }
+  }
+
   // Add push handler if provided
   if (push) {
+    const run = failureRun('push')
     replicationOptions.push = {
       batchSize: push.batchSize ?? 100,
       handler: async (docs: T[]) => {
         try {
           await push.handler(docs)
           logger.debug('Push complete', { replicationIdentifier, count: (docs as unknown[]).length })
+          run.succeeded()
         }
         catch (error) {
-          // Rethrown so RxDB retries and emits error$ (logged below).
-          logger.error('Push failed', {
+          // Rethrown so RxDB retries; its error$ copy is not logged again.
+          run.failed('Push failed', {
             replicationIdentifier,
             count: (docs as unknown[]).length,
             error: describeError(error),
@@ -118,6 +143,7 @@ export function createReplicationState<T>(
 
   // Add pull handler if provided
   if (pull) {
+    const run = failureRun('pull')
     replicationOptions.pull = {
       batchSize: pull.batchSize ?? 100,
       handler: async (
@@ -127,11 +153,12 @@ export function createReplicationState<T>(
         try {
           const result = await pull.handler(lastCheckpoint, batchSize)
           logger.debug('Pull complete', { replicationIdentifier, count: result.documents.length })
+          run.succeeded()
           return result
         }
         catch (error) {
-          // Rethrown so RxDB retries and emits error$ (logged below).
-          logger.error('Pull failed', { replicationIdentifier, batchSize, error: describeError(error) })
+          // Rethrown so RxDB retries; its error$ copy is not logged again.
+          run.failed('Pull failed', { replicationIdentifier, batchSize, error: describeError(error) })
           throw error
         }
       },
@@ -140,9 +167,15 @@ export function createReplicationState<T>(
 
   const replicationState = replicateRxCollection(replicationOptions)
 
-  // Log replication events
-  replicationState.error$.subscribe((error: Error) => {
-    logger.error('Replication error', { replicationIdentifier, error: error?.message ?? String(error) })
+  // RC_PULL / RC_PUSH are the handler failures logged above. Anything else
+  // (a stream error, a bad handler result) is logged here. Name and code
+  // only: with the dev-mode plugin an RxError message embeds its parameters,
+  // which for a push include the rows themselves.
+  replicationState.error$.subscribe((error: Error & { code?: string }) => {
+    const code = error?.code
+    if (code === 'RC_PULL' || code === 'RC_PUSH')
+      return
+    logger.error('Replication error', { replicationIdentifier, name: error?.name, code })
   })
 
   // One line per sync cycle (active → idle), not per batch.

@@ -1,8 +1,12 @@
 import type { LogContext, LogEntry } from '../types'
+import { TextDecoder, TextEncoder } from 'node:util'
+
 // Import the auto-mapped mock
 import * as ExpoFileSystem from 'expo-file-system'
+import { FileTransport, resetFileApiForTests } from '../transports/file'
 
-import { FileTransport } from '../transports/file'
+// jsdom has no TextEncoder; Hermes (the app's runtime) does.
+Object.assign(globalThis, { TextEncoder, TextDecoder })
 
 const mockFs = ExpoFileSystem as unknown as {
   documentDirectory: string
@@ -13,6 +17,7 @@ const mockFs = ExpoFileSystem as unknown as {
   deleteAsync: jest.Mock
   makeDirectoryAsync: jest.Mock
   __mockFiles: Record<string, string>
+  __mockState: { noFileClass: boolean, appends: number }
 }
 
 function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
@@ -40,10 +45,15 @@ function clearMockFiles() {
   Object.keys(files).forEach(k => delete files[k])
 }
 
+// Most of this suite runs on the read-and-rewrite fallback (expo-file-system
+// before v19, no `File`); the append path has its own block at the end.
 describe('FileTransport', () => {
   beforeEach(() => {
     clearMockFiles()
     jest.clearAllMocks()
+    mockFs.__mockState.noFileClass = true
+    mockFs.__mockState.appends = 0
+    resetFileApiForTests()
   })
 
   it('should have the name "file"', () => {
@@ -308,6 +318,51 @@ describe('FileTransport', () => {
 
       expect(all.indexOf('past')).toBeLessThan(all.indexOf('pending'))
       expect(all.indexOf('pending')).toBeLessThan(all.indexOf('future'))
+    })
+  })
+
+  describe('append (expo-file-system v19+)', () => {
+    const todayPath = () => {
+      const t = new Date()
+      const y = t.getUTCFullYear()
+      const m = String(t.getUTCMonth() + 1).padStart(2, '0')
+      const d = String(t.getUTCDate()).padStart(2, '0')
+      return `/mock/documents/logs/logs-${y}-${m}-${d}.txt`
+    }
+
+    beforeEach(() => {
+      mockFs.__mockState.noFileClass = false
+      resetFileApiForTests()
+    })
+
+    it('appends at the end of the day file without reading or rewriting it', async () => {
+      mockFs.__mockFiles[todayPath()] = 'earlier\n'
+      const transport = new FileTransport()
+
+      await transport.send([makeEntry({ message: 'first' })])
+      await transport.send([makeEntry({ message: 'second' })])
+
+      const lines = mockFs.__mockFiles[todayPath()].trim().split('\n')
+      expect(lines[0]).toBe('earlier')
+      expect(JSON.parse(lines[1]).message).toBe('first')
+      expect(JSON.parse(lines[2]).message).toBe('second')
+      expect(mockFs.__mockState.appends).toBe(2)
+      expect(mockFs.readAsStringAsync).not.toHaveBeenCalledWith(todayPath())
+      expect(mockFs.writeAsStringAsync).not.toHaveBeenCalledWith(todayPath(), expect.anything())
+    })
+
+    it('creates the day file on the first write', async () => {
+      const transport = new FileTransport()
+      await transport.send([makeEntry({ message: 'hello' })])
+
+      expect(JSON.parse(mockFs.__mockFiles[todayPath()].trim()).message).toBe('hello')
+    })
+
+    it('keeps multi-byte text intact', async () => {
+      const transport = new FileTransport()
+      await transport.send([makeEntry({ message: 'SpO₂ 97 % — ok' })])
+
+      expect(JSON.parse(mockFs.__mockFiles[todayPath()].trim()).message).toBe('SpO₂ 97 % — ok')
     })
   })
 })

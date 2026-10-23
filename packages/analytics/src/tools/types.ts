@@ -5,7 +5,7 @@
  * audit writer, wrapper, and the top-level factory.
  */
 
-import type { AnalyticsEngine, FamilyMembersProvider } from '../core/types'
+import type { AnalyticsEngine, AnalyticsLogger, FamilyMembersProvider } from '../core/types'
 
 /** Runtime context threaded through every tool impl and authorize hook. */
 export interface ToolContext {
@@ -55,12 +55,8 @@ export const DEFAULT_RATE_LIMIT: RateLimitConfig = {
   perUserPerMinute: 60,
 }
 
-export interface ToolsLogger {
-  debug: (message: string, meta?: Record<string, unknown>) => void
-  info: (message: string, meta?: Record<string, unknown>) => void
-  warn: (message: string, meta?: Record<string, unknown>) => void
-  error: (message: string, meta?: Record<string, unknown>) => void
-}
+/** The package's one logger shape; the name is kept for existing imports. */
+export type ToolsLogger = AnalyticsLogger
 
 /**
  * A tool impl. Takes a Zod-parsed input and the runtime context
