@@ -5,6 +5,26 @@ All notable changes to `@mongrov/core` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-22
+
+### Changed
+- **File log is crash-safe.** On expo-file-system 19+ (`File` / `Paths` present) every batch is a
+  true append: open, seek to the end, write, close. The file is never read to be written, so a kill
+  or crash mid-write can cut at most the last line instead of losing the day. Older
+  expo-file-system falls back to the previous read + rewrite and reports that once at info.
+- **Hourly files with size rotation.** `logs-YYYY-MM-DDTHH-NNN.txt`, a new file every UTC hour and a
+  new `NNN` past `FileConfig.maxFileSizeKB` (new, default 1024). A relaunch continues the hour's
+  newest file. Pre-0.7 `logs-YYYY-MM-DD.txt` day files are still read (they sort before the same
+  day's hourly files) and cleaned up.
+- **Cleanup deletes whole files only** (retention, then oldest first under `maxSizeMB`) and never
+  touches the file being written. The "cut today's file to its newest half" path is gone.
+- **`LoggingProvider` flushes on background/inactive** (`AppState`), so batched lines reach disk
+  before iOS suspends or kills the app.
+- **Redaction on by default** (mongrov-packages#63): `LoggerConfig.redact` masks secret-looking keys
+  and email-shaped text before any transport sees an entry; `false` logs verbatim. A throwing hook
+  falls back to the default rules.
+- **Entry caps** (#63): strings 2000 chars (stacks 8000), arrays 50 items, message 2000.
+
 ## [0.4.1] - 2026-04-23
 
 ### Fixed

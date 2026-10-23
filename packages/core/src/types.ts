@@ -36,7 +36,10 @@ export interface RingBufferConfig {
 }
 
 export interface FileConfig {
+  /** Total size of the log directory; the oldest whole files go first. Default 5. */
   maxSizeMB?: number
+  /** A file past this starts the next one in the same hour. Default 1024. */
+  maxFileSizeKB?: number
   retentionDays?: number
   directory?: string
 }

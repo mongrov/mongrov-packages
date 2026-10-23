@@ -96,11 +96,18 @@ In-memory circular buffer. Default size: 1000 entries. No persistence.
 
 ### File Transport
 
-Rolling daily log files. JSONL format.
+JSONL files, one per UTC hour (`logs-YYYY-MM-DDTHH-NNN.txt`), with a new `NNN`
+when a file passes `maxFileSizeKB`. On expo-file-system 19+ every batch is a true
+append (the file is never read to be written), so a kill mid-write can cut at most
+the last line. Older expo-file-system falls back to read + rewrite. Cleanup deletes
+whole files only: past `retentionDays`, then oldest first until under `maxSizeMB`;
+the file being written is never touched. `LoggingProvider` flushes when the app
+goes to the background. `exportFileLogs()` returns every retained line, oldest first,
+including pre-0.7 `logs-YYYY-MM-DD.txt` day files.
 
 ```typescript
-{ file: true }                          // defaults
-{ file: { maxSizeMB: 10, retentionDays: 14 } }
+{ file: true }                          // defaults: 5 MB, 7 days, 1024 KB per file
+{ file: { maxSizeMB: 10, retentionDays: 14, maxFileSizeKB: 512 } }
 ```
 
 ### Webhook Transport
