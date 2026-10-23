@@ -8,12 +8,35 @@ import { setNetworkStateLogger } from '../network-state'
 
 const LoggerContext = createContext<Logger | null>(null)
 
-interface LoggingProviderProps {
-  config: LoggerConfig
+type LoggingProviderProps = {
   children: React.ReactNode
+} & (
+  | { config: LoggerConfig, logger?: never }
+  /**
+   * A logger the app created itself (`createLogger`), so code outside React
+   * (db, auth, device machines, module-level loggers) and the tree share ONE
+   * instance: one ring buffer for `exportLogs`, one file writer, one
+   * sessionId. The app owns it: the provider never destroys it.
+   */
+  | { logger: Logger, config?: never }
+)
+
+export function LoggingProvider(props: LoggingProviderProps) {
+  if (props.logger)
+    return <SharedLoggingProvider logger={props.logger}>{props.children}</SharedLoggingProvider>
+  return <OwnedLoggingProvider config={props.config}>{props.children}</OwnedLoggingProvider>
 }
 
-export function LoggingProvider({ config, children }: LoggingProviderProps) {
+function SharedLoggingProvider({ logger, children }: { logger: Logger, children: React.ReactNode }) {
+  useLoggerLifecycle(logger)
+  return (
+    <LoggerContext.Provider value={logger}>
+      {children}
+    </LoggerContext.Provider>
+  )
+}
+
+function OwnedLoggingProvider({ config, children }: { config: LoggerConfig, children: React.ReactNode }) {
   // The config is read when a logger is created; later changes to it are not
   // applied to a live logger.
   const configRef = useRef(config)
@@ -34,7 +57,31 @@ export function LoggingProvider({ config, children }: LoggingProviderProps) {
       setLogger(createLogger(configRef.current))
       return
     }
+    return () => {
+      destroyedRef.current = true
+      logger.destroy().catch((error: unknown) => {
+        // The logger is going away; its last batch may not reach the webhook.
+        if (__DEV__)
+          console.warn('[Logger] destroy failed', String(error))
+      })
+    }
+  }, [logger])
 
+  useLoggerLifecycle(logger)
+
+  return (
+    <LoggerContext.Provider value={logger}>
+      {children}
+    </LoggerContext.Provider>
+  )
+}
+
+/**
+ * What the provider wires around a logger, whoever owns it: connectivity
+ * reports, screen tracking, and a flush when the app goes to the background.
+ */
+function useLoggerLifecycle(logger: Logger): void {
+  useEffect(() => {
     // Connectivity changes and polling failures land in this logger.
     setNetworkStateLogger(logger)
 
@@ -57,13 +104,7 @@ export function LoggingProvider({ config, children }: LoggingProviderProps) {
 
     return () => {
       unsubscribe?.()
-      destroyedRef.current = true
       setNetworkStateLogger(null)
-      logger.destroy().catch((error: unknown) => {
-        // The logger is going away; its last batch may not reach the webhook.
-        if (__DEV__)
-          console.warn('[Logger] destroy failed', String(error))
-      })
     }
   }, [logger])
 
@@ -74,19 +115,14 @@ export function LoggingProvider({ config, children }: LoggingProviderProps) {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'background' && state !== 'inactive')
         return
+      // The logger is alive here, so the failure goes into it (and to the
+      // console in dev, as every line does).
       logger.flush().catch((error: unknown) => {
-        if (__DEV__)
-          console.warn('[Logger] flush on background failed', String(error))
+        logger.warn('[Logger] flush on background failed', { error: String(error) })
       })
     })
     return () => subscription.remove()
   }, [logger])
-
-  return (
-    <LoggerContext.Provider value={logger}>
-      {children}
-    </LoggerContext.Provider>
-  )
 }
 
 export function useLogger(): Logger {

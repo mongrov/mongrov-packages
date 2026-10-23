@@ -51,6 +51,41 @@ describe('LoggingProvider', () => {
     expect(result.current.getLogs).toBeDefined()
   })
 
+  it('shares an app-created logger with the tree and never destroys it', async () => {
+    const shared = loggerModule.createLogger({ appVersion: '1.0.0', ringBuffer: true })
+    const destroy = jest.spyOn(shared, 'destroy')
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <LoggingProvider logger={shared}>{children}</LoggingProvider>
+    )
+
+    const { result, unmount } = renderHook(() => useLogger(), { wrapper })
+    expect(result.current).toBe(shared)
+
+    // Module-level code logging to `shared` and a component logging through
+    // the hook land in the same ring buffer.
+    shared.info('from a module')
+    result.current.info('from a component')
+    expect(shared.getLogs().map(e => e.message)).toEqual(['from a component', 'from a module']) // newest first
+
+    unmount()
+    expect(destroy).not.toHaveBeenCalled()
+    await shared.destroy()
+  })
+
+  it('flushes a shared logger when the app goes to the background', () => {
+    const shared = loggerModule.createLogger({ appVersion: '1.0.0', ringBuffer: true })
+    const flush = jest.spyOn(shared, 'flush')
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <LoggingProvider logger={shared}>{children}</LoggingProvider>
+    )
+    renderHook(() => useLogger(), { wrapper })
+
+    act(() => {
+      for (const listener of mockAppStateListeners) listener('background')
+    })
+    expect(flush).toHaveBeenCalledTimes(1)
+  })
+
   it('should throw if useLogger is used outside LoggingProvider', () => {
     // Suppress console.error from React error boundary
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation()

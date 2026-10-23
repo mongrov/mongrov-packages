@@ -193,6 +193,37 @@ describe('Logger', () => {
     await logger.destroy()
   })
 
+  it('keeps an exception\'s own fields and cause, and context cannot overwrite its stack', () => {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true })
+    const error = Object.assign(new Error('write failed'), { code: 'E_IO', status: 507, cause: new Error('disk full') })
+
+    logger.captureException(error, { stack: 'not the stack', screen: 'sync' })
+
+    const [entry] = logger.getLogs()
+    expect(entry.message).toBe('write failed')
+    expect(entry.data).toEqual(expect.objectContaining({
+      name: 'Error',
+      code: 'E_IO',
+      status: 507,
+      screen: 'sync',
+      cause: expect.objectContaining({ message: 'disk full' }),
+    }))
+    expect(entry.data?.stack).not.toBe('not the stack')
+    expect(entry.data?.stack).toEqual(expect.stringContaining('write failed'))
+  })
+
+  it('a transport that throws synchronously does not throw into the caller', () => {
+    const logger = createLogger({
+      appVersion: '1.0.0',
+      ringBuffer: true,
+      transports: [{ name: 'sync-thrower', send: () => {
+        throw new Error('not a promise')
+      } }],
+    })
+    expect(() => logger.info('still logged')).not.toThrow()
+    expect(logger.getLogs().map(e => e.message)).toContain('still logged')
+  })
+
   it('should log captureException as error entry with stack in data', async () => {
     const sentEntries: LogEntry[] = []
     const customTransport: LogTransport = {
@@ -438,8 +469,16 @@ describe('Logger minLevel validation', () => {
 
     logger.debug('kept at the dev default')
 
-    expect(logger.getLogs()).toHaveLength(1)
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown minLevel'))
+    // Newest first.
+    expect(logger.getLogs().map(e => e.message)).toEqual(['kept at the dev default', '[Logger] unknown minLevel; using the default'])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown minLevel'), expect.anything())
+  })
+
+  it('reports an unknown level through the logger, so a release export shows it', () => {
+    const logger = createLogger({ appVersion: '1.0.0', ringBuffer: true, minLevel: 'verbose' as never })
+    const [entry] = logger.getLogs({ level: 'warn' })
+    expect(entry?.message).toBe('[Logger] unknown minLevel; using the default')
+    expect(entry?.data).toEqual({ configured: 'verbose', using: 'debug' })
   })
 })
 
