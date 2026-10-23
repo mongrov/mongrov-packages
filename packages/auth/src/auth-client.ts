@@ -27,6 +27,8 @@ const EXPECTED_SIGN_IN_CODES: ReadonlySet<AuthErrorCode> = new Set<AuthErrorCode
   'ACCOUNT_LOCKED',
   'DUPLICATE_EMAIL',
   'REGISTRATION_DISABLED',
+  // Offline or an unreachable server: the user retries, nothing is broken.
+  'NETWORK_ERROR',
 ])
 
 function classifyError(err: unknown): AuthErrorCode {

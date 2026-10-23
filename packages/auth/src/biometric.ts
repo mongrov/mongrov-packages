@@ -17,11 +17,15 @@ function getLocalAuth(): LocalAuthModule | null {
     localAuthModule = require('expo-local-authentication') as LocalAuthModule
   }
   catch {
-    // expected: optional peer; the gate reports unavailable (and authenticate warns)
+    // expected: optional peer; the gate reports unavailable (and authenticate logs it once)
     localAuthModule = null
   }
   return localAuthModule
 }
+
+// Per logger: once is enough to say the gate is open, and a hook that calls
+// `authenticate` on every resume would otherwise repeat it each time.
+let warnedFailOpen = new WeakSet<AuthLogger>()
 
 export function useBiometricGate(options: { logger?: AuthLogger } = {}): {
   isAvailable: boolean
@@ -64,8 +68,12 @@ export function useBiometricGate(options: { logger?: AuthLogger } = {}): {
   const authenticate = useCallback(async (reason?: string): Promise<boolean> => {
     const mod = getLocalAuth()
     if (!mod) {
-      // Module unavailable — treat as success (don't block user)
-      log.warn('[auth] expo-local-authentication unavailable; biometric gate passed without a prompt')
+      // Module unavailable — treat as success (don't block user). `error`:
+      // the gate the app asked for is not there, so every unlock is open.
+      if (!warnedFailOpen.has(log)) {
+        warnedFailOpen.add(log)
+        log.error('[auth] expo-local-authentication unavailable; biometric gate passes without a prompt')
+      }
       setIsAuthenticated(true)
       return true
     }
@@ -96,4 +104,5 @@ export function useBiometricGate(options: { logger?: AuthLogger } = {}): {
 /** @internal Reset module-level cache (for testing) */
 export function __resetBiometricModule(): void {
   localAuthModule = undefined
+  warnedFailOpen = new WeakSet()
 }

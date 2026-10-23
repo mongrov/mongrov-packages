@@ -3,6 +3,7 @@ import type { AuthClient, AuthLogger } from './types'
 import { useEffect } from 'react'
 import { useAuthClient } from './auth-provider'
 import { describeError, noopLogger } from './log'
+import { isAbandonedRefresh } from './refresh-manager'
 
 export interface AuthInterceptorOptions {
   /** Receives 401-retry failures. Default: no-op. */
@@ -53,12 +54,24 @@ export function createAuthInterceptor(
         return axiosInstance(originalRequest)
       }
       catch (refreshErr) {
-        // The refresh failure itself is logged by the auth client; this line
-        // ties it to the request that triggered it.
-        log.warn('[auth] 401 retry: refresh failed, signing out', {
+        // The session that sent this request ended mid-refresh. Signing out
+        // here would end the session that replaced it.
+        if (isAbandonedRefresh(refreshErr)) {
+          log.debug('[auth] 401 retry: refresh abandoned; request rejected', { status: 401 })
+          return Promise.reject(error)
+        }
+        // The auth client has already logged the failure and started its own
+        // sign-out (`onRefreshFailed`); this line only ties it to the request.
+        // Sign out here only while the client still reads as signed in: once
+        // it has left the session, a second sign-out is a duplicate line.
+        const stillSignedIn = authClient.getState().isAuthenticated
+        log.debug('[auth] 401 retry: refresh failed', {
           status: 401,
           error: describeError(refreshErr),
+          signingOut: stillSignedIn,
         })
+        if (!stillSignedIn)
+          return Promise.reject(error)
         try {
           await authClient.signOut()
         }
