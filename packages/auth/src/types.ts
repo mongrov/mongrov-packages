@@ -160,7 +160,7 @@ export interface TenantContext {
 
 export interface AuthClientConfig {
   adapter: AuthAdapter
-  /** Token persistence backend. Default: SecureTokenStore (expo-secure-store → MMKV fallback) */
+  /** Token persistence backend. Default: SecureTokenStore (expo-secure-store; no plaintext fallback) */
   tokenStore?: TokenStore
   /** Enable proactive token refresh before expiry. Default: true */
   proactiveRefresh?: boolean

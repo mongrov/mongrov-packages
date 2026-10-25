@@ -13,10 +13,23 @@ interface StorageBackend {
   set: (key: string, value: string) => void
 }
 
+/**
+ * The default MMKV instance, on either react-native-mmkv major: v4's
+ * `createMMKV` factory, or v3's `MMKV` class. v4 has no class, so reading
+ * only that one meant the choice never persisted on v4 (mongrov-packages#34).
+ * MMKV is an optional peer: without it the scheme still works, unpersisted.
+ */
 function getMMKVStorage(): StorageBackend | null {
   try {
-    const { MMKV } = require('react-native-mmkv') as { MMKV: new () => StorageBackend }
-    return new MMKV()
+    const mod = require('react-native-mmkv') as {
+      createMMKV?: () => StorageBackend
+      MMKV?: new () => StorageBackend
+    }
+    if (typeof mod.createMMKV === 'function')
+      return mod.createMMKV()
+    if (typeof mod.MMKV === 'function')
+      return new mod.MMKV()
+    return null
   }
   catch {
     return null

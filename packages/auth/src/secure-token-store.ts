@@ -11,7 +11,6 @@ type SecureStoreModule = {
 }
 
 let secureStore: SecureStoreModule | null = null
-let mmkvFallback: { getString: (k: string) => string | undefined, set: (k: string, v: string) => void, delete: (k: string) => void } | null = null
 
 function getSecureStore(): SecureStoreModule | null {
   if (secureStore)
@@ -21,101 +20,65 @@ function getSecureStore(): SecureStoreModule | null {
     return secureStore
   }
   catch {
-    // expected: optional peer; the MMKV fallback is taken and warned about by the caller
+    // expected when the peer is missing; setItem fails visibly, below
     return null
   }
 }
 
-function getMMKVFallback(): typeof mmkvFallback {
-  if (mmkvFallback)
-    return mmkvFallback
-  try {
-    const { MMKV } = require('react-native-mmkv') as { MMKV: new () => typeof mmkvFallback & object }
-    mmkvFallback = new MMKV()
-    return mmkvFallback
-  }
-  catch {
-    // expected: optional peer; setItem reports "no backend" once at error
-    return null
-  }
-}
+/*
+ * No plain-storage fallback. This store used to write tokens to plain MMKV
+ * when expo-secure-store was missing, with a warning. Tokens never go in
+ * plain MMKV, and on react-native-mmkv v4 that fallback could not even open
+ * (mongrov-packages#34). Without the keychain/keystore, saving a token
+ * REJECTS, so sign-in fails with the reason instead of leaving a credential
+ * in the clear or a session that is gone on the next launch.
+ */
+const NO_SECURE_STORE = '[auth] expo-secure-store is unavailable; tokens cannot be stored'
 
 // Per logger, not per process: a store without a logger (the default
-// `SecureTokenStore`, whose logger is a no-op) used to spend the one warning,
-// and the app's own logger never saw it.
-let warnedFallback = new WeakSet<AuthLogger>()
+// `SecureTokenStore`, whose logger is a no-op) would otherwise spend the one
+// report, and the app's own logger never see it.
+let reportedNoBackend = new WeakSet<AuthLogger>()
 
-/**
- * Once per logger: tokens are about to live in plain MMKV instead of the
- * keychain/keystore. Handled, but a security-relevant degradation.
- */
-function warnFallbackOnce(log: AuthLogger): void {
-  if (warnedFallback.has(log))
-    return
-  warnedFallback.add(log)
-  log.warn('[auth] expo-secure-store unavailable; tokens stored in MMKV (unencrypted)')
-}
-
-async function getItem(key: string, log: AuthLogger): Promise<string | null> {
+async function getItem(key: string): Promise<string | null> {
   const store = getSecureStore()
-  if (store) {
-    return store.getItemAsync(key)
-  }
-  const fallback = getMMKVFallback()
-  if (fallback) {
-    warnFallbackOnce(log)
-    return fallback.getString(key) ?? null
-  }
-  return null
+  // Nothing can have been stored without it: signed out, not an error.
+  return store ? store.getItemAsync(key) : null
 }
-
-let warnedNoBackend = new WeakSet<AuthLogger>()
 
 async function setItem(key: string, value: string, log: AuthLogger): Promise<void> {
   const store = getSecureStore()
-  if (store) {
+  if (store)
     return store.setItemAsync(key, value)
+  if (!reportedNoBackend.has(log)) {
+    reportedNoBackend.add(log)
+    log.error(NO_SECURE_STORE)
   }
-  const fallback = getMMKVFallback()
-  if (fallback) {
-    warnFallbackOnce(log)
-    fallback.set(key, value)
-    return
-  }
-  if (!warnedNoBackend.has(log)) {
-    warnedNoBackend.add(log)
-    // A token that is not written is a session lost on the next launch.
-    log.error('[auth] no token storage backend (expo-secure-store or react-native-mmkv); tokens will not persist')
-  }
+  throw new Error(NO_SECURE_STORE)
 }
 
 async function deleteItem(key: string): Promise<void> {
   const store = getSecureStore()
-  if (store) {
+  if (store)
     return store.deleteItemAsync(key)
-  }
-  const fallback = getMMKVFallback()
-  if (fallback) {
-    fallback.delete(key)
-  }
 }
 
 /**
- * Token store backed by expo-secure-store, falling back to MMKV, then to
- * nothing. `logger` receives those fallbacks; storage errors themselves
- * reject to the caller (the auth client), which logs them.
+ * Token store backed by expo-secure-store, and nothing else. `logger` hears
+ * once when it is missing; storage errors reject to the caller (the auth
+ * client), which logs them.
  */
 export function createSecureTokenStore(options: { logger?: AuthLogger } = {}): TokenStore {
   const log = options.logger ?? noopLogger
   return {
     getAccessToken(): Promise<string | null> {
-      return getItem(ACCESS_KEY, log)
+      return getItem(ACCESS_KEY)
     },
     setAccessToken(token: string): Promise<void> {
       return setItem(ACCESS_KEY, token, log)
     },
     getRefreshToken(): Promise<string | null> {
-      return getItem(REFRESH_KEY, log)
+      return getItem(REFRESH_KEY)
     },
     setRefreshToken(token: string): Promise<void> {
       return setItem(REFRESH_KEY, token, log)
@@ -133,7 +96,5 @@ export const SecureTokenStore: TokenStore = createSecureTokenStore()
 /** @internal Reset module-level singletons (for testing) */
 export function __resetStoreModules(): void {
   secureStore = null
-  mmkvFallback = null
-  warnedNoBackend = new WeakSet()
-  warnedFallback = new WeakSet()
+  reportedNoBackend = new WeakSet()
 }

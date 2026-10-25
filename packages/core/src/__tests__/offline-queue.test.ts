@@ -354,3 +354,54 @@ describe('OfflineQueue', () => {
     expect(persisted.map(e => e.message)).toEqual(['c', 'd'])
   })
 })
+
+describe('OfflineQueue default storage on each react-native-mmkv major', () => {
+  afterEach(() => {
+    jest.dontMock('react-native-mmkv')
+    jest.resetModules()
+  })
+
+  /** Enqueue, reopen (a relaunch), drain: the default instance must hold it in between. */
+  async function persistsThenDrains(mod: object) {
+    jest.resetModules()
+    jest.doMock('react-native-mmkv', () => mod)
+    const { OfflineQueue: Q } = require('../offline-queue') as typeof import('../offline-queue')
+    const first = new Q(jest.fn())
+    first.enqueue([makeEntry({ message: 'kept' })])
+    first.destroy()
+    const reopened = new Q(jest.fn().mockResolvedValue(undefined))
+    const reloaded = reopened.getQueueSize()
+    await reopened.flush()
+    const afterDrain = new Q(jest.fn()).getQueueSize()
+    reopened.destroy()
+    return { reloaded, afterDrain }
+  }
+
+  function backing() {
+    const map = new Map<string, string>()
+    return {
+      map,
+      getString: (k: string) => map.get(k),
+      set: (k: string, v: string) => { map.set(k, v) },
+    }
+  }
+
+  it('v4 (createMMKV, remove — no MMKV class, no delete)', async () => {
+    const b = backing()
+    const v4 = { getString: b.getString, set: b.set, remove: (k: string) => b.map.delete(k) }
+    expect(await persistsThenDrains({ createMMKV: () => v4 })).toEqual({ reloaded: 1, afterDrain: 0 })
+  })
+
+  it('v3 (new MMKV, delete)', async () => {
+    const b = backing()
+    const v3 = { getString: b.getString, set: b.set, delete: (k: string) => { b.map.delete(k) } }
+    expect(await persistsThenDrains({ MMKV: function MMKV() { return v3 } })).toEqual({ reloaded: 1, afterDrain: 0 })
+  })
+
+  it('neither export: a clear error, not a silent queue', () => {
+    jest.resetModules()
+    jest.doMock('react-native-mmkv', () => ({}))
+    const { OfflineQueue: Q } = require('../offline-queue') as typeof import('../offline-queue')
+    expect(() => new Q(jest.fn())).toThrow('neither createMMKV (v4) nor MMKV (v3)')
+  })
+})

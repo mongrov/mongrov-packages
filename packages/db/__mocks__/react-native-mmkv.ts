@@ -54,6 +54,28 @@ export class MMKV {
   }
 }
 
+/**
+ * react-native-mmkv v4's factory, the version the app installs: no `MMKV`
+ * class in real v4, `remove` instead of `delete`. Exported alongside the v3
+ * class so the backend's v4 path is the one the suite exercises; the v3 path
+ * is tested by mocking the module with the class alone.
+ */
+export function createMMKV(config?: { id?: string }) {
+  const v3 = new MMKV(config)
+  return {
+    getString: (key: string) => v3.getString(key),
+    set: (key: string, value: string | number | boolean) => v3.set(key, value),
+    remove: (key: string) => {
+      const had = v3.contains(key)
+      v3.delete(key)
+      return had
+    },
+    contains: (key: string) => v3.contains(key),
+    getAllKeys: () => v3.getAllKeys(),
+    clearAll: () => v3.clearAll(),
+  }
+}
+
 // Test helper to reset all instances
 export function __resetAllInstances(): void {
   instances.clear()

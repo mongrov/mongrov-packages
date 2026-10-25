@@ -148,20 +148,74 @@ describe('MMKVBackend logging', () => {
     )
   })
 
-  it('warns through the injected logger when falling back to memory', async () => {
+  it('fails visibly when MMKV cannot open, and logs why — no in-memory stand-in', async () => {
     jest.resetModules()
     jest.doMock('react-native-mmkv', () => {
       throw new Error('native module missing')
     })
     const { MMKVBackend: Isolated } = require('../kv-backends/mmkv-backend') as typeof import('../kv-backends/mmkv-backend')
     const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
-    const store = new Isolated('fallback', logger)
-    await store.set('k', 'v')
-    expect(await store.get('k')).toBe('v')
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('in-memory fallback'),
-      expect.objectContaining({ instanceId: 'fallback', error: expect.stringContaining('native module missing') }),
+    const store = new Isolated('broken', logger)
+    await expect(store.set('k', 'v')).rejects.toThrow('could not be opened')
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('could not open'),
+      expect.objectContaining({ instanceId: 'broken', error: expect.stringContaining('native module missing') }),
     )
     jest.dontMock('react-native-mmkv')
+  })
+
+  it('does not cache the failure: a store opened before MMKV is ready works once it is', async () => {
+    jest.resetModules()
+    let ready = false
+    const real = jest.requireActual('../../__mocks__/react-native-mmkv') as typeof import('../../__mocks__/react-native-mmkv')
+    jest.doMock('react-native-mmkv', () => ({
+      createMMKV: (config?: { id?: string }) => {
+        if (!ready)
+          throw new Error('not ready')
+        return real.createMMKV(config)
+      },
+    }))
+    const { MMKVBackend: Isolated } = require('../kv-backends/mmkv-backend') as typeof import('../kv-backends/mmkv-backend')
+    const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    const store = new Isolated('late', logger)
+    await expect(store.get('k')).rejects.toThrow('not ready')
+    ready = true
+    await store.set('k', 'v')
+    expect(await store.get('k')).toBe('v')
+    jest.dontMock('react-native-mmkv')
+  })
+})
+
+describe('MMKVBackend on each react-native-mmkv major', () => {
+  afterEach(() => jest.dontMock('react-native-mmkv'))
+
+  /** The store, reopened on the same instance id: what a relaunch sees. */
+  async function roundTrip(mod: object) {
+    jest.resetModules()
+    jest.doMock('react-native-mmkv', () => mod)
+    const { MMKVBackend: Isolated } = require('../kv-backends/mmkv-backend') as typeof import('../kv-backends/mmkv-backend')
+    const first = new Isolated('persisted')
+    await first.set('a', '1')
+    await first.set('b', '2')
+    await first.delete('b')
+    const reopened = new Isolated('persisted')
+    return { a: await reopened.get('a'), b: await reopened.get('b'), keys: await reopened.getAllKeys() }
+  }
+
+  it('v4 (createMMKV, remove): writes survive a reopen, delete removes', async () => {
+    const real = jest.requireActual('../../__mocks__/react-native-mmkv') as typeof import('../../__mocks__/react-native-mmkv')
+    real.__resetAllInstances()
+    // The real v4 export shape: the factory only, instances with no `delete`.
+    expect(await roundTrip({ createMMKV: real.createMMKV })).toEqual({ a: '1', b: null, keys: ['a'] })
+  })
+
+  it('v3 (new MMKV, delete): writes survive a reopen, delete removes', async () => {
+    const real = jest.requireActual('../../__mocks__/react-native-mmkv') as typeof import('../../__mocks__/react-native-mmkv')
+    real.__resetAllInstances()
+    expect(await roundTrip({ MMKV: real.MMKV })).toEqual({ a: '1', b: null, keys: ['a'] })
+  })
+
+  it('neither export: throws rather than persisting nowhere', async () => {
+    await expect(roundTrip({})).rejects.toThrow('neither createMMKV (v4) nor MMKV (v3)')
   })
 })

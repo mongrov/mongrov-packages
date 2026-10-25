@@ -5,7 +5,7 @@ Auth lifecycle, token management, and biometric gate for React Native / Expo app
 ## Features
 
 - **Adapter pattern** — plug any backend by implementing `AuthAdapter`
-- **Secure token storage** — expo-secure-store with MMKV fallback
+- **Secure token storage** — expo-secure-store, no plaintext fallback
 - **Proactive token refresh** — timer-based refresh before expiry
 - **401 interceptor** — Axios interceptor with single-flight refresh and request queueing
 - **Biometric gate** — optional biometric authentication via expo-local-authentication
@@ -20,7 +20,7 @@ pnpm add @mongrov/auth
 # Peer deps
 pnpm add zustand
 # Optional
-pnpm add expo-secure-store react-native-mmkv expo-local-authentication axios
+pnpm add expo-secure-store expo-local-authentication axios
 ```
 
 ## Quick Start
@@ -79,7 +79,7 @@ Derived session with `user`, `permissions`, `hasPermission()`, and `accessToken`
 
 ### `SecureTokenStore`
 
-Secure token persistence. Uses `expo-secure-store` when available, falls back to `react-native-mmkv`.
+Secure token persistence in `expo-secure-store` (keychain / keystore). Without it, saving a token rejects: tokens are never written to plain storage.
 
 ### `createAuthInterceptor(axiosInstance, authClient): () => void`
 
