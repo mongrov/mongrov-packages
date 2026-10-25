@@ -5,6 +5,19 @@ All notable changes to `@mongrov/db` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-24
+
+### Fixed
+- **react-native-mmkv v4** (mongrov-packages#34). `MMKVBackend` opens v4's `createMMKV` (with
+  `remove`) as well as v3's `MMKV` class. On v4 it used to fail to open and run on an
+  in-memory map, so every write reported success and was gone on relaunch.
+
+### Changed
+- **No in-memory fallback.** A store whose MMKV cannot open logs an error and throws on use.
+  The failure is not cached, so a store touched before the native module is ready works
+  once it is.
+- Peer `react-native-mmkv` narrows to `>=3 <5`.
+
 ## [0.2.0] - 2026-04-03
 
 ### Added

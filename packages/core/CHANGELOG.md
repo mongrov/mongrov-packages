@@ -5,6 +5,16 @@ All notable changes to `@mongrov/core` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-24
+
+### Fixed
+- **react-native-mmkv v4** (mongrov-packages#34): `OfflineQueue`'s default storage opens v4's
+  `createMMKV` (with `remove`) as well as v3's `MMKV` class. On v4 it threw, so a logger
+  configured with a webhook failed at creation.
+
+### Changed
+- Peer `react-native-mmkv` narrows to `>=3 <5`.
+
 ## [0.9.0] - 2026-10-23
 
 ### Added

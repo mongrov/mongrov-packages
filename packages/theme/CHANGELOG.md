@@ -5,6 +5,15 @@ All notable changes to `@mongrov/theme` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-24
+
+### Fixed
+- **react-native-mmkv v4** (mongrov-packages#34): the colour scheme persists on v4's
+  `createMMKV`, not only v3's `MMKV` class. On v4 it never persisted. MMKV stays optional.
+
+### Changed
+- Peer `react-native-mmkv` narrows to `>=3 <5`.
+
 ## [0.3.0] - 2026-04-03
 
 ### Added
