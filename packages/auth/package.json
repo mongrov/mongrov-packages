@@ -62,13 +62,9 @@
     "expo-local-authentication": ">=14",
     "expo-secure-store": ">=14",
     "react": ">=18",
-    "react-native": ">=0.74",
-    "react-native-mmkv": ">=3"
+    "react-native": ">=0.74"
   },
   "peerDependenciesMeta": {
-    "react-native-mmkv": {
-      "optional": true
-    },
     "expo-secure-store": {
       "optional": true
     },

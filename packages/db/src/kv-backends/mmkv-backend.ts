@@ -1,41 +1,26 @@
 /**
  * MMKV backend for KVStore.
  * Wraps synchronous MMKV calls in async interface for API consistency.
- * Falls back to in-memory storage if MMKV native module isn't available.
  */
 
 import type { DBLogger, KVStore } from '../types'
+import type { MMKVStorage } from './open-mmkv'
 import { describeError, devConsoleLogger } from '../logger'
-
-// In-memory fallback storage
-interface StorageLike {
-  getString: (key: string) => string | undefined
-  set: (key: string, value: string) => void
-  delete: (key: string) => void
-  getAllKeys: () => string[]
-  clearAll: () => void
-}
-
-function createMemoryStorage(): StorageLike {
-  const store = new Map<string, string>()
-  return {
-    getString: (key: string) => store.get(key),
-    set: (key: string, value: string) => { store.set(key, value) },
-    delete: (key: string) => { store.delete(key) },
-    getAllKeys: () => Array.from(store.keys()),
-    clearAll: () => { store.clear() },
-  }
-}
+import { openMMKV } from './open-mmkv'
 
 /**
  * MMKV-backed KVStore implementation.
  * Fast synchronous storage wrapped in async API.
- * Falls back to in-memory storage if native module isn't available.
+ *
+ * No in-memory fallback. One used to stand in whenever MMKV failed to open,
+ * so a store that persists nothing reported every write as a success; on
+ * react-native-mmkv v4 that was every store (mongrov-packages#34). A store
+ * that cannot persist now throws on use, and logs why. The failure is not
+ * cached: a call made before the native module is ready can succeed later.
  */
 export class MMKVBackend implements KVStore {
   private instanceId: string
-  private _storage: StorageLike | null = null
-  private _mmkvAvailable: boolean | null = null
+  private _storage: MMKVStorage | null = null
   private readonly logger: DBLogger
 
   constructor(instanceId: string = 'mongrov-kv', logger: DBLogger = devConsoleLogger) {
@@ -44,30 +29,20 @@ export class MMKVBackend implements KVStore {
     // Don't initialize here - defer to first access
   }
 
-  private getStorage(): StorageLike {
+  private getStorage(): MMKVStorage {
     if (this._storage)
       return this._storage
-
-    if (this._mmkvAvailable === null) {
-      try {
-        const { MMKV } = require('react-native-mmkv')
-        this._storage = new MMKV({ id: this.instanceId })
-        this._mmkvAvailable = true
-      }
-      catch (e) {
-        // Native module not available - use in-memory fallback. This can
-        // happen during JS bundle evaluation before native modules are ready.
-        // Nothing written to this store survives a restart.
-        this.logger.warn(
-          `[@mongrov/db] MMKV not available for instance "${this.instanceId}", using in-memory fallback`,
-          { instanceId: this.instanceId, error: describeError(e) },
-        )
-        this._storage = createMemoryStorage()
-        this._mmkvAvailable = false
-      }
+    try {
+      this._storage = openMMKV(this.instanceId)
+      return this._storage
     }
-
-    return this._storage!
+    catch (e) {
+      this.logger.error(
+        `[@mongrov/db] MMKV could not open instance "${this.instanceId}"; nothing can be stored`,
+        { instanceId: this.instanceId, error: describeError(e) },
+      )
+      throw new Error(`@mongrov/db: MMKV instance "${this.instanceId}" could not be opened: ${describeError(e)}`)
+    }
   }
 
   async get(key: string): Promise<string | null> {

@@ -52,7 +52,7 @@
     "expo-network": ">=6",
     "react": ">=18",
     "react-native": ">=0.74",
-    "react-native-mmkv": ">=3",
+    "react-native-mmkv": ">=3 <5",
     "expo-router": ">=4",
     "uniwind": ">=1"
   },

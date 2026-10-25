@@ -14,16 +14,38 @@ interface MMKVStorage {
   delete: (key: string) => void
 }
 
+/**
+ * The default MMKV instance, on either react-native-mmkv major.
+ *
+ * v4 replaced the `MMKV` class with a `createMMKV` factory and renamed
+ * `delete` to `remove`. Only the class was tried, so on v4 every queue threw
+ * here — and the webhook transport builds one in `createLogger`, so setting a
+ * webhook URL failed the app's logger at module load (mongrov-packages#34).
+ */
 function getMMKV(): MMKVStorage {
+  let mod: {
+    createMMKV?: () => Omit<MMKVStorage, 'delete'> & { remove: (key: string) => boolean }
+    MMKV?: new () => MMKVStorage
+  }
   try {
-    const { MMKV } = require('react-native-mmkv')
-    return new MMKV()
+    mod = require('react-native-mmkv')
   }
   catch {
     throw new Error(
       '@mongrov/core OfflineQueue requires react-native-mmkv as a peer dependency',
     )
   }
+  if (typeof mod.createMMKV === 'function') {
+    const mmkv = mod.createMMKV()
+    return {
+      getString: key => mmkv.getString(key),
+      set: (key, value) => mmkv.set(key, value),
+      delete: (key) => { mmkv.remove(key) },
+    }
+  }
+  if (typeof mod.MMKV === 'function')
+    return new mod.MMKV()
+  throw new Error('@mongrov/core OfflineQueue: react-native-mmkv exports neither createMMKV (v4) nor MMKV (v3)')
 }
 
 export class OfflineQueue {

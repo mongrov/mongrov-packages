@@ -175,9 +175,6 @@ importers:
       jwt-decode:
         specifier: ^4.0.0
         version: 4.0.0
-      react-native-mmkv:
-        specifier: '>=3'
-        version: 3.3.3(react-native@0.74.7(@babel/core@7.29.7)(@babel/preset-env@7.29.2(@babel/core@7.29.7))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
       xstate:
         specifier: ^5.30.0
         version: 5.30.0
@@ -274,7 +271,7 @@ importers:
         specifier: '>=4'
         version: 55.0.13(be5afe01440b59a80e4b4205372222b1)
       react-native-mmkv:
-        specifier: '>=3'
+        specifier: '>=3 <5'
         version: 3.3.3(react-native@0.74.7(@babel/core@7.29.7)(@babel/preset-env@7.29.2(@babel/core@7.29.7))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@testing-library/react':
@@ -445,7 +442,7 @@ importers:
   packages/theme:
     dependencies:
       react-native-mmkv:
-        specifier: '>=3'
+        specifier: '>=3 <5'
         version: 3.3.3(react-native@0.74.7(@babel/core@7.29.7)(@babel/preset-env@7.29.2(@babel/core@7.29.7))(@types/react@18.3.28)(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@testing-library/react':
@@ -4569,6 +4566,7 @@ packages:
 
   crypto-js@4.2.0:
     resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+    deprecated: Active development of CryptoJS has been discontinued. This library is no longer maintained.
 
   css.escape@1.5.1:
     resolution: {integrity: sha512-YUifsXXuknHlUsmlgyY0PKzgPOr7/FjCePfHNt0jxm83wHZi44VDMQ7/fGNkjY3/jV1MC+1CmZbaHzugyeRtpg==}
@@ -5111,6 +5109,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -7219,6 +7218,7 @@ packages:
   nats@2.28.2:
     resolution: {integrity: sha512-02cvR8EPach+0BfVaQjPgsbPFn6uMjEQAuvXS2ppg8jiWEm2KYdfmeFmtshiU9b2+kFh3LSEKMEaIfRgk3K8tw==}
     engines: {node: '>= 14.0.0'}
+    deprecated: Package moved. Use @nats-io/transport-node from https://github.com/nats-io/nats.js
 
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}

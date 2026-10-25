@@ -53,3 +53,40 @@ describe('createColorSchemeStore', () => {
     expect(store.getState().colorScheme).toBe('system')
   })
 })
+
+describe('createColorSchemeStore on each react-native-mmkv major', () => {
+  afterEach(() => {
+    jest.dontMock('react-native-mmkv')
+    jest.resetModules()
+  })
+
+  /** A choice made in one store, read by the next: what a relaunch sees. */
+  function persistsAcrossStores(mod: object): string {
+    jest.resetModules()
+    jest.doMock('react-native-mmkv', () => mod)
+    const { createColorSchemeStore: create } = require('../color-scheme-store') as typeof import('../color-scheme-store')
+    create().getState().setColorScheme('dark')
+    return create().getState().colorScheme
+  }
+
+  /** One shared map, shaped as each major exposes it. */
+  function backing() {
+    const map = new Map<string, string>()
+    const instance = { getString: (k: string) => map.get(k), set: (k: string, v: string) => { map.set(k, v) } }
+    return instance
+  }
+
+  it('v4 (createMMKV only — no MMKV class): persists', () => {
+    const instance = backing()
+    expect(persistsAcrossStores({ createMMKV: () => instance })).toBe('dark')
+  })
+
+  it('v3 (MMKV class): persists', () => {
+    const instance = backing()
+    expect(persistsAcrossStores({ MMKV: function MMKV() { return instance } })).toBe('dark')
+  })
+
+  it('no MMKV: still works, unpersisted', () => {
+    expect(persistsAcrossStores({})).toBe('system')
+  })
+})

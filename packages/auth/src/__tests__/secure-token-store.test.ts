@@ -1,11 +1,9 @@
 import { __resetSecureStore } from '../../__mocks__/expo-secure-store'
-import { __resetMMKV } from '../../__mocks__/react-native-mmkv'
 import { __resetStoreModules, createSecureTokenStore, SecureTokenStore } from '../secure-token-store'
 
 beforeEach(() => {
   __resetStoreModules()
   __resetSecureStore()
-  __resetMMKV()
 })
 
 describe('SecureTokenStore', () => {
@@ -36,44 +34,37 @@ describe('SecureTokenStore', () => {
     })
   })
 
-  describe('MMKV fallback', () => {
+  describe('without expo-secure-store: no plaintext fallback', () => {
     beforeEach(() => {
-      // Force MMKV fallback by making expo-secure-store unavailable
       jest.resetModules()
       jest.doMock('expo-secure-store', () => {
         throw new Error('Module not found')
       })
+      __resetStoreModules()
     })
 
     afterEach(() => {
+      jest.dontMock('expo-secure-store')
       jest.restoreAllMocks()
     })
 
-    it('falls back to MMKV when expo-secure-store is unavailable', async () => {
-      __resetStoreModules()
-      await SecureTokenStore.setAccessToken('mmkv-token')
-      const token = await SecureTokenStore.getAccessToken()
-      expect(token).toBe('mmkv-token')
+    it('rejects a token write instead of storing it in plain MMKV', async () => {
+      await expect(SecureTokenStore.setAccessToken('t')).rejects.toThrow('expo-secure-store is unavailable')
+      expect(await SecureTokenStore.getAccessToken()).toBeNull()
     })
 
-    it('warns every logger about the MMKV fallback, not only the first store to hit it', async () => {
-      __resetStoreModules()
-      // The default store's no-op logger hits the fallback first.
-      await SecureTokenStore.setAccessToken('mmkv-token')
+    it('tells every logger once, not only the first store to hit it', async () => {
+      await expect(SecureTokenStore.setAccessToken('t')).rejects.toThrow()
       const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() }
       const store = createSecureTokenStore({ logger })
-      await store.getAccessToken()
-      await store.getRefreshToken()
-      expect(logger.warn).toHaveBeenCalledTimes(1)
-      expect(logger.warn).toHaveBeenCalledWith('[auth] expo-secure-store unavailable; tokens stored in MMKV (unencrypted)')
+      await expect(store.setAccessToken('t')).rejects.toThrow()
+      await expect(store.setRefreshToken('r')).rejects.toThrow()
+      expect(logger.error).toHaveBeenCalledTimes(1)
+      expect(logger.error).toHaveBeenCalledWith('[auth] expo-secure-store is unavailable; tokens cannot be stored')
     })
 
-    it('clear works with MMKV fallback', async () => {
-      __resetStoreModules()
-      await SecureTokenStore.setAccessToken('mmkv-token')
-      await SecureTokenStore.setRefreshToken('mmkv-refresh')
+    it('reads as signed out, and clear is a no-op', async () => {
       await SecureTokenStore.clear()
-      expect(await SecureTokenStore.getAccessToken()).toBeNull()
       expect(await SecureTokenStore.getRefreshToken()).toBeNull()
     })
   })
