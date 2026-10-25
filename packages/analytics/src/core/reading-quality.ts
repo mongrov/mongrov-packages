@@ -401,23 +401,30 @@ function sharedFlags(table: QualityTable): string {
          ${STILL} AS still`
 }
 
+/**
+ * Heart-rate readings with their `spike` flag. Spike needs both neighbours
+ * present and close; an edge reading or one next to a gap cannot be judged
+ * and is kept. A step change (60 → 110 → 120) is not a spike: the second
+ * reading agrees with the first.
+ */
+function withSpike(base: string): string {
+  return `SELECT *, COALESCE(
+        LAG(ts) OVER n >= ts - INTERVAL ${SPIKE_NEIGHBOUR_MINUTES} MINUTE
+        AND LEAD(ts) OVER n <= ts + INTERVAL ${SPIKE_NEIGHBOUR_MINUTES} MINUTE
+        AND abs(bpm - LAG(bpm) OVER n) >= ${SPIKE_DELTA_BPM}
+        AND abs(bpm - LEAD(bpm) OVER n) >= ${SPIKE_DELTA_BPM}, FALSE) AS spike
+    FROM ${base}
+    WINDOW n AS (${DEVICE_WINDOW})`
+}
+
 function heartRateQBody(src: QualitySources, opts: QualityOptions): string {
-  // Spike needs both neighbours present and close; an edge reading or one
-  // next to a gap cannot be judged and is kept. A step change (60 → 110 →
-  // 120) is not a spike: the second reading agrees with the first.
   return `SELECT *, COALESCE(${wearGateSql(opts)} AND ${rangeGateSql(opts, 'bpm')}
          AND ${gateSql(opts.spikeFilter, 'NOT spike')}, FALSE) AS clean
 FROM (
   SELECT m.*, ${sharedFlags('heart_rate')},
          COALESCE(m.bpm BETWEEN ${BPM_MIN} AND ${BPM_MAX}, FALSE) AS plausible
   FROM (
-    SELECT *, COALESCE(
-        LAG(ts) OVER n >= ts - INTERVAL ${SPIKE_NEIGHBOUR_MINUTES} MINUTE
-        AND LEAD(ts) OVER n <= ts + INTERVAL ${SPIKE_NEIGHBOUR_MINUTES} MINUTE
-        AND abs(bpm - LAG(bpm) OVER n) >= ${SPIKE_DELTA_BPM}
-        AND abs(bpm - LEAD(bpm) OVER n) >= ${SPIKE_DELTA_BPM}, FALSE) AS spike
-    FROM ${src.base}
-    WINDOW n AS (${DEVICE_WINDOW})
+    ${withSpike(src.base)}
   ) m
   ${wearJoin(src.wear)}
   ${motionJoin(src.motion)}
@@ -488,9 +495,82 @@ WHERE hrv_clean OR stress_clean`
   return `SELECT * ${exclude} FROM ${from} WHERE clean`
 }
 
-function cleanViewDdl(table: QualityTable): string {
+/**
+ * Whether `table`'s clean predicate, under `opts`, reads a flag only the ASOF
+ * joins produce: `worn` (any vital), `warm_up` (temperature), `still` (SpO2
+ * and HRV, while the motion gate is on). `plausible` and `spike` need no
+ * join: one is the value itself, the other its neighbours in the same table.
+ */
+export function cleanNeedsJoins(table: QualityTable, opts: QualityOptions): boolean {
+  if (opts.wearFilter !== false)
+    return true
+  if (table === 'temperature')
+    return opts.warmUpFilter !== false
+  if (table === 'spo2' || table === 'hrv')
+    return opts.motionFilter === true
+  return false
+}
+
+/** `plausible`, or "present" while `rangeFilter` is off, from the value alone. */
+function directRangeSql(opts: QualityOptions, column: string, [min, max]: readonly [number, number]): string {
+  return opts.rangeFilter === false
+    ? `${column} IS NOT NULL`
+    : `COALESCE(${column} BETWEEN ${min} AND ${max}, FALSE)`
+}
+
+/**
+ * The clean relation straight from the readings, for when no gate in force
+ * needs a join (`cleanNeedsJoins` false).
+ *
+ * The `_q` bodies always join `v_wear` and `v_motion`: a `LAG` over the whole
+ * temperature history and two running `SUM`s over the whole activity
+ * history, windows nothing above them can prune. With the wear, warm-up and
+ * motion gates off — every gate ZivaOne runs with for the v1 parity check —
+ * the clean predicate reads none of what those joins produce, but every clean
+ * read still paid for them. At 365 days, a full-history day count measured
+ * 87 ms on `v_spo2_clean` and 245 ms on `v_temperature_clean` against 3.5 ms
+ * on `v_spo2`, re-run after every sync (zivaone_app#505).
+ *
+ * Same rows, same columns, same order: an ASOF LEFT JOIN yields exactly one
+ * row per reading, so the joins never added or dropped one, and the
+ * predicate below is the `_q` one with the gates that are off already TRUE.
+ * `clean-direct-equivalence.test.ts` compares the two for every combination
+ * of options. The `_q` views are untouched — they still carry every flag for
+ * diagnostics and the readers of `worn` / `warm_up`.
+ */
+function directCleanBody(table: QualityTable, base: string, opts: QualityOptions): string {
+  switch (table) {
+    case 'heart_rate':
+      if (opts.spikeFilter === false)
+        return `SELECT * FROM ${base} WHERE ${directRangeSql(opts, 'bpm', PLAUSIBLE_RANGES.bpm)}`
+      return `SELECT * EXCLUDE (spike) FROM (
+    ${withSpike(base)}
+  ) m
+WHERE ${directRangeSql(opts, 'bpm', PLAUSIBLE_RANGES.bpm)} AND NOT spike`
+    case 'spo2':
+      return `SELECT * FROM ${base} WHERE ${directRangeSql(opts, 'spo2', PLAUSIBLE_RANGES.spo2)}`
+    case 'temperature':
+      return `SELECT * FROM ${base} WHERE ${directRangeSql(opts, 'temp_c', PLAUSIBLE_RANGES.temp_c)}`
+    case 'hrv':
+      return `SELECT * EXCLUDE (hrv_clean, stress_clean)
+       REPLACE (CASE WHEN hrv_clean THEN hrv_ms END AS hrv_ms,
+                CASE WHEN stress_clean THEN stress END AS stress)
+FROM (
+  SELECT *,
+         hrv_ms IS NOT NULL AND ${directRangeSql(opts, 'hrv_ms', PLAUSIBLE_RANGES.hrv_ms)} AS hrv_clean,
+         stress IS NOT NULL AS stress_clean
+  FROM ${base}
+) m
+WHERE hrv_clean OR stress_clean`
+  }
+}
+
+function cleanViewDdl(table: QualityTable, opts: QualityOptions): string {
+  const body = cleanNeedsJoins(table, opts)
+    ? cleanBody(table, qualityViewFor(table))
+    : directCleanBody(table, `v_${table}`, opts)
   return `CREATE OR REPLACE VIEW ${cleanViewFor(table)} AS
-${cleanBody(table, qualityViewFor(table))};`
+${body};`
 }
 
 /**
@@ -540,7 +620,7 @@ export function qualityViewDdls(opts: QualityOptions = {}): QualityView[] {
     // After the wear view, before the `_q` views that join it.
     { name: MOTION_VIEW, sql: motionViewDdl() },
     ...QUALITY_TABLES.map(t => ({ name: qualityViewFor(t), sql: qualityViewDdl(t, opts) })),
-    ...QUALITY_TABLES.map(t => ({ name: cleanViewFor(t), sql: cleanViewDdl(t) })),
+    ...QUALITY_TABLES.map(t => ({ name: cleanViewFor(t), sql: cleanViewDdl(t, opts) })),
   ]
 }
 
@@ -674,8 +754,13 @@ function motionMacroDdl(): string {
 ${motionSlice(LO, HI)};`
 }
 
+/** The `_base` slice pad: heart rate's spike reads neighbours up to this far out. */
+function basePadFor(table: QualityTable): number {
+  return table === 'heart_rate' ? SPIKE_NEIGHBOUR_MINUTES : 0
+}
+
 function qualityMacroDdl(table: QualityTable, opts: QualityOptions): string {
-  const basePad = table === 'heart_rate' ? SPIKE_NEIGHBOUR_MINUTES : 0
+  const basePad = basePadFor(table)
   const sources: QualitySources = { base: '_base', wear: '_wear', motion: '_motion' }
   return `CREATE OR REPLACE MACRO ${qualityMacroFor(table)}(lo, hi) AS TABLE
 WITH _motion AS (
@@ -701,9 +786,21 @@ ${Q_BODY[table](sources, opts)}
 WHERE ts >= ${LO} AND ts < ${HI};`
 }
 
-function cleanMacroDdl(table: QualityTable): string {
-  return `CREATE OR REPLACE MACRO ${cleanMacroFor(table)}(lo, hi) AS TABLE
+function cleanMacroDdl(table: QualityTable, opts: QualityOptions): string {
+  if (cleanNeedsJoins(table, opts)) {
+    return `CREATE OR REPLACE MACRO ${cleanMacroFor(table)}(lo, hi) AS TABLE
 ${cleanBody(table, `${qualityMacroFor(table)}(${LO}, ${HI})`)};`
+  }
+  // The same padded slice the `_q` macro judges, so a spike at the window's
+  // edge sees the neighbour just outside it.
+  const pad = basePadFor(table)
+  const base = `(SELECT * FROM v_${table}
+  WHERE ts >= ${LO} - INTERVAL ${pad} MINUTE AND ts < ${HI} + INTERVAL ${pad} MINUTE) b`
+  return `CREATE OR REPLACE MACRO ${cleanMacroFor(table)}(lo, hi) AS TABLE
+SELECT * FROM (
+${directCleanBody(table, base, opts)}
+) c
+WHERE ts >= ${LO} AND ts < ${HI};`
 }
 
 /**
@@ -716,7 +813,7 @@ export function qualityMacroDdls(opts: QualityOptions = {}): QualityView[] {
   return [
     { name: MOTION_MACRO, sql: motionMacroDdl() },
     ...QUALITY_TABLES.map(t => ({ name: qualityMacroFor(t), sql: qualityMacroDdl(t, opts) })),
-    ...QUALITY_TABLES.map(t => ({ name: cleanMacroFor(t), sql: cleanMacroDdl(t) })),
+    ...QUALITY_TABLES.map(t => ({ name: cleanMacroFor(t), sql: cleanMacroDdl(t, opts) })),
   ]
 }
 
