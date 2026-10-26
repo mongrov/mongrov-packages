@@ -11,7 +11,11 @@ export {
   type CorrectNightInput,
   type CorrectNightResult,
   detectHrTier,
+  detectNightHrTier,
   globalBaselines,
+  NIGHT_TIER_FALLBACK_DAYS,
+  NIGHT_TIER_MIN_GAPS,
+  type NightHrTier,
   type SqlRunner,
 } from './correct'
 export { nightOffsetHours, nightWindow } from './night'
@@ -27,6 +31,7 @@ export { computeSettleMin, recoveredMinutes } from './settle'
 export {
   correctNightSql,
   DEFAULT_RELATIONS,
+  detectHrTierBetweenSql,
   detectHrTierSql,
   globalBaselinesSql,
   hasSleepDataSql,

@@ -1,10 +1,12 @@
 /**
  * Correct every night a sync touched — v3.1's post-sync loop, per night.
  *
- * As v3.1: the HR tier and sleeping-HR percentiles are computed once per run,
- * then each night gets its window, Phase 2 + 3, and the port's two scalars.
- * Unlike v3.1, each night's window uses the offset its own zone had at its
- * 18:00 (see `night.ts`), not one fixed device offset.
+ * As v3.1: the sleeping-HR percentiles are computed once per run, then each
+ * night gets its window, Phase 2 + 3, and the port's two scalars. Unlike
+ * v3.1, each night's window uses the offset its own zone had at its 18:00
+ * (see `night.ts`), not one fixed device offset, and each night takes its own
+ * HR tier (`detectNightHrTier`, packages#68) instead of one median over the
+ * ring's whole history.
  *
  * A night that throws is reported `failed` and the rest continue — the spec's
  * containment rule: a failed night keeps whatever rows it already had; it
@@ -13,12 +15,12 @@
  */
 
 import type { ClassifiedRow } from './classify'
-import type { SqlRunner } from './correct'
+import type { NightHrTier, SqlRunner } from './correct'
 import type { SleepRelations } from './sql'
 import type { StagingBounds } from './staging'
 
 import { describeError } from '../../core/errors'
-import { correctNight, detectHrTier, globalBaselines } from './correct'
+import { correctNight, detectNightHrTier, globalBaselines } from './correct'
 import { nightWindow, offsetAtInstantMs } from './night'
 import { computeSettleMin, recoveredMinutes } from './settle'
 
@@ -38,6 +40,9 @@ export interface NightOutcome {
   windowEnd: number
   tzOffsetHours: number
   status: 'ok' | 'no_firmware_sleep' | 'no_phase2_rows' | 'failed'
+  /** The HR tier this night was staged at; absent when it failed before one was found. */
+  hrIntervalMin?: number
+  hrTierSource?: NightHrTier['source']
   rows?: ClassifiedRow[]
   settleMin?: number | null
   recoveredMin?: number
@@ -45,28 +50,31 @@ export interface NightOutcome {
 }
 
 export interface CorrectSleepResult {
-  hrIntervalMin: number
   p75: number
   p90: number
   nights: NightOutcome[]
 }
 
 export async function correctSleepNights(db: SqlRunner, input: CorrectSleepInput): Promise<CorrectSleepResult> {
-  const hrIntervalMin = await detectHrTier(db, input.relations)
   const { p75, p90 } = await globalBaselines(db, input.cutoffEpoch, input.relations)
 
   const nights: NightOutcome[] = []
   for (const night of input.nights) {
     const w = nightWindow(night, input.timeZone)
+    let tier: NightHrTier | undefined
     try {
+      tier = await detectNightHrTier(db, w.windowStart, w.windowEnd, input.relations)
+      const hrIntervalMin = tier.tier
+      const tierFields = { hrIntervalMin, hrTierSource: tier.source }
       const res = await correctNight(db, { ...w, hrIntervalMin, p75, p90, relations: input.relations })
       if (res.status !== 'ok') {
-        nights.push({ night, ...w, status: res.status })
+        nights.push({ night, ...w, ...tierFields, status: res.status })
         continue
       }
       nights.push({
         night,
         ...w,
+        ...tierFields,
         status: 'ok',
         rows: res.rows,
         settleMin: computeSettleMin(res.rows, res.vitals, hrIntervalMin),
@@ -75,10 +83,10 @@ export async function correctSleepNights(db: SqlRunner, input: CorrectSleepInput
     }
     catch (e) {
       // Recorded on the outcome; the deriver logs the failed nights.
-      nights.push({ night, ...w, status: 'failed', error: describeError(e) })
+      nights.push({ night, ...w, ...(tier && { hrIntervalMin: tier.tier, hrTierSource: tier.source }), status: 'failed', error: describeError(e) })
     }
   }
-  return { hrIntervalMin, p75, p90, nights }
+  return { p75, p90, nights }
 }
 
 /**
