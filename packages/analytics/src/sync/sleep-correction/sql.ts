@@ -89,9 +89,9 @@ function num(v: number): string {
  * forms (COALESCE ⇒ 0). `sleep-correction-sql-equivalence.test.ts` runs the
  * v3.1 text against this one.
  *
- * Still reads the relation's whole history: bounding it (or caching the tier
- * per ring) would change which gaps the median sees, so it is a behaviour
- * decision rather than a rewrite, and is not made here.
+ * Reads the relation's whole history. The sync no longer uses it (each night
+ * takes its own tier, `detectHrTierBetweenSql`); it stays as v3.1's form for
+ * the parity harness and the equivalence test.
  */
 export function detectHrTierSql(r: SleepRelations = DEFAULT_RELATIONS): string {
   return `
@@ -112,6 +112,48 @@ median_gap AS (
 )
 SELECT
     med AS median_interval_seconds,
+    CASE WHEN med <= 360  THEN 5
+         WHEN med <= 900  THEN 10
+         ELSE 30
+    END AS hr_interval_minutes
+FROM median_gap;`
+}
+
+/**
+ * The HR tier over `[fromEpoch, toEpoch)` only — per night (packages#68,
+ * decided 2026-10-26). The gaps, band and cut-offs are `detectHrTierSql`'s;
+ * a ring whose cadence changed no longer stages new nights at the old tier,
+ * or re-tiers old ones. The first reading in range has no predecessor (gap 0,
+ * outside the band), as in the unbounded form. `gaps` is how many gaps the
+ * median saw, so the caller can tell a thin night from a real tier; no gaps
+ * ⇒ NULL median ⇒ 30, as v3.1's CASE gives.
+ */
+export function detectHrTierBetweenSql(
+  fromEpoch: number,
+  toEpoch: number,
+  r: SleepRelations = DEFAULT_RELATIONS,
+): string {
+  return `
+WITH hr_ordered AS (
+    SELECT date,
+           LAG(date) OVER (ORDER BY date) AS prev_date
+    FROM ${rel(r.heartrate)}
+    WHERE "singleHR" BETWEEN ${HR_MIN} AND ${HR_MAX}
+      AND date >= ${num(fromEpoch)}
+      AND date <  ${num(toEpoch)}
+),
+hr_intervals AS (
+    SELECT date - COALESCE(prev_date, date) AS gap_sec
+    FROM hr_ordered
+    WHERE date - COALESCE(prev_date, date) BETWEEN 61 AND 3599
+),
+median_gap AS (
+    SELECT quantile_cont(gap_sec, 0.5) AS med, COUNT(*) AS gaps
+    FROM hr_intervals
+)
+SELECT
+    med AS median_interval_seconds,
+    gaps,
     CASE WHEN med <= 360  THEN 5
          WHEN med <= 900  THEN 10
          ELSE 30

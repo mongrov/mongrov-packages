@@ -1,5 +1,23 @@
 # Upgrading
 
+## 0.45.x → 0.46.0 — sleep correction stages each night at its own HR tier (packages#68)
+
+**Breaking for `correctSleepNights` callers, and it changes corrected output on rings whose HR cadence changed.**
+
+`CorrectSleepResult.hrIntervalMin` is gone: there is no longer one tier per
+run. Each `NightOutcome` (exported as `SleepCorrectionNightOutcome`) carries
+`hrIntervalMin` and `hrTierSource` (`'night'` | `'recent'`) instead; both are
+absent only on a night that failed before its tier was found.
+
+The tier was v3.1's median HR gap over the ring's whole history. It is now the
+median over the night's own window, or, when that window has fewer than
+`NIGHT_TIER_MIN_GAPS` (10) gaps, over the `NIGHT_TIER_FALLBACK_DAYS` (14) days
+ending at the night — anchored to the night, so re-correcting it later gives
+the same tier. Gaps, band (61–3599 s) and cut-offs (≤ 6 min ⇒ 5, ≤ 15 min ⇒ 10,
+else 30) are unchanged, so a ring that never changed cadence gets v3.1's tier.
+`detectHrTier` / `detectHrTierSql` keep the whole-history form for the parity
+harness.
+
 ## @mongrov/data-access 0.2.0 → 0.3.0 — bind only referenced placeholders
 
 **Behaviour fix. No API change, but it repairs queries that could never run.**

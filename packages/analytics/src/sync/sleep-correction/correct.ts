@@ -15,6 +15,7 @@ import { classifyBlocks } from './classify'
 import {
   correctNightSql,
   DEFAULT_RELATIONS,
+  detectHrTierBetweenSql,
   detectHrTierSql,
   globalBaselinesSql,
   hasSleepDataSql,
@@ -42,9 +43,41 @@ export const TIER_FALLBACK = 5
 export const P90_FALLBACK = 120
 export const P75_FALLBACK = 80
 
+/** v3.1's tier over the ring's whole history — the parity harness's form. */
 export async function detectHrTier(db: SqlRunner, r: SleepRelations = DEFAULT_RELATIONS): Promise<number> {
   const [row] = (await db.execute(detectHrTierSql(r))) as Row[]
   return toNum(row?.hr_interval_minutes) || TIER_FALLBACK
+}
+
+/** Fewer gaps than this in a night's window and the night is too thin to judge. */
+export const NIGHT_TIER_MIN_GAPS = 10
+/** A thin night's tier comes from this many days ending at the night. */
+export const NIGHT_TIER_FALLBACK_DAYS = 14
+
+export interface NightHrTier {
+  tier: number
+  /** `night`: the night's own readings; `recent`: the fallback window. */
+  source: 'night' | 'recent'
+}
+
+/**
+ * The HR tier one night is staged at (packages#68, decided 2026-10-26): the
+ * median gap in its own window, or for a thin night the 14 days ending at
+ * its window's end. Anchored to the night, not to now, so re-correcting an
+ * old night always gives the same tier.
+ */
+export async function detectNightHrTier(
+  db: SqlRunner,
+  windowStart: number,
+  windowEnd: number,
+  r: SleepRelations = DEFAULT_RELATIONS,
+): Promise<NightHrTier> {
+  const [night] = (await db.execute(detectHrTierBetweenSql(windowStart, windowEnd, r))) as Row[]
+  if ((toNum(night?.gaps) ?? 0) >= NIGHT_TIER_MIN_GAPS)
+    return { tier: toNum(night?.hr_interval_minutes) || TIER_FALLBACK, source: 'night' }
+  const from = windowEnd - NIGHT_TIER_FALLBACK_DAYS * 86_400
+  const [recent] = (await db.execute(detectHrTierBetweenSql(from, windowEnd, r))) as Row[]
+  return { tier: toNum(recent?.hr_interval_minutes) || TIER_FALLBACK, source: 'recent' }
 }
 
 export async function globalBaselines(

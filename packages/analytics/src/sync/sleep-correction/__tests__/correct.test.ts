@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
 import { computeNightEpochs, parseDateStr } from '../classify'
-import { correctNight, detectHrTier, globalBaselines } from '../correct'
+import { correctNight, detectHrTier, detectNightHrTier, globalBaselines, NIGHT_TIER_MIN_GAPS } from '../correct'
 import { correctNightSql, detectHrTierSql, morningVitalsSql } from '../sql'
 
 const at = (iso: string) => Date.parse(`${iso}Z`) / 1000
@@ -89,6 +89,75 @@ describe('sleep correction on DuckDB', () => {
     expect(() => correctNightSql(Number.NaN, 0, 5, 80, 90)).toThrow('non-finite')
     expect(() => detectHrTierSql({ sleep: 's', heartrate: 'x; DROP TABLE y', activity: 'a' })).toThrow('invalid relation')
   })
+})
+
+/** HR only, at the given cadence (seconds) from `from` for `hours`. */
+async function hrDb(runs: { from: string, hours: number, every: number }[]): Promise<SqlRunner & { close?: () => Promise<void> }> {
+  const db = await createRealDuckDB([])
+  await db.execute(`CREATE TABLE stg_heartrate (date BIGINT, "singleHR" DOUBLE)`)
+  const hr: string[] = []
+  for (const run of runs) {
+    const s = at(run.from)
+    for (let t = s; t < s + run.hours * 3600; t += run.every)
+      hr.push(`(${t}, 62)`)
+  }
+  for (let i = 0; i < hr.length; i += 2000)
+    await db.execute(`INSERT INTO stg_heartrate VALUES ${hr.slice(i, i + 2000).join(',')}`)
+  return db
+}
+
+describe('HR tier per night (packages#68)', () => {
+  const night = (iso: string) => computeNightEpochs(iso, 0)
+
+  it('stages each night at its own cadence after a change, where the whole-history median lags', async () => {
+    // 60 days every 30 min, then 5 days every 5 min.
+    const db = await hrDb([
+      { from: '2026-05-01T18:00:00', hours: 60 * 24, every: 1800 },
+      { from: '2026-06-30T18:00:00', hours: 5 * 24, every: 300 },
+    ])
+    expect(await detectHrTier(db)).toBe(30) // v3.1: the old cadence still holds the median
+    const n = night('2026-07-03')
+    expect(await detectNightHrTier(db, n.windowStart, n.windowEnd)).toEqual({ tier: 5, source: 'night' })
+    const old = night('2026-06-10')
+    expect(await detectNightHrTier(db, old.windowStart, old.windowEnd)).toEqual({ tier: 30, source: 'night' })
+    await db.close?.()
+  }, 60_000)
+
+  it('matches the whole-history tier on a ring whose cadence never changed', async () => {
+    const db = await hrDb([{ from: '2026-06-01T18:00:00', hours: 20 * 24, every: 600 }])
+    const n = night('2026-06-15')
+    expect(await detectHrTier(db)).toBe(10)
+    expect(await detectNightHrTier(db, n.windowStart, n.windowEnd)).toEqual({ tier: 10, source: 'night' })
+    await db.close?.()
+  }, 60_000)
+
+  it('a thin night takes the 14 days ending at it, unaffected by anything later', async () => {
+    // 20 days every 10 min, one thin night (a few 5-min readings), then 30 days every 5 min.
+    const db = await hrDb([
+      { from: '2026-06-01T18:00:00', hours: 20 * 24, every: 600 },
+      { from: '2026-06-21T20:00:00', hours: 0.5, every: 300 },
+      { from: '2026-06-23T18:00:00', hours: 30 * 24, every: 300 },
+    ])
+    const thin = night('2026-06-22')
+    const tier = await detectNightHrTier(db, thin.windowStart, thin.windowEnd)
+    expect(tier).toEqual({ tier: 10, source: 'recent' })
+    await db.close?.()
+  }, 60_000)
+
+  it('the night needs NIGHT_TIER_MIN_GAPS gaps; with none anywhere it is tier 30', async () => {
+    const n = night('2026-06-22')
+    // Exactly the threshold: 10 gaps at 5 min ⇒ judged on the night.
+    const enough = await hrDb([
+      { from: '2026-06-01T18:00:00', hours: 20 * 24, every: 1800 },
+      { from: '2026-06-22T01:00:00', hours: (NIGHT_TIER_MIN_GAPS + 1) * 300 / 3600, every: 300 },
+    ])
+    expect(await detectNightHrTier(enough, n.windowStart, n.windowEnd)).toEqual({ tier: 5, source: 'night' })
+    await enough.close?.()
+
+    const empty = await hrDb([])
+    expect(await detectNightHrTier(empty, n.windowStart, n.windowEnd)).toEqual({ tier: 30, source: 'recent' })
+    await empty.close?.()
+  }, 60_000)
 })
 
 describe('morningVitalsSql order (#52)', () => {

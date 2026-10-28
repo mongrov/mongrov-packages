@@ -75,9 +75,9 @@ describe('correctSleepNights', () => {
     const out = await correctSleepNights(db, { nights: ['2026-06-18', '2026-06-25'], timeZone: 'UTC', cutoffEpoch: 0 })
     await db.close?.()
 
-    expect(out).toMatchObject({ hrIntervalMin: 5, p75: 60, p90: 60 })
+    expect(out).toMatchObject({ p75: 60, p90: 60 })
     const [night, empty] = out.nights
-    expect(night).toMatchObject({ night: '2026-06-18', status: 'ok', settleMin: 0, tzOffsetHours: 0 })
+    expect(night).toMatchObject({ night: '2026-06-18', status: 'ok', hrIntervalMin: 5, hrTierSource: 'night', settleMin: 0, tzOffsetHours: 0 })
     expect(night.recoveredMin).toBeGreaterThan(0) // the 01:00–01:30 hole and the tail
     expect(empty).toMatchObject({ night: '2026-06-25', status: 'no_firmware_sleep' })
   }, 60_000)
