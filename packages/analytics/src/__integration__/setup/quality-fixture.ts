@@ -43,7 +43,15 @@ export async function openSeeded(quality: QualityOptions = {}): Promise<HybridDu
       CASE WHEN g % 211 = 0 THEN 20
            WHEN g % 97 = 0 THEN 150
            ELSE 60 + (g % 20) END
-    FROM ${every(5)}`)
+    FROM ${every(5)}
+    -- No heart rate while the ring reads ambient, as on a real ring: heart rate
+    -- is wear evidence (#482). The edges land a reading exactly
+    -- WEAR_HR_EVIDENCE_MINUTES from the nearest heart rate (905, 920; 1445, 1490).
+    WHERE NOT (${MOD(5)} < 60 OR ${MOD(5)} BETWEEN 900 AND 929)`)
+  // An implausible heart rate inside the dip is not wear evidence: 910-915 stay off-wrist.
+  await db.execute(`INSERT INTO heart_rate (ts, brand, family_id, user_id, device_id, bpm)
+    SELECT ${T0} + INTERVAL (d * 1440 + 913) MINUTE, '${B}','${F}','${U}','ring_1', 20
+    FROM generate_series(0, ${DAYS - 1}) AS t(d)`)
 
   await db.execute(`INSERT INTO hrv (ts, brand, family_id, user_id, device_id, hrv_ms, stress)
     SELECT ${T0} + INTERVAL (g * 5) MINUTE, '${B}','${F}','${U}','ring_1',

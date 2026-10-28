@@ -100,6 +100,10 @@ beforeAll(async () => {
   const batch = mapFirmwareExport(fw, ctx, { now: new Date('2026-08-21T00:00:00Z') })
   for (const t of ['temperature', 'heart_rate', 'spo2', 'hrv', 'activity'] as const)
     await insertRows(t, batch[t])
+  // Not in the shared fixture (yet): an SpO2 on the nightstand with no heart
+  // rate within 10 minutes, so wear is still exercised on temperature alone
+  // now that heart rate is wear evidence (#482).
+  await insertRows('spo2', [{ ...batch.spo2[0], ts: new Date('2026-08-20T06:40:00Z'), spo2: 95 }])
 }, 120_000)
 
 afterAll(async () => {
@@ -107,14 +111,15 @@ afterAll(async () => {
 })
 
 describe('temperature — worn, warm-up, and the Android 10x guard', () => {
-  it('flags the nightstand run, the warm-up onset and the 10x value', async () => {
+  it('flags the ambient run, the warm-up onset and the 10x value', async () => {
     const rows = await db.execute<{ t: number, worn: boolean, warm_up: boolean, scale_suspect: boolean, clean: boolean }>(
       `SELECT temp_c::DOUBLE AS t, worn, warm_up, scale_suspect, clean
        FROM v_temperature_q WHERE user_id = $u ORDER BY ts`,
       { u: USER },
     )
     expect(rows.map(r => r.t)).toEqual([24, 23, 24, 35, 36, 36, 37, 365, 36, 36, 37])
-    expect(rows.map(r => r.worn)).toEqual([false, false, false, true, true, true, true, true, true, true, true])
+    // 06:00 and 06:30 are off-wrist; the 07:00 24 C has a heart rate beside it (#482).
+    expect(rows.map(r => r.worn)).toEqual([false, false, true, true, true, true, true, true, true, true, true])
     // Only the first on-wrist reading after an off-wrist one is warming up.
     expect(rows.map(r => r.warm_up)).toEqual([false, false, false, true, false, false, false, false, false, false, false])
     expect(rows.filter(r => r.scale_suspect).map(r => r.t)).toEqual([365])
@@ -134,12 +139,14 @@ describe('heart rate — spike rejection', () => {
     expect(spikes).toEqual([190, 250])
   })
 
-  it('drops off-wrist, spike and clamped readings — 20 survive', async () => {
+  it('drops spike and clamped readings, never a heart rate for wear — 23 survive', async () => {
     const bpm = await column<number>(`SELECT bpm AS v FROM v_heart_rate_clean WHERE user_id = $u ORDER BY ts`)
-    expect(bpm).toHaveLength(20)
+    expect(bpm).toHaveLength(23)
     expect(bpm).not.toContain(190)
     // The 07:30 re-wear reading stays: warm-up is a temperature gate (#377).
-    expect(bpm.slice(0, 4)).toEqual([88, 70, 66, 64]) // 06:00-07:00 off-wrist gone
+    // 07:00-07:20 beside a 24 C reading: a heart rate is its own wear evidence (#482).
+    expect(bpm.slice(0, 7)).toEqual([52, 50, 51, 88, 70, 66, 64])
+    expect(await column<boolean>(`SELECT bool_and(worn) AS v FROM v_heart_rate_q WHERE user_id = $u`)).toEqual([true])
     expect(Math.max(...bpm)).toBe(120)
   })
 
@@ -194,10 +201,12 @@ describe('diagnostic counts', () => {
     const n = (m: string, k: string) => Number(by[m][k])
     expect(n('temperature', 'scale_suspect')).toBe(1)
     expect(n('temperature', 'excluded')).toBe(5)
-    expect(n('temperature', 'off_wrist')).toBe(3)
+    expect(n('temperature', 'off_wrist')).toBe(2)
     expect(n('heart_rate', 'spike')).toBe(2)
-    expect(n('heart_rate', 'excluded')).toBe(5)
-    expect(n('spo2', 'excluded')).toBe(2)
+    expect(n('heart_rate', 'off_wrist')).toBe(0)
+    expect(n('heart_rate', 'excluded')).toBe(2)
+    expect(n('spo2', 'off_wrist')).toBe(1)
+    expect(n('spo2', 'excluded')).toBe(3)
     expect(n('hrv', 'excluded')).toBe(2)
     for (const m of ['heart_rate', 'spo2', 'hrv']) {
       expect(n(m, 'scale_suspect')).toBe(0)
@@ -367,11 +376,13 @@ describe('gate switches off (v1 parity) — every reading is shown, and alerts',
     expect(await fires(compiled.sql, compiled.params)).toBe(true)
   })
 
-  it('one switch at a time: range off shows the 10x value, wear still hides the nightstand run', async () => {
+  it('one switch at a time: range off shows the 10x value, wear still hides the ambient run', async () => {
     await withQuality({ rangeFilter: false })
     const temps = await column<number>(`SELECT temp_c::DOUBLE AS v FROM v_temperature_clean WHERE user_id = $u ORDER BY ts`)
     expect(temps).toContain(365)
-    expect(temps).not.toContain(24)
+    // 06:00 24 and 06:30 23 stay hidden; 07:00 24 has a heart rate beside it (#482).
+    expect(temps).not.toContain(23)
+    expect(temps.filter(t => t === 24)).toHaveLength(1)
   })
 
   it('one switch at a time: spike off keeps the 190, range still drops the 250', async () => {
@@ -381,10 +392,10 @@ describe('gate switches off (v1 parity) — every reading is shown, and alerts',
     expect(bpm).not.toContain(250)
   })
 
-  it('one switch at a time: wear off keeps the off-wrist HR; spike and range still apply', async () => {
+  it('one switch at a time: wear off keeps the off-wrist SpO2; spike and range still apply', async () => {
     await withQuality({ wearFilter: false })
-    const kept = await column<number>(`SELECT bpm AS v FROM v_heart_rate_q WHERE user_id = $u AND NOT worn AND clean`)
-    expect(kept.length).toBeGreaterThan(0)
+    const kept = await column<number>(`SELECT spo2 AS v FROM v_spo2_q WHERE user_id = $u AND NOT worn AND clean`)
+    expect(kept).toEqual([95])
     const bpm = await column<number>(`SELECT bpm AS v FROM v_heart_rate_clean WHERE user_id = $u`)
     expect(bpm.length).toBeGreaterThan(20)
     expect(bpm).not.toContain(190)

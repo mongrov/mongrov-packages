@@ -32,11 +32,19 @@
  * Excluded readings are flagged, never deleted: the raw row stays in
  * `v_{table}` for charts (which may mute or omit them) and diagnostics.
  *
- * The ring reports no wear signal, so `worn` comes from temperature: a
- * reading below 30 C is ambient, not skin. A vital is judged by the latest
- * temperature at or before it, and only if that temperature is recent — with
- * no recent evidence the reading is assumed worn, because absence of a
- * temperature is not evidence the ring was off.
+ * The ring reports no wear signal, so `worn` is inferred, heart rate first:
+ *   - A heart-rate reading within WEAR_HR_EVIDENCE_MINUTES either side means
+ *     worn. The firmware records no heart rate off the finger, so this is the
+ *     ring's own proof of wear — and a heart-rate reading is its own evidence,
+ *     so the wear gate never removes heart rate (zivaone_app#482).
+ *   - Otherwise temperature decides: a reading below 30 C is ambient, not
+ *     skin. A vital is judged by the latest temperature at or before it, and
+ *     only if that temperature is recent — with no recent evidence the reading
+ *     is assumed worn, because absence of a temperature is not evidence the
+ *     ring was off.
+ * Temperature alone hid worn readings: a worn ZR100/ZR200 reads 26-30 C on
+ * cool skin, and in one QA export ten such readings removed 64 of 287 heart
+ * rates and 11 of 47 SpO2s, each with a heart rate within 6 minutes.
  *
  * Two helper views feed the flags, both built before the `_q` views:
  *   v_wear    per temperature reading: is the ring on, and is this the
@@ -66,6 +74,12 @@ export const PLAUSIBLE_RANGES = {
 export const WEAR_TEMP_MIN_C = 30
 /** How long a temperature reading counts as wear evidence for later vitals. */
 export const WEAR_EVIDENCE_MINUTES = 60
+/**
+ * A heart-rate reading this close (either side) proves the ring was worn,
+ * whatever the temperature says (zivaone_app#482, ruled 2026-10-28). Only a
+ * plausible heart rate counts — the same clamp as `plausible`.
+ */
+export const WEAR_HR_EVIDENCE_MINUTES = 10
 /** §13c: discard the first 10 minutes of TEMPERATURE after the ring goes back on. */
 export const WARM_UP_MINUTES = 10
 /** Same "still" test as the D-G resting metrics. See STILL_STEPS_PER_HOUR. */
@@ -164,7 +178,30 @@ function wearJoin(source: string): string {
    AND m.ts >= w.ts`
 }
 
-const WORN = `CASE WHEN w.ts IS NULL OR w.ts < m.ts - INTERVAL ${WEAR_EVIDENCE_MINUTES} MINUTE
+/**
+ * The nearest plausible heart rate either side of each reading, same device:
+ * `hp` at or before it, `hn` at or after. Only their `ts` is read.
+ */
+function hrEvidenceJoin(source: string): string {
+  const on = (a: string) => `${a}.user_id = m.user_id AND ${a}.brand = m.brand
+   AND ${a}.family_id = m.family_id AND ${a}.device_id = m.device_id`
+  return `ASOF LEFT JOIN ${source} hp
+    ON ${on('hp')}
+   AND m.ts >= hp.ts
+  ASOF LEFT JOIN ${source} hn
+    ON ${on('hn')}
+   AND m.ts <= hn.ts`
+}
+
+/** The plausible heart rates `hrEvidenceJoin` looks up, from `from`. */
+function hrEvidenceRelation(from: string): string {
+  return `(SELECT user_id, brand, family_id, device_id, ts FROM ${from}
+    WHERE bpm BETWEEN ${BPM_MIN} AND ${BPM_MAX})`
+}
+
+const WORN = `CASE WHEN hp.ts >= m.ts - INTERVAL ${WEAR_HR_EVIDENCE_MINUTES} MINUTE
+                OR hn.ts <= m.ts + INTERVAL ${WEAR_HR_EVIDENCE_MINUTES} MINUTE THEN TRUE
+              WHEN w.ts IS NULL OR w.ts < m.ts - INTERVAL ${WEAR_EVIDENCE_MINUTES} MINUTE
               THEN TRUE ELSE w.on_wrist END`
 
 const WARM_UP = `COALESCE(w.onset AND m.ts < w.ts + INTERVAL ${WARM_UP_MINUTES} MINUTE, FALSE)`
@@ -396,7 +433,8 @@ function rangeGateSql(opts: QualityOptions, column: string): string {
  * same shape and the exclusion counts stay honest.
  */
 function sharedFlags(table: QualityTable): string {
-  return `${WORN} AS worn,
+  // A heart-rate reading is its own wear evidence (see WORN).
+  return `${table === 'heart_rate' ? 'TRUE' : WORN} AS worn,
          ${table === 'temperature' ? WARM_UP : 'FALSE'} AS warm_up,
          ${STILL} AS still`
 }
@@ -426,7 +464,6 @@ FROM (
   FROM (
     ${withSpike(src.base)}
   ) m
-  ${wearJoin(src.wear)}
   ${motionJoin(src.motion)}
 ) f`
 }
@@ -441,6 +478,7 @@ FROM (
          COALESCE(m.spo2 BETWEEN ${SPO2_MIN} AND ${SPO2_MAX}, FALSE) AS plausible
   FROM ${src.base} m
   ${wearJoin(src.wear)}
+  ${hrEvidenceJoin(src.hr)}
   ${motionJoin(src.motion)}
 ) f`
 }
@@ -457,6 +495,7 @@ FROM (
            AND m.temp_c / 10 BETWEEN ${TEMP_MIN} AND ${TEMP_MAX}, FALSE) AS scale_suspect
   FROM ${src.base} m
   ${wearJoin(src.wear)}
+  ${hrEvidenceJoin(src.hr)}
   ${motionJoin(src.motion)}
 ) f`
 }
@@ -478,6 +517,7 @@ FROM (
          COALESCE(m.hrv_ms BETWEEN ${HRV_MIN} AND ${HRV_MAX}, FALSE) AS plausible
   FROM ${src.base} m
   ${wearJoin(src.wear)}
+  ${hrEvidenceJoin(src.hr)}
   ${motionJoin(src.motion)}
 ) f`
 }
@@ -497,11 +537,15 @@ WHERE hrv_clean OR stress_clean`
 
 /**
  * Whether `table`'s clean predicate, under `opts`, reads a flag only the ASOF
- * joins produce: `worn` (any vital), `warm_up` (temperature), `still` (SpO2
+ * joins produce: `worn` (SpO2, HRV, temperature — heart rate is always worn),
+ * `warm_up` (temperature), `still` (SpO2
  * and HRV, while the motion gate is on). `plausible` and `spike` need no
  * join: one is the value itself, the other its neighbours in the same table.
  */
 export function cleanNeedsJoins(table: QualityTable, opts: QualityOptions): boolean {
+  // Heart rate: `worn` is always TRUE and no other gate it has needs a join.
+  if (table === 'heart_rate')
+    return false
   if (opts.wearFilter !== false)
     return true
   if (table === 'temperature')
@@ -585,6 +629,8 @@ interface QualitySources {
   wear: string
   /** Running step total, shaped like `v_motion`. */
   motion: string
+  /** Plausible heart-rate instants, for `hrEvidenceJoin`. */
+  hr: string
 }
 
 const Q_BODY: Readonly<Record<QualityTable, (src: QualitySources, opts: QualityOptions) => string>> = {
@@ -595,7 +641,7 @@ const Q_BODY: Readonly<Record<QualityTable, (src: QualitySources, opts: QualityO
 }
 
 function viewSources(table: QualityTable): QualitySources {
-  return { base: `v_${table}`, wear: WEAR_VIEW, motion: MOTION_VIEW }
+  return { base: `v_${table}`, wear: WEAR_VIEW, motion: MOTION_VIEW, hr: hrEvidenceRelation('v_heart_rate') }
 }
 
 function qualityViewDdl(table: QualityTable, opts: QualityOptions): string {
@@ -669,6 +715,11 @@ export function qualityViewNames(): string[] {
  *     the slice gets wrong at the slice's first row — the one case the pad
  *     cannot cover. So the predecessor comes from an ASOF join against the
  *     unbounded `v_temperature`: a lookup, not a window, and exact.
+ *
+ *   - **Heart-rate wear evidence, +/- WEAR_HR_EVIDENCE_MINUTES.** Only a
+ *     heart rate within that distance counts, so one outside the pad would
+ *     not have counted in the full form either. Both ends are inclusive, as
+ *     the comparisons in `WORN` are.
  *
  *   - **Heart-rate base, +/- SPIKE_NEIGHBOUR_MINUTES.** `spike` reads the
  *     immediate neighbours and only counts ones within that distance. A
@@ -761,7 +812,7 @@ function basePadFor(table: QualityTable): number {
 
 function qualityMacroDdl(table: QualityTable, opts: QualityOptions): string {
   const basePad = basePadFor(table)
-  const sources: QualitySources = { base: '_base', wear: '_wear', motion: '_motion' }
+  const sources: QualitySources = { base: '_base', wear: '_wear', motion: '_motion', hr: '_hr' }
   return `CREATE OR REPLACE MACRO ${qualityMacroFor(table)}(lo, hi) AS TABLE
 WITH _motion AS (
 ${motionSlice(`${LO} - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE`, `${HI} + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE`)}
@@ -775,6 +826,12 @@ _wear AS (
   ASOF LEFT JOIN v_temperature p
     ON p.user_id = t.user_id AND p.brand = t.brand AND p.family_id = t.family_id
    AND p.device_id = t.device_id AND t.ts > p.ts
+),
+_hr AS (
+  SELECT user_id, brand, family_id, device_id, ts FROM v_heart_rate
+  WHERE bpm BETWEEN ${BPM_MIN} AND ${BPM_MAX}
+    AND ts >= ${LO} - INTERVAL ${WEAR_HR_EVIDENCE_MINUTES} MINUTE
+    AND ts <= ${HI} + INTERVAL ${WEAR_HR_EVIDENCE_MINUTES} MINUTE
 ),
 _base AS (
   SELECT * FROM v_${table}

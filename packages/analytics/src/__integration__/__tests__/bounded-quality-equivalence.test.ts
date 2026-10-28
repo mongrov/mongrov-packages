@@ -21,6 +21,10 @@
  *     its predecessor outside a 60-minute slice pad — the case LAG gets wrong.
  *   - **A short off-wrist dip** at 900-930, whose onset predecessor IS inside
  *     the pad, so ordinary warm-up is exercised too.
+ *   - **No heart rate while off-wrist** (before 60, and 900-930), so heart-rate
+ *     wear evidence reaches into each dip from both sides and ends exactly
+ *     WEAR_HR_EVIDENCE_MINUTES in: 905 and 920 are kept by it, 910-915 are
+ *     not, despite an implausible 20 bpm at 913 (#482).
  *   - **Step bursts** every 4 hours and at 155-164, so still-windows straddle
  *     slice edges on both sides.
  *   - **Heart-rate spikes and implausible values** scattered on coprime
@@ -87,7 +91,6 @@ describe('bounded quality macros', () => {
     const [hr] = await db.execute<Record<string, number>>(`SELECT
         count(*) FILTER (WHERE spike)::INTEGER AS spike,
         count(*) FILTER (WHERE NOT plausible)::INTEGER AS implausible,
-        count(*) FILTER (WHERE NOT worn)::INTEGER AS off_wrist,
         count(*) FILTER (WHERE still)::INTEGER AS still,
         count(*) FILTER (WHERE NOT still)::INTEGER AS moving
       FROM v_heart_rate_q WHERE user_id = '${U}'`)
@@ -96,6 +99,16 @@ describe('bounded quality macros', () => {
          count(*) FILTER (WHERE warm_up)::INTEGER AS warm_up
        FROM v_temperature_q WHERE user_id = '${U}'`,
     )
+    // Heart rate is its own wear evidence, so wear is exercised on SpO2: off
+    // on temperature alone, and kept by a heart rate within the pad — at
+    // exactly WEAR_HR_EVIDENCE_MINUTES on both sides (#482).
+    const [spo2] = await db.execute<Record<string, number>>(`SELECT
+        count(*) FILTER (WHERE NOT worn)::INTEGER AS off_wrist,
+        count(*) FILTER (WHERE worn AND (epoch(ts)::BIGINT / 60) % 1440 BETWEEN 900 AND 929)::INTEGER AS hr_rescued,
+        count(*) FILTER (WHERE worn AND (epoch(ts)::BIGINT / 60) % 1440 = 905)::INTEGER AS hr_edge_before,
+        count(*) FILTER (WHERE worn AND (epoch(ts)::BIGINT / 60) % 1440 = 920)::INTEGER AS hr_edge_after,
+        count(*) FILTER (WHERE NOT worn AND (epoch(ts)::BIGINT / 60) % 1440 IN (910, 915))::INTEGER AS implausible_hr_ignored
+      FROM v_spo2_q WHERE user_id = '${U}'`)
     // The onset whose predecessor lies OUTSIDE the wear pad: on-wrist at 150
     // after nothing since 55. Without a warm-up row here, the ASOF-onset path
     // is not being tested at all.
@@ -103,7 +116,7 @@ describe('bounded quality macros', () => {
       FROM v_temperature_q WHERE user_id = '${U}' AND warm_up
         AND (epoch(ts)::BIGINT / 60) % 1440 BETWEEN 150 AND 159`)
 
-    for (const [k, v] of Object.entries({ ...hr!, ...temp!, gapOnset: gapOnset!.n }))
+    for (const [k, v] of Object.entries({ ...hr!, ...spo2!, ...temp!, gapOnset: gapOnset!.n }))
       expect({ [k]: Number(v) > 0 }).toEqual({ [k]: true })
 
     await db.close()
