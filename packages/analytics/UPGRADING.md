@@ -39,6 +39,19 @@ primary block has gaps must not leave the earlier night holes.
   sessions overlap, in one sync or two, and names a reference night cut this
   way cause (e): 6035|2026-06-11, whose oracle tail (a per-night harness
   without `clearNight`) ran 30 min into the next night's window.
+## 0.48.x → 0.49.0 — flush summaries count the derived sleep rows
+
+**No API change.** `SensorSink.flush()` results and the scheduled cycle's
+`rowsFlushed` / `failedTables` now include the `sleep_session` and
+`sleep_stage` rows the sleep deriver writes inside the batch. Before, each
+table's entry came from the per-table loop, which ran before the deriver and
+drained both tables empty, so a consumer keying results by table saw
+`sleep_session: 0, sleep_stage: 0` on a sync that derived 20 sessions and
+6,942 stages (zivaone_app#452), and a failed derived flush was invisible to
+the summary. The derived counts are added to the existing entry for each
+table (one entry per table, as before); a failed derived flush marks the
+table failed. Expect `sync.flush.manual.ok`'s `rowsFlushed` to grow by the
+derived row count.
 
 ## 0.47.x → 0.48.0 — sleep correction reads 10-minute step buckets again, and re-derives the night before each batch, as v3.1
 

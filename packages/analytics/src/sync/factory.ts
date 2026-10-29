@@ -48,7 +48,7 @@ import { OverflowStore } from './overflow'
 import { PendingClosesStore } from './pending_closes'
 import { R2Pusher } from './pusher'
 import { logError, SyncScheduler } from './scheduler'
-import { createSleepDeriver } from './sleep-derive'
+import { createSleepDeriver, mergeFlushResults } from './sleep-derive'
 
 import { FlushTriggers } from './triggers'
 import { WatermarkStore } from './watermark'
@@ -468,12 +468,13 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         // as a single unit rather than one wake-up per table.
         const batchId = flusher.beginBatch('scheduled')
         try {
-          const results = await Promise.all(
+          const flushed = await Promise.all(
             config.tables.map(t => flusher.flush(t, 'scheduled', batchId)),
           )
           // After the raw tables land, before endBatch: corrected nights
           // are written into this batch so rules see them (never throws).
-          await sleepDeriver?.derive(batchId, 'scheduled')
+          // Their flush counts in the summary (zivaone_app#452).
+          const results = mergeFlushResults(flushed, await sleepDeriver?.derive(batchId, 'scheduled') ?? [])
           // Reported, not thrown: a failed table keeps its rows buffered for
           // the next cycle, and the rest of the cycle (push, fetch,
           // baselines) should still run. The scheduler logs the summary.
@@ -827,13 +828,16 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       // strictBatchOrdering exists to close.
       const batchId = flusher.beginBatch('manual')
       const startedAt = Date.now()
-      const results: FlushResult[] = []
+      let results: FlushResult[] = []
       try {
         for (const table of tables) {
           results.push(await flusher.flush(table, 'manual', batchId))
           triggers.noteDrain(table)
         }
-        await sleepDeriver?.derive(batchId, 'manual')
+        // The derived sleep rows are flushed by the deriver, after the loop
+        // drained `sleep_session` / `sleep_stage` empty — fold them in, or
+        // the caller reads 0 for both (zivaone_app#452).
+        results = mergeFlushResults(results, await sleepDeriver?.derive(batchId, 'manual') ?? [])
       }
       finally {
         flusher.endBatch(batchId)

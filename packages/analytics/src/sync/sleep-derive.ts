@@ -63,6 +63,7 @@ import type { SchedulerLogger } from './scheduler'
 import type { ClassifiedRow } from './sleep-correction/classify'
 import type { SqlRunner } from './sleep-correction/correct'
 import type { NightOutcome } from './sleep-correction/orchestrate'
+import type { FlushResult } from './types'
 
 import { describeError } from '../core/errors'
 import { tailId } from '../core/logger'
@@ -113,8 +114,16 @@ export interface SleepDeriver {
   }) => void
   /** (user, device) ranges still waiting for a cycle. */
   pendingCount: () => number
-  /** Correct every pending range and write its nights into `batchId`. Never throws. */
-  derive: (batchId: string, reason: FlushReason) => Promise<void>
+  /**
+   * Correct every pending range and write its nights into `batchId`. Never
+   * throws. Resolves with the `sleep_session` / `sleep_stage` flush results
+   * (empty when nothing was pending), so a caller's flush summary counts the
+   * derived rows — they are buffered and flushed here, after the caller's own
+   * per-table flushes, which drained those tables while they were still
+   * empty (zivaone_app#452: the handoff logged `sleep_session: 0` on a sync
+   * that derived 20 sessions).
+   */
+  derive: (batchId: string, reason: FlushReason) => Promise<FlushResult[]>
 }
 
 const SIX_HOURS = 6 * 3600
@@ -420,7 +429,7 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
 
     async derive(batchId, reason) {
       if (pending.size === 0)
-        return
+        return []
       const ranges = [...pending.values()]
       pending.clear()
       const startedAt = now()
@@ -469,8 +478,44 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       // Once per batch cycle that had sleep to correct.
       deps.logger?.info('sync.sleep-derive: derived', { ...totals, reason, durationMs: now() - startedAt })
       // Land the derived rows inside this batch, so batch:complete follows them.
-      await deps.flusher.flush('sleep_session', reason, batchId)
-      await deps.flusher.flush('sleep_stage', reason, batchId)
+      return [
+        await deps.flusher.flush('sleep_session', reason, batchId),
+        await deps.flusher.flush('sleep_stage', reason, batchId),
+      ]
     },
   }
+}
+
+/**
+ * Fold the deriver's flush results into a batch's per-table results.
+ *
+ * The batch flushed `sleep_session` / `sleep_stage` once already (empty: the
+ * derived rows did not exist yet), so the derived result is merged into that
+ * entry rather than appended — one entry per table, as callers that key by
+ * table (`Object.fromEntries`) expect. Counts add; a failure on either side
+ * makes the table failed, keeping the first error.
+ */
+export function mergeFlushResults(results: readonly FlushResult[], derived: readonly FlushResult[]): FlushResult[] {
+  const out = [...results]
+  for (const d of derived) {
+    const i = out.findIndex(r => r.table === d.table)
+    if (i === -1) {
+      out.push(d)
+      continue
+    }
+    const r = out[i]
+    const inserted = (r.rowsInserted ?? 0) + (d.rowsInserted ?? 0)
+    const rejected = (r.rowsRejected ?? 0) + (d.rowsRejected ?? 0)
+    out[i] = {
+      ...r,
+      ...d,
+      table: r.table,
+      rowsFlushed: r.rowsFlushed + d.rowsFlushed,
+      ...(r.rowsInserted != null || d.rowsInserted != null ? { rowsInserted: inserted } : {}),
+      ...(r.rowsRejected != null || d.rowsRejected != null ? { rowsRejected: rejected } : {}),
+      ok: r.ok && d.ok,
+      ...(r.error ?? d.error ? { error: r.error ?? d.error } : {}),
+    }
+  }
+  return out
 }
