@@ -14,8 +14,9 @@
  *
  * Known convention differences are REPORTED, not hidden, and the assertions
  * are on what must hold regardless: the mapper/flush row counts, a session
- * for every oracle night, and exact-or-explained parity at least as good as
- * the parity harness (89/92). Each drifting night is re-run under controlled
+ * for every oracle night, no two sessions overlapping (#75),
+ * and exact-or-explained parity at least as good as the parity harness
+ * (89/92). Each drifting night is re-run under controlled
  * conditions so its cause can be named:
  *   (a) tier — D3 per-night tier vs v3.1's whole-history median
  *   (b) scalars — exact `quantile_cont` p75/p90 vs DataFusion's approximation
@@ -23,6 +24,9 @@
  *       10-min `activity_bucket` (staging.ts, 0.48.0); v3.1 fed the record's
  *       own `activitydetails.step`. The two differ where sum(arraySteps) ≠
  *       step (~1.3% of records) or a bucket has no minute rows.
+ *   (e) overlap — the night ends where the next night begins (#75, as v3.1's
+ *       `clearNight` cut it on the phone); the oracle harness ran each night
+ *       alone, so its tail runs on into the next night's window.
  *   (d) other
  *
  * Captures are real users' ring data and are not in this repo. Set
@@ -119,7 +123,7 @@ interface Delta {
   within: boolean
 }
 
-type Cause = 'a' | 'b' | 'c' | 'a+c' | 'b+c' | 'd'
+type Cause = 'a' | 'b' | 'c' | 'a+c' | 'b+c' | 'd' | 'e'
 
 /** A controlled re-run against a target: its deltas, or an outcome (`no_primary`, …). */
 type Outcome = Delta | { error: string }
@@ -341,6 +345,13 @@ interface Replay {
   cutoffEpoch: number
   hrMin: number | null
   sessions: StoredSession[]
+  /**
+   * Sessions whose spans overlap (#75): a night's tail re-claimed by the
+   * next night. Checked on the sessions, not on equal stage `ts` values —
+   * two nights' rows need not share a second (the study case had envelope
+   * minutes at :40 against firmware minutes at :01).
+   */
+  overlapping: Array<{ a: string, b: string }>
   counts: Omit<CaptureCounts, 'capture' | 'embeddedNights'>
 }
 
@@ -445,11 +456,18 @@ async function replayCapture(dump: Record<string, unknown>, deviceId: string, ti
     stages: Number(r.stages),
   }))
 
+  const overlapping = (await db.execute<{ a: unknown, b: unknown }>(
+    `SELECT a.session_id AS a, b.session_id AS b FROM sleep_session a JOIN sleep_session b
+     ON a.session_id < b.session_id AND a.ts_start < b.ts_end AND b.ts_start < a.ts_end
+     ORDER BY a.ts_start`,
+  )).map(r => ({ a: String(r.a), b: String(r.b) }))
+
   return {
     db,
     cutoffEpoch,
     hrMin: num(hr?.e),
     sessions,
+    overlapping,
     counts: {
       sleepDump: sleepDump.length,
       sleepDistinct: new Set(sleepDump.map(r => `${epoch(r.start)}|${epoch(r.date)}`)).size,
@@ -540,6 +558,10 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
       const r = await replayCapture(dump, nights[0].ring, timeZone)
       const embedded = embeddedNights(dump, nights[0].tz)
       counts.push({ capture: file, ...r.counts, embeddedNights: embedded.size })
+      for (const o of r.overlapping) {
+        const [a, b] = [o.a, o.b].map(id => r.sessions.find(s => s.session_id === id)!)
+        surprises.push(`${file}: sessions overlap — ${a.night} ${a.s}-${a.e} and ${b.night} ${b.s}-${b.e}`)
+      }
 
       // The deriver's staging views outlive `derive()`; the scalars it used
       // are re-read from them (it does not expose per-night tiers).
@@ -616,7 +638,14 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
         // Drift from the oracle (or a session where the oracle had none):
         // re-run under controlled conditions to name the cause.
         const driftsFromRef = want ? row.vsRef != null && !row.vsRef.within : ref.error != null && stats != null
-        if (driftsFromRef && ref.tier != null && ref.p75 != null && ref.p90 != null) {
+        // The night's END is the next stored session's start: cut by the
+        // night after it (#75). A standalone re-run cannot reproduce that.
+        const cutByNext = stats != null && row.vsRef != null && row.vsRef.dEnd < 0
+          && r.sessions.some(s => s.s === stats.procEnd + 60)
+        if (driftsFromRef && cutByNext) {
+          row.experiments = { cause: 'e' }
+        }
+        else if (driftsFromRef && ref.tier != null && ref.p75 != null && ref.p90 != null) {
           await ensureV1Steps()
           const refScalars = { tier: ref.tier, p75: ref.p75, p90: ref.p90 }
           const prodScalars = { tier: tier.tier, p75, p90 }
@@ -650,6 +679,8 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
         const splitAt = nightWindow(nights[nights.length - 1].iso, timeZone).windowStart
         const twice = await replayCapture(dump, nights[0].ring, timeZone, splitAt)
         await twice.db.close()
+        if (twice.overlapping.length)
+          surprises.push(`${file} (split): ${twice.overlapping.length} pairs of sessions overlap`)
         const shape = (ss: StoredSession[]) => ss.map(s => `${s.night} ${s.s}-${s.e} ${s.total_minutes}m L${s.light_minutes} D${s.deep_minutes} R${s.rem_minutes}`)
         const single = shape(r.sessions)
         const split = shape(twice.sessions)
@@ -719,6 +750,8 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
     expect(results.filter(r => !r.ref.error && r.ref.procStart != null && r.port.error).map(r => r.key)).toEqual([])
     // Stages are written one per session minute.
     expect(surprises.filter(s => s.includes('stage rows for'))).toEqual([])
+    // A minute belongs to one night (#75): no two sessions overlap, in one sync or two.
+    expect(surprises.filter(s => s.includes('overlap'))).toEqual([])
     // At least as good as the parity harness, once the known conventions are named.
     expect(exact.length + within.length + explained.length).toBeGreaterThanOrEqual(PARITY_FLOOR)
   }, 600_000)

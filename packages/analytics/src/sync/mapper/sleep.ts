@@ -84,7 +84,7 @@ export interface SessionsFromCorrectedResult {
 }
 
 /** Width of one Phase 2/3 row. v3.1 emits every row at `unitLength` 1. */
-const ROW_SECONDS = 60
+export const ROW_SECONDS = 60
 
 /**
  * One night's corrected rows → sessions + stages.
