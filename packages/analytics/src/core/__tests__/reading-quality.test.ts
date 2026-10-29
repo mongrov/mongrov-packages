@@ -100,10 +100,6 @@ beforeAll(async () => {
   const batch = mapFirmwareExport(fw, ctx, { now: new Date('2026-08-21T00:00:00Z') })
   for (const t of ['temperature', 'heart_rate', 'spo2', 'hrv', 'activity'] as const)
     await insertRows(t, batch[t])
-  // Not in the shared fixture (yet): an SpO2 on the nightstand with no heart
-  // rate within 10 minutes, so wear is still exercised on temperature alone
-  // now that heart rate is wear evidence (#482).
-  await insertRows('spo2', [{ ...batch.spo2[0], ts: new Date('2026-08-20T06:40:00Z'), spo2: 95 }])
 }, 120_000)
 
 afterAll(async () => {
