@@ -73,7 +73,48 @@ describe('dropImplausibleRows', () => {
     expect(dropImplausibleRows('spo2', [{ ts: NOW, spo2: 50 }], NOW).dropped).toBe(1)
     expect(dropImplausibleRows('spo2', [{ ts: NOW, spo2: 97 }], NOW).dropped).toBe(0)
     expect(dropImplausibleRows('heart_rate', [{ ts: NOW, bpm: 0 }], NOW).dropped).toBe(1)
-    expect(dropImplausibleRows('hrv', [{ ts: NOW, hrv_ms: 4 }], NOW).dropped).toBe(1)
+  })
+
+  // Spec §13b: plausibility is per vital, not per row. The canonical fixture
+  // (techspec firmware-dirty-readings.json) keeps "10:00 HRV 0 ... its stress
+  // 35 stays clean".
+  it('nulls an implausible HRV and keeps the row, so its stress survives', () => {
+    const report = dropImplausibleRows('hrv', [
+      { ts: NOW, hrv_ms: 0, stress: 35 },
+      { ts: NOW, hrv_ms: 4, stress: 40 },
+      { ts: NOW, hrv_ms: 50, stress: 20 },
+      { ts: NOW, hrv_ms: 250, stress: 22 },
+    ], NOW)
+    expect(report.dropped).toBe(0)
+    expect(report.nulled).toBe(3)
+    expect(report.kept).toEqual([
+      { ts: NOW, hrv_ms: null, stress: 35 },
+      { ts: NOW, hrv_ms: null, stress: 40 },
+      { ts: NOW, hrv_ms: 50, stress: 20 },
+      { ts: NOW, hrv_ms: null, stress: 22 },
+    ])
+    expect(report.sample).toBe('hrv_ms=0 outside [5, 200], set to NULL')
+  })
+
+  it('keeps an HRV row whose reading is already NULL, without counting it', () => {
+    const report = dropImplausibleRows('hrv', [{ ts: NOW, hrv_ms: null, stress: 35 }], NOW)
+    expect(report).toEqual({ kept: [{ ts: NOW, hrv_ms: null, stress: 35 }], dropped: 0, nulled: 0 })
+  })
+
+  it('still drops an HRV row whose timestamp is implausible', () => {
+    const report = dropImplausibleRows('hrv', [
+      { ts: new Date('2019-12-31T23:59:00.000Z'), hrv_ms: 50, stress: 20 },
+      { ts: new Date('2019-12-31T23:59:00.000Z'), hrv_ms: 0, stress: 20 },
+    ], NOW)
+    expect(report.kept).toEqual([])
+    expect(report.dropped).toBe(2)
+    expect(report.nulled).toBe(0)
+  })
+
+  it('the other reading tables never null, they drop', () => {
+    const report = dropImplausibleRows('heart_rate', [{ ts: NOW, bpm: 0 }], NOW)
+    expect(report.nulled).toBe(0)
+    expect(report.dropped).toBe(1)
   })
 
   it('leaves tables it does not guard completely alone', () => {

@@ -1,5 +1,29 @@
 # Upgrading
 
+## 0.48.x → 0.49.0 — `pushFirmware` drops implausible rows, as the live path does; an implausible HRV is nulled, not dropped (#81)
+
+**Behaviour change for every `sink.pushFirmware` caller and every `dropImplausibleRows` caller. `DropReport` gains a field.**
+
+### `pushFirmware` filters
+
+`pushFirmware` (bulk sync, and any replayed dump) now runs each mapped table through `dropImplausibleRows` before buffering it. Until now only the app's live BLE path did this, before `sink.push`. So a bulk sync stored 0 bpm, 0 % SpO2 and dates before 2020-01-01 or after now + 30 d in the raw tables. The clean views hid those rows, but raw-view queries counted them as readings: `health.spo2HasAnyReadings`, `hr.daysWorn` and `hr.baselineMaturity` in zivaone_app.
+
+- The bounds are the same as before: `PLAUSIBLE_RANGES` (bpm [30, 220], spo2 [70, 100], temp_c [30, 43], hrv_ms [5, 200]) and the [`EARLIEST_PLAUSIBLE_ISO`, now + `MAX_CLOCK_AHEAD_DAYS`] window. Only `heart_rate`, `spo2`, `temperature` and `hrv` are filtered. Every other table passes through untouched, and `sleep_raw` and the sleep deriver are not affected.
+- Changes are logged at `warn` on `IMPLAUSIBLE_ROWS_EVENT` (`'sensor-adapter.rows.implausible'`, newly exported). That is the event the app's live path already logs. The payload is `{ event: 'pushFirmware', table, dropped, nulled, kept, sample }`, one line per table that lost or nulled rows. A table that loses every row is not pushed.
+- Rows already stored are not cleaned up by the upgrade.
+
+### `dropImplausibleRows` nulls an implausible HRV instead of dropping the row
+
+Plausibility is per vital, not per row (sprint6 spec §13b). The canonical fixture `techspec/.specifica/fixtures/firmware-dirty-readings.json` says in its `$comment`: "10:00 HRV 0 is below the 5 ms clamp; its stress 35 stays clean". `src/core/__tests__/reading-quality.test.ts` pins that in the views.
+
+- On `hrv`, a row whose `hrv_ms` is outside [5, 200] but whose timestamp is sane is now **kept with `hrv_ms: null`**, so its `stress` and BP fields survive. Before, the whole row was dropped, and with it the stress.
+- A row whose `hrv_ms` is already NULL is kept unchanged and not counted.
+- An `hrv` row with an implausible timestamp is still dropped.
+- `heart_rate`, `spo2` and `temperature` still drop the whole row.
+- `DropReport` has a new `nulled: number` field: rows kept with the reading nulled. It is always present, and 0 except on `hrv`.
+- **The live path changes too.** zivaone_app's `sensor-adapter.ts:276` calls the same function, so on 0.49.0 a live HRV-0 row lands with `hrv_ms` NULL and its stress, where today it is dropped. Its log line fires only when `dropped > 0` and does not report `nulled`. To keep a nulled-only chunk visible, the app should log when `dropped > 0 || nulled > 0` and add `nulled` to the payload.
+- App test assertions that need updating on the pin to 0.49.0: none were found on origin/hex. `__mocks__/@mongrov/analytics.ts` stubs `dropImplausibleRows` as a pass-through returning `{ kept, dropped: 0 }` with no `nulled`. That is harmless unless the app starts reading `nulled`, in which case add `nulled: 0` to the stub. No app test asserts `sensor-adapter.rows.implausible`. zivaone_app#543's suite calls `mapFirmwareExport` directly, not `pushFirmware`, so it is unaffected.
+
 ## 0.48.x → 0.49.0 — a minute claimed by two consecutive nights belongs to the later one, as v3.1's `clearNight` did
 
 **Behaviour change (mongrov-packages#75). No API change.**
