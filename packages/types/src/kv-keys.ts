@@ -329,6 +329,32 @@ export const KV_KEY_REGISTRY = {
     usedBy: ['ziva.battery-low', 'ziva.battery-critical'],
     defaultValue: true,
   },
+
+  // ── reading quality ───────────────────────────────────────────────────
+  /**
+   * Settings' motion-filter switch (zivaone_app#474): drop SpO2 / HRV
+   * readings taken while the wearer was moving, and mask an `active` stress
+   * reading from alerting.
+   *
+   * Default OFF (zivaone_app#494), matching analytics' own
+   * `QualityOptions.motionFilter` default (zivaone_app#377): a reading the
+   * chart shows is a reading the alerts count, so an untouched switch keeps
+   * both on the same set.
+   *
+   * `ux_state`, NOT `threshold`: it does not arm a rule, it changes which
+   * readings EVERY rule, chart and baseline sees. The app reads it and passes
+   * it to `engine.setQuality({ motionFilter })` (analytics 0.49.0), which
+   * rebuilds the clean views at once — alerts follow what is shown
+   * (principle 69), so the flip cannot wait for the next attach.
+   */
+  'user:motionFilter': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'Exclude readings taken while moving from charts and alerts',
+    usedBy: [],
+    defaultValue: false,
+  },
+
   'user:activityDay30BannerDismissed': {
     kind: 'ux_state',
     valueType: 'boolean',

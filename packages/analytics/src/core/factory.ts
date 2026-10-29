@@ -14,6 +14,7 @@
 import type { DuckDBFactory, DuckDBInstance } from './engine'
 
 import type { MachineActors } from './machine'
+import type { QualityOptions } from './reading-quality'
 import type {
   AnalyticsAppender,
   AnalyticsConfig,
@@ -43,6 +44,7 @@ import { resolveEffectiveRetention, runRetentionSweep } from './retention'
 import {
   attachLocal,
   attachWarehouse,
+  createQualityViews,
   createViews,
   detachLocal,
   detachWarehouse,
@@ -219,41 +221,38 @@ export function createAnalytics(
       // family_id (see generateViewDdl), which is why they are recreated
       // on every attach rather than created once: a brand switch that
       // reused the previous views would serve the previous tenant's rows.
-      const unavailableCauses: Record<string, string> = {}
-      const views = await createViews(db, {
-        brand: ctx.brand,
-        familyId: ctx.tenantId,
-        localCatalog,
-        remoteCatalog,
-        quality: config.quality,
-      }, {
-        // `warn`: the plain fallback macro is created next, so readers still
-        // answer (at the view's cost). It fires on every attach on a DuckDB
-        // build that rejects the macro, and the fallback failing too is
-        // reported at error as `bounded_reads_off` below.
-        onMacroFailed: (name, cause) =>
-          log.warn('analytics.attach.macro_failed', { macro: name, error: describeError(cause) }),
-        onMacroUnavailable: (name, cause) => {
-          unavailableCauses[name] = describeError(cause)
-        },
+      //
+      // Under the view lock, reading the CURRENT quality options: a
+      // `setQuality` that landed before this point is applied here, and one
+      // that lands during it waits and then recreates the quality views.
+      await withViewLock(async () => {
+        const hooks = boundedHooks()
+        const views = await createViews(db, {
+          brand: ctx.brand,
+          familyId: ctx.tenantId,
+          localCatalog,
+          remoteCatalog,
+          quality,
+        }, hooks)
+        viewsLive = true
+        applyBoundedReads(views.unavailableMacros, hooks.unavailableCauses)
       })
-      // A macro failed in its plain form too: readers stay on the views.
-      boundedReads = views.unavailableMacros.length === 0
-      boundedFailures = 0
-      if (!boundedReads)
-        log.error('analytics.attach.bounded_reads_off', { macros: views.unavailableMacros, errors: unavailableCauses })
       return {
         warehouseSecret: attach.warehouseSecret,
         tokenExpiresAt: attach.tokenExpiresAt.getTime(),
       }
     },
     async detachEngine({ ctx }) {
-      boundedReads = false
       // Views first: they reference the remote catalog, so dropping them
       // after DETACH would leave definitions pointing at a catalog that no
       // longer exists. Best-effort inside dropViews, so a failure here can
-      // never strand the machine in `detaching`.
-      await dropViews(db)
+      // never strand the machine in `detaching`. Under the view lock so a
+      // concurrent `setQuality` cannot recreate them after the drop.
+      await withViewLock(async () => {
+        boundedReads = false
+        viewsLive = false
+        await dropViews(db)
+      })
       if (isLocal) {
         await detachLocal(db, ctx.tenantId)
       }
@@ -349,6 +348,63 @@ export function createAnalytics(
   let boundedReads = false
   /** Run-time failures of a bounded statement this attach (`executeBounded`). */
   let boundedFailures = 0
+
+  /**
+   * The quality options the clean views are built with: `config.quality`
+   * until `setQuality` replaces them, then whatever it was last given. Every
+   * attach reads this, so a choice made before attach (or between attaches)
+   * is the one the next attach builds.
+   */
+  let quality: QualityOptions | undefined = config.quality
+  /**
+   * The quality views exist for the current attach. Set by `attachEngine`
+   * once they are created, cleared by `detachEngine` before they are
+   * dropped — both under `viewLock`, so `setQuality` sees the truth rather
+   * than the machine's state, which says `attaching` for a moment after the
+   * views already exist.
+   */
+  let viewsLive = false
+  /**
+   * Serialises everything that creates or drops the views: attach's view
+   * step, detach's drop, and `setQuality`. Without it a toggle flipped during
+   * attach could be built by attach with the OLD options after `setQuality`
+   * had stored the new ones, or recreate views a detach had just dropped.
+   */
+  let viewLock: Promise<unknown> = Promise.resolve()
+  function withViewLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = viewLock.then(fn, fn)
+    viewLock = run.catch(() => {})
+    return run
+  }
+
+  /** Macro-failure hooks for one view build, collecting why a macro is missing. */
+  function boundedHooks() {
+    const unavailableCauses: Record<string, string> = {}
+    return {
+      unavailableCauses,
+      // `warn`: the plain fallback macro is created next, so readers still
+      // answer (at the view's cost). It fires on every attach on a DuckDB
+      // build that rejects the macro, and the fallback failing too is
+      // reported at error as `bounded_reads_off` below.
+      onMacroFailed: (name: string, cause: unknown) =>
+        log.warn('analytics.attach.macro_failed', { macro: name, error: describeError(cause) }),
+      onMacroUnavailable: (name: string, cause: unknown) => {
+        unavailableCauses[name] = describeError(cause)
+      },
+    }
+  }
+
+  /**
+   * The `boundedReads` verdict for a fresh set of macros, shared by attach and
+   * `setQuality`: a macro failed in its plain form too, so readers stay on
+   * the views. A rebuild also starts the run-time failure count over.
+   */
+  function applyBoundedReads(unavailableMacros: string[], causes: Record<string, string>): void {
+    boundedReads = unavailableMacros.length === 0
+    boundedFailures = 0
+    if (!boundedReads)
+      log.error('analytics.attach.bounded_reads_off', { macros: unavailableMacros, errors: causes })
+  }
 
   /**
    * Family-membership cache backing `engine.getFamilyMembers()`
@@ -602,6 +658,20 @@ export function createAnalytics(
       }
       await saveRetentionOverride(config.storage, currentCtx, days)
       await sweep(currentCtx)
+    },
+    async setQuality(opts) {
+      // Copied, so a caller mutating its object later cannot change what the
+      // next attach builds without going through here.
+      const next: QualityOptions = { ...opts }
+      await withViewLock(async () => {
+        quality = next
+        if (!viewsLive)
+          return
+        const hooks = boundedHooks()
+        const views = await createQualityViews(db, next, hooks, 'query_failed')
+        applyBoundedReads(views.unavailableMacros, hooks.unavailableCauses)
+        log.info('analytics.quality.set', { quality: next })
+      })
     },
     async getLastAttach(brand: string) {
       return loadLastAttach(config.storage, brand)

@@ -34,6 +34,7 @@
  */
 
 import type { HybridDuckDB } from './engine'
+import type { AnalyticsErrorCode } from './errors'
 import type { QualityOptions } from './reading-quality'
 import type {
   AttachContext,
@@ -353,6 +354,20 @@ export async function detachLocal(
 
 // -------------------- union views (Sprint 5 T-06) --------------------
 
+/** Callbacks `createViews` / `createQualityViews` report macro failures through. */
+export interface CreateViewsHooks {
+  /**
+   * A bounded macro failed to create. Attach carries on (see below); this
+   * is how the failure stays loud.
+   */
+  onMacroFailed?: (name: string, cause: unknown) => void
+  /**
+   * The macro's plain stand-in failed too, so the macro does not exist.
+   * `cause` is the stand-in's error — why `boundedReads` will be off.
+   */
+  onMacroUnavailable?: (name: string, cause: unknown) => void
+}
+
 /**
  * Create every `v_{table}` union view for the current attach.
  *
@@ -378,18 +393,7 @@ export async function createViews(
     /** How the clean views judge a reading. See `QualityOptions`. */
     quality?: QualityOptions
   },
-  opts: {
-    /**
-     * A bounded macro failed to create. Attach carries on (see below); this
-     * is how the failure stays loud.
-     */
-    onMacroFailed?: (name: string, cause: unknown) => void
-    /**
-     * The macro's plain stand-in failed too, so the macro does not exist.
-     * `cause` is the stand-in's error — why `boundedReads` will be off.
-     */
-    onMacroUnavailable?: (name: string, cause: unknown) => void
-  } = {},
+  opts: CreateViewsHooks = {},
 ): Promise<CreateViewsResult> {
   for (const table of VIEWED_TABLES) {
     try {
@@ -403,16 +407,35 @@ export async function createViews(
       )
     }
   }
-  // Signal-quality views (T-25) read the union views above, so they come
-  // after them. A missing clean view would fail every rule and baseline, so
+  return createQualityViews(db, ctx.quality, opts, 'attach_failed')
+}
+
+/**
+ * Create (or replace) the signal-quality views and their bounded macros over
+ * the union views, which must already exist.
+ *
+ * `createViews` runs this at attach; `AnalyticsEngine.setQuality` runs it on
+ * its own when the quality options change mid-attach (zivaone_app#474), since
+ * the union views do not depend on them. One body, so the two can never
+ * build different SQL. `failCode` is the code a failed VIEW is reported
+ * under: `attach_failed` at attach, `query_failed` from `setQuality`.
+ */
+export async function createQualityViews(
+  db: HybridDuckDB,
+  quality: QualityOptions | undefined,
+  opts: CreateViewsHooks = {},
+  failCode: AnalyticsErrorCode = 'attach_failed',
+): Promise<CreateViewsResult> {
+  // Signal-quality views (T-25) read the union views, so they come after
+  // them. A missing clean view would fail every rule and baseline, so
   // it fails the attach just as loudly.
-  for (const view of qualityViewDdls(ctx.quality)) {
+  for (const view of qualityViewDdls(quality)) {
     try {
       await db.execute(view.sql)
     }
     catch (cause) {
       throw new AnalyticsError(
-        'attach_failed',
+        failCode,
         `CREATE VIEW ${view.name} failed`,
         rootCause(cause),
       )
@@ -432,7 +455,7 @@ export async function createViews(
   // reported unavailable, and the package's own readers then stay on the
   // views (`AnalyticsEngine.boundedReads`).
   const unavailableMacros: string[] = []
-  for (const macro of qualityMacroDdls(ctx.quality)) {
+  for (const macro of qualityMacroDdls(quality)) {
     try {
       await db.execute(macro.sql)
     }
