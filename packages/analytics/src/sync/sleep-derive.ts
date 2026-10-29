@@ -18,6 +18,17 @@
  * no primary block are left alone — replacing a night with nothing on a
  * partial sync would erase sleep the next sync restores.
  *
+ * The night BEFORE a batch is re-derived too (ruled 2026-10-28). v1 recomputed
+ * every calendar day from the first new sleep chunk's date through today
+ * (ziva_app `AppContextProvider.tsx:1006-1029`), so a night first corrected
+ * by a morning sync — before the day's steps and waking HR had arrived — was
+ * corrected again at the next sync, when Step 5.6 (≥ 150 steps after the
+ * wake it sees) could trim an END the morning could not. The nights a batch's
+ * own `sleep_raw` rows span would miss that, so `nightsBetween` prepends the
+ * night before the earliest one, in every zone. A preceding night with no
+ * firmware sleep comes back `no_firmware_sleep` and its stored rows stay, as
+ * above.
+ *
  * Local only. Rows already pushed to a remote catalog are not rewritten; that
  * needs a server-side answer before cloud sync is switched on.
  */
@@ -57,6 +68,12 @@ export interface SleepDeriverDeps {
   now?: () => number
   logger?: SchedulerLogger
   localCatalog?: string
+  /**
+   * Step relation for Step 5.6 (`staging.ts`): the firmware's 10-minute
+   * bucket totals, as v3.1 (`'bucket'`, default), or the 1-minute rows when
+   * `activity_bucket` is not subscribed (`'minute'`; the factory warns once).
+   */
+  activitySteps?: 'bucket' | 'minute'
 }
 
 export interface SleepDeriver {
@@ -94,12 +111,28 @@ function storedNightOf(windowStart: number, timeZone: string): string {
   return computeNightOf(new Date((windowStart + 60) * 1000), timeZone).toISOString().slice(0, 10)
 }
 
-/** Every 6pm→6pm night between two instants, inclusive. */
+/** The night before an ISO night (calendar arithmetic; nights are dates, not instants). */
+function previousNight(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+}
+
+/**
+ * Every 6pm→6pm night between two instants, inclusive, plus the night before
+ * the first — the one a previous sync may have corrected without the day's
+ * steps and waking HR (see the header). Sorted, as `nightsForEpochs` is.
+ */
 function nightsBetween(minEpoch: number, maxEpoch: number, timeZone: string): string[] {
   const probes: number[] = []
   for (let e = minEpoch; e < maxEpoch; e += SIX_HOURS) probes.push(e)
   probes.push(maxEpoch)
-  return nightsForEpochs(probes, timeZone)
+  const nights = nightsForEpochs(probes, timeZone)
+  if (nights.length > 0) {
+    const before = previousNight(nights[0])
+    if (!nights.includes(before))
+      nights.unshift(before)
+  }
+  return nights
 }
 
 function DELETE_STAGES_SQL(catalog: string) {
@@ -207,7 +240,7 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       cutoffEpoch: Math.floor(now() / 1000) - lookbackDays * 86400,
     }
     // Bounded to what this run reads, so the views prune on `ts` (#460).
-    for (const sql of stagingViewsSql({ ...ctx, localCatalog: catalog }, undefined, stagingBoundsFor(input)))
+    for (const sql of stagingViewsSql({ ...ctx, localCatalog: catalog, activitySteps: deps.activitySteps }, undefined, stagingBoundsFor(input)))
       await deps.engine.execute(sql)
 
     const result = await correctSleepNights(deps.engine as unknown as SqlRunner, input)

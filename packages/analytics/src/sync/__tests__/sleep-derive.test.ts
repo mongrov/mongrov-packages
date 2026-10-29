@@ -7,7 +7,7 @@
  * follows them. Re-correcting a night replaces it (principle 66 as amended)
  * and never touches its neighbours.
  */
-import type { FirmwareSleepRawRow, MapperContext } from '../mapper/types'
+import type { FirmwareActivityRow, FirmwareSleepRawRow, MapperContext } from '../mapper/types'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -17,13 +17,14 @@ import { HybridDuckDB } from '../../core/engine'
 import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
 import { SensorBuffer } from '../buffer'
 import { BatchFlusher } from '../flusher'
+import { mapActivity } from '../mapper/activity'
 import { mapSleepRaw } from '../mapper/sleep'
 import { OverflowStore } from '../overflow'
 import { createSleepDeriver } from '../sleep-derive'
 
 const TENANT = { brand: 'ziva', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
 const CTX: MapperContext = { ...TENANT, userTimezone: 'UTC' }
-const TABLES = ['sleep_raw', 'sleep_session', 'sleep_stage', 'heart_rate', 'activity'] as const
+const TABLES = ['sleep_raw', 'sleep_session', 'sleep_stage', 'heart_rate', 'activity', 'activity_bucket'] as const
 const DASH_RE = /-/g
 
 const at = (iso: string) => Date.parse(`${iso}Z`)
@@ -50,7 +51,7 @@ async function rig(opts: {
   const db = new HybridDuckDB(() => createRealDuckDB([]))
   await db.open()
   for (const t of TABLES) await db.execute(LOCAL_SCHEMAS[t])
-  for (const t of ['heart_rate', 'activity'] as const)
+  for (const t of ['heart_rate', 'activity', 'activity_bucket'] as const)
     await db.execute(generateViewDdl(t, { brand: TENANT.brand, familyId: TENANT.familyId, localCatalog: 'memory' }))
 
   const columnOrder: Record<string, string[]> = {}
@@ -81,22 +82,28 @@ async function rig(opts: {
     logger: opts.logger,
   })
 
-  /** One sync: raw rows in, flush, derive, close the batch. */
-  async function sync(rows: FirmwareSleepRawRow[]) {
+  /** One sync: raw rows (and any activity) in, flush, derive, close the batch. */
+  async function sync(rows: FirmwareSleepRawRow[], extra: { activity?: FirmwareActivityRow[] } = {}) {
     const raw = mapSleepRaw(rows, CTX) as unknown as Record<string, unknown>[]
     if (raw.length > 0) {
       await buffer.push({ table: 'sleep_raw', ...TENANT, rows: raw })
       deriver.noteRaw({ ...TENANT, rows: raw })
     }
+    if (extra.activity?.length) {
+      const mapped = mapActivity(extra.activity, CTX)
+      await buffer.push({ table: 'activity', ...TENANT, rows: mapped.activity as unknown as Record<string, unknown>[] })
+      await buffer.push({ table: 'activity_bucket', ...TENANT, rows: mapped.activity_bucket as unknown as Record<string, unknown>[] })
+    }
     const batchId = flusher.beginBatch('manual')
-    await flusher.flush('sleep_raw', 'manual', batchId)
+    for (const t of ['activity', 'activity_bucket', 'sleep_raw'] as const)
+      await flusher.flush(t, 'manual', batchId)
     await deriver.derive(batchId, 'manual')
     return flusher.endBatch(batchId)
   }
 
   async function sessions() {
-    return db.execute<{ session_id: string, night: string, total_minutes: number, settle_min: number | null, recovered_min: number | null }>(
-      `SELECT session_id, CAST(night_of AS VARCHAR) AS night, total_minutes, settle_min, recovered_min
+    return db.execute<{ session_id: string, night: string, end: string, total_minutes: number, settle_min: number | null, recovered_min: number | null }>(
+      `SELECT session_id, CAST(night_of AS VARCHAR) AS night, CAST(ts_end AS VARCHAR) AS "end", total_minutes, settle_min, recovered_min
        FROM sleep_session ORDER BY ts_start`,
     )
   }
@@ -219,6 +226,43 @@ describe('a capture split across syncs', () => {
     expect(twice).toEqual(once)
     expect(stages).toBe(twice[0].total_minutes)
   }, 120_000)
+})
+
+describe('the night before a batch is re-derived (v1 parity, ruled 2026-10-28)', () => {
+  it('a morning sync cannot trim the END; the next sync, carrying the day\'s steps, can', async () => {
+    // Sleeping HR until 02:55, then nothing until the waking samples below.
+    const r = await rig({ hrWindows: [['2026-06-17T22:00:00', '2026-06-18T02:55:00'], ['2026-06-18T22:00:00', '2026-06-19T07:00:00']] })
+    // Firmware scores light sleep until 03:59, but HR is at waking level
+    // from 03:00: the wearer was up, the firmware had not caught up.
+    const awake: string[] = []
+    for (let t = at('2026-06-18T03:00:00'); t <= at('2026-06-18T03:55:00'); t += 300_000)
+      awake.push(`('${ts(t)}', 'ziva', 'fam_1', 'u1', 'ring_1', 90)`)
+    await r.db.execute(`INSERT INTO heart_rate (ts, brand, family_id, user_id, device_id, bpm) VALUES ${awake.join(',')}`)
+
+    // Morning sync: night 1's minutes, no steps yet. Step 5.6 wants ≥ 150
+    // steps after the wake it sees, so the END stays at the last firmware minute.
+    await r.sync(rawNight('2026-06-17T23:00:00', 300))
+    const [morning] = await r.sessions()
+    expect(morning.night).toBe('2026-06-17')
+    expect(morning.end).toBe('2026-06-18 04:00:00')
+
+    // Evening sync: night 2's minutes and the day's activity — 200 steps in
+    // the 03:10 bucket. The new sleep rows span night 2 only; night 1 is
+    // re-derived because it is the night before.
+    await r.sync(rawNight('2026-06-18T23:00:00', 300), {
+      activity: [{ timestamp: fw(at('2026-06-18T03:10:00')), step: 200, calories: 1, distance: 0, arraySteps: [20, 20, 20, 20, 20, 20, 20, 20, 20, 20] }],
+    })
+    const after = await r.sessions()
+    expect(after.map(s => s.night)).toEqual(['2026-06-17', '2026-06-18'])
+    // Night 1's END moved back to the last asleep HR sample (02:55) + 1 min,
+    // so its principle-25 id moved and the morning's row is gone.
+    expect(after[0].end).toBe('2026-06-18 02:56:00')
+    expect(after[0].session_id).not.toBe(morning.session_id)
+    expect(after[0].total_minutes).toBe(morning.total_minutes - 64)
+    expect(after[1].end).toBe('2026-06-19 06:00:00') // night 2: extended on sleeping HR, as the first test
+    expect(await r.stageCount()).toBe(after[0].total_minutes + after[1].total_minutes)
+    await r.db.close()
+  }, 60_000)
 })
 
 describe('DST — the night window comes from the IANA offset', () => {

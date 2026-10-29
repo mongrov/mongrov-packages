@@ -23,9 +23,9 @@ const ts = (e: number) => new Date(e * 1000).toISOString().slice(0, 19).replace(
 
 async function warehouse(): Promise<SqlRunner & { close?: () => Promise<void> }> {
   const db = await createRealDuckDB([])
-  for (const t of ['sleep_raw', 'heart_rate', 'activity'] as const)
+  for (const t of ['sleep_raw', 'heart_rate', 'activity', 'activity_bucket'] as const)
     await db.execute(LOCAL_SCHEMAS[t].replace(`CREATE TABLE ${t}`, `CREATE TABLE memory.${t}`))
-  for (const t of ['heart_rate', 'activity'] as const)
+  for (const t of ['heart_rate', 'activity', 'activity_bucket'] as const)
     await db.execute(generateViewDdl(t, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' }))
 
   // The synthetic night for u1/ring_1 — and a decoy for u2 that must not leak in.
@@ -66,6 +66,55 @@ describe('staging views over the warehouse', () => {
     expect(res.rows[0].date).toBe('2026.06.17 23:00:00')
     expect(res.rows[res.rows.length - 1].date).toBe('2026.06.18 06:00:00')
     expect(new Set(res.rows.map(r => r.block_type))).toEqual(new Set(['primary']))
+  }, 60_000)
+})
+
+describe('the activity relation is the firmware 10-minute bucket, as v3.1 fed it', () => {
+  const SCOPE = { brand: BRAND, familyId: FAMILY, userId: 'u1', deviceId: 'ring_1' }
+  const row = (user: string, t: string, steps: number) => `('${t}', '${BRAND}', '${FAMILY}', '${user}', 'ring_1', ${steps})`
+  const bucket = (user: string, t: string) => `('${t}', '${BRAND}', '${FAMILY}', '${user}', 'ring_1', 0, 0)`
+
+  it('sums the 1-minute rows inside each bucket at the bucket start; an empty bucket has no row', async () => {
+    const db = await warehouse()
+    // Bucket 06:00 holds three of its ten minutes; bucket 06:10 has none.
+    // 06:25 belongs to no bucket, and u2's minutes must not leak into u1's.
+    await db.execute(`INSERT INTO memory.activity_bucket (ts, brand, family_id, user_id, device_id, calories, distance_km) VALUES ${[
+      bucket('u1', '2026-06-18 06:00:00'),
+      bucket('u1', '2026-06-18 06:10:00'),
+      bucket('u2', '2026-06-18 06:00:00'),
+    ].join(',')}`)
+    await db.execute(`INSERT INTO memory.activity (ts, brand, family_id, user_id, device_id, steps) VALUES ${[
+      row('u1', '2026-06-18 06:00:00', 5),
+      row('u1', '2026-06-18 06:03:00', 7),
+      row('u1', '2026-06-18 06:09:00', 1),
+      row('u1', '2026-06-18 06:25:00', 9),
+      row('u2', '2026-06-18 06:02:00', 1000),
+    ].join(',')}`)
+
+    for (const sql of stagingViewsSql(SCOPE))
+      await db.execute(sql)
+    const buckets = await db.execute(`SELECT CAST(date AS BIGINT) AS date, step FROM stg_activity ORDER BY date`) as { date: bigint, step: number }[]
+    expect(buckets.map(b => [Number(b.date), b.step])).toEqual([[at('2026-06-18T06:00:00'), 13]])
+
+    // The bound prefilters both sides; a bound past 06:00 drops the bucket.
+    for (const sql of stagingViewsSql(SCOPE, undefined, { activityFromEpoch: at('2026-06-18T05:00:00') }))
+      await db.execute(sql)
+    expect((await db.execute(`SELECT count(*) AS n FROM stg_activity`) as { n: bigint }[]).map(r => Number(r.n))).toEqual([1])
+    for (const sql of stagingViewsSql(SCOPE, undefined, { activityFromEpoch: at('2026-06-18T06:05:00') }))
+      await db.execute(sql)
+    expect((await db.execute(`SELECT count(*) AS n FROM stg_activity`) as { n: bigint }[]).map(r => Number(r.n))).toEqual([0])
+
+    // The explicit 1-minute form is the pre-0.48 relation, kept for the fallback.
+    for (const sql of stagingViewsSql({ ...SCOPE, activitySteps: 'minute' }))
+      await db.execute(sql)
+    const minutes = await db.execute(`SELECT CAST(date AS BIGINT) AS date, step FROM stg_activity ORDER BY date`) as { date: bigint, step: number }[]
+    expect(minutes.map(m => [Number(m.date), Number(m.step)])).toEqual([
+      [at('2026-06-18T06:00:00'), 5],
+      [at('2026-06-18T06:03:00'), 7],
+      [at('2026-06-18T06:09:00'), 1],
+      [at('2026-06-18T06:25:00'), 9],
+    ])
+    await db.close?.()
   }, 60_000)
 })
 

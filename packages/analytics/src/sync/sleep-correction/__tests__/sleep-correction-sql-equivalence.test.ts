@@ -250,9 +250,9 @@ describe('staging bounds — same answer as unbounded views', () => {
 
   async function warehouse(): Promise<Db> {
     const db = await createRealDuckDB([])
-    for (const t of ['sleep_raw', 'heart_rate', 'activity'] as const)
+    for (const t of ['sleep_raw', 'heart_rate', 'activity', 'activity_bucket'] as const)
       await db.execute(LOCAL_SCHEMAS[t].replace(`CREATE TABLE ${t}`, `CREATE TABLE memory.${t}`))
-    for (const t of ['heart_rate', 'activity'] as const)
+    for (const t of ['heart_rate', 'activity', 'activity_bucket'] as const)
       await db.execute(generateViewDdl(t, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory' }))
     // Copy the synthetic staged fixture into the warehouse shapes.
     const src = await stagedDb()
@@ -278,6 +278,12 @@ describe('staging bounds — same answer as unbounded views', () => {
     await chunks(
       `INSERT INTO memory.activity (ts, brand, family_id, user_id, device_id, steps)`,
       act.map((r, i) => `(TIMESTAMP '${ts(Number(r.date))}' - INTERVAL ${i % 5 === 0 ? 300 : 0} MILLISECOND, '${BRAND}', '${FAMILY}', 'u1', 'ring_1', ${Math.round(r.v)})`),
+    )
+    // The staging `activity` relation is re-aggregated per `activity_bucket`
+    // record, so every staged sample is also a bucket start.
+    await chunks(
+      `INSERT INTO memory.activity_bucket (ts, brand, family_id, user_id, device_id, calories, distance_km)`,
+      act.map(r => `('${ts(Number(r.date))}', '${BRAND}', '${FAMILY}', 'u1', 'ring_1', 0, 0)`),
     )
     return db
   }
