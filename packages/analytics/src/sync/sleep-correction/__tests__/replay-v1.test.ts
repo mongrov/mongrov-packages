@@ -344,7 +344,14 @@ interface Replay {
   counts: Omit<CaptureCounts, 'capture' | 'embeddedNights'>
 }
 
-async function replayCapture(dump: Record<string, unknown>, deviceId: string, timeZone: string): Promise<Replay> {
+/**
+ * One capture through the production path. With `splitAt` (epoch s) the
+ * capture is synced in two batches — rows before it, then the rest — the
+ * way a ring that syncs in the morning and again at night delivers a day;
+ * the deriver re-derives the night before each batch (ruled 2026-10-28), so
+ * the two must agree with a single sync wherever the scalars agree.
+ */
+async function replayCapture(dump: Record<string, unknown>, deviceId: string, timeZone: string, splitAt?: number): Promise<Replay> {
   const tenant = { brand: 'ziva', familyId: 'fam', userId: 'u', deviceId }
   const ctx = { ...tenant, userTimezone: timeZone }
 
@@ -377,15 +384,27 @@ async function replayCapture(dump: Record<string, unknown>, deviceId: string, ti
     lookbackDays: LOOKBACK_DAYS,
   })
 
-  for (const t of FLUSHED) {
-    if (batch[t].length)
-      await buffer.push({ table: t, ...tenant, rows: batch[t] as unknown as Record<string, unknown>[] })
+  const cycle = async (keep: (ts: Date) => boolean) => {
+    const sleepRaw = batch.sleep_raw.filter(r => keep(r.ts))
+    for (const t of FLUSHED) {
+      const rows = batch[t].filter(r => keep(r.ts))
+      if (rows.length)
+        await buffer.push({ table: t, ...tenant, rows: rows as unknown as Record<string, unknown>[] })
+    }
+    if (sleepRaw.length)
+      deriver.noteRaw({ ...tenant, rows: sleepRaw as unknown as Record<string, unknown>[] })
+    const batchId = flusher.beginBatch('manual')
+    for (const t of FLUSHED) await flusher.flush(t, 'manual', batchId)
+    await deriver.derive(batchId, 'manual')
+    flusher.endBatch(batchId)
   }
-  deriver.noteRaw({ ...tenant, rows: batch.sleep_raw as unknown as Record<string, unknown>[] })
-  const batchId = flusher.beginBatch('manual')
-  for (const t of FLUSHED) await flusher.flush(t, 'manual', batchId)
-  await deriver.derive(batchId, 'manual')
-  flusher.endBatch(batchId)
+  if (splitAt === undefined) {
+    await cycle(() => true)
+  }
+  else {
+    await cycle(ts => ts.getTime() / 1000 < splitAt)
+    await cycle(ts => ts.getTime() / 1000 >= splitAt)
+  }
 
   const count = async (table: string) => Number((await db.execute<{ n: unknown }>(`SELECT count(*) AS n FROM ${table}`))[0].n)
   const qualities: Record<string, number> = {}
@@ -510,6 +529,7 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
     const results: Compared[] = []
     const counts: CaptureCounts[] = []
     const surprises: string[] = []
+    const splitSync: Array<{ capture: string, splitAt: number, same: boolean, single: string[], split: string[] }> = []
 
     for (const [file, nights] of byCapture) {
       const dump = JSON.parse(readFileSync(join(CAPTURES!, file), 'utf8')) as Record<string, unknown>
@@ -623,10 +643,22 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
         results.push(row)
       }
       await r.db.close()
+
+      // Split sync: a multi-night capture delivered in two batches, cut at the
+      // last reference night's window start, must land what one sync lands.
+      if (nights.length > 1) {
+        const splitAt = nightWindow(nights[nights.length - 1].iso, timeZone).windowStart
+        const twice = await replayCapture(dump, nights[0].ring, timeZone, splitAt)
+        await twice.db.close()
+        const shape = (ss: StoredSession[]) => ss.map(s => `${s.night} ${s.s}-${s.e} ${s.total_minutes}m L${s.light_minutes} D${s.deep_minutes} R${s.rem_minutes}`)
+        const single = shape(r.sessions)
+        const split = shape(twice.sessions)
+        splitSync.push({ capture: file, splitAt, same: single.join('|') === split.join('|'), single, split })
+      }
     }
 
     if (OUT)
-      writeFileSync(OUT, JSON.stringify({ results, counts, surprises }, null, 1))
+      writeFileSync(OUT, JSON.stringify({ results, counts, surprises, splitSync }, null, 1))
 
     // ---- summaries, parity.test.ts style ----
     const scored = results.filter(r => r.vsRef)
@@ -667,6 +699,14 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
     console.log(`tier: ${tierChanged.length} nights differ from the oracle (D3 per-night); sources: `
       + `${results.filter(r => r.port.tierSource === 'night').length} night / ${results.filter(r => r.port.tierSource === 'recent').length} recent`)
     console.log(`baseline cutoff: ${results.filter(r => r.cutoff.affectsBaseline).length} nights where HR history reaches past the cutoff (production vs harness convention could differ)`)
+    console.log(`split sync (two batches, night before re-derived): ${splitSync.filter(s => s.same).length}/${splitSync.length} multi-night captures land exactly what one sync lands`)
+    for (const s of splitSync.filter(x => !x.same)) {
+      console.log(`  split differs ${s.capture}:`)
+      for (let i = 0; i < Math.max(s.single.length, s.split.length); i++) {
+        if (s.single[i] !== s.split[i])
+          console.log(`    single ${s.single[i] ?? '-'}  |  split ${s.split[i] ?? '-'}`)
+      }
+    }
     for (const s of surprises) console.log(`  note ${s}`)
 
     // ---- assertions ----

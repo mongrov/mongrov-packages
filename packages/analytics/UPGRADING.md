@@ -1,8 +1,25 @@
 # Upgrading
 
-## 0.47.x → 0.48.0 — sleep correction reads 10-minute step buckets again, as v3.1
+## 0.47.x → 0.48.0 — sleep correction reads 10-minute step buckets again, and re-derives the night before each batch, as v3.1
 
-**Behaviour change on nights whose END depended on 1-minute step placement. Requires `activity_bucket`. No API change for `createSyncManager` callers.**
+**Two behaviour changes, both ruled 2026-10-28 to match v1. Requires `activity_bucket`. No API change for `createSyncManager` callers.**
+
+### The night before a batch is re-derived
+
+v1 recomputed every calendar day from the first new sleep chunk's date
+through today (ziva_app `AppContextProvider.tsx:1006-1029`). So a night first
+corrected by a morning sync — before the day's steps and waking HR had
+arrived — was corrected again at the next sync, when Step 5.6 (≥ 150 steps
+after the wake it sees) could trim an END the morning could not. The deriver
+corrected only the nights the batch's own `sleep_raw` rows spanned, so a
+morning END stuck. It now also re-derives the night before the earliest one,
+in every zone (`src/sync/__tests__/sleep-derive.test.ts`, "the night before a
+batch"). Night replace applies as before: the preceding night's stored rows
+are replaced only when it comes back with a primary block; with no firmware
+sleep (`no_firmware_sleep`) they stay. Expect one extra night per batch in
+the `sync.sleep-derive: derived` log's `nights` count.
+
+### Step 5.6 reads 10-minute step buckets
 
 Step 5.6 of the correction (the HR + movement end refinement) sums steps in
 windows around each HR sample. v3.1 and the QA study fed it the firmware
