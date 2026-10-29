@@ -29,6 +29,28 @@
  * firmware sleep comes back `no_firmware_sleep` and its stored rows stay, as
  * above.
  *
+ * A minute belongs to the LATER night (#75, v1 parity). `correctNightSql`
+ * reads HR to `windowEnd + FETCH_AFTER`, so a daytime sleeper's envelope can
+ * run past 18:00 into the next night's window, where that night's own
+ * firmware rows start; written as two sessions the overlap is in
+ * `sleep_stage` twice and every total double-counts it. v3.1 never stored it
+ * twice: `clearNight(windowStart, windowEnd)` wiped the later window before
+ * its insert, and `sleep_processed.date` was unique. So a night ENDS where
+ * the night after it begins: before its rows become sessions, every row
+ * reaching the later night's first minute is dropped. "First minute" is the
+ * first the later night will hold once this batch is written — its first
+ * primary row when it was corrected here with a primary block (only primary
+ * rows are stored, and they replace its stored rows), otherwise its stored
+ * `ts_start`. A cut at the first held minute, not per minute: the two
+ * nights' rows need not share a second (an envelope minute sits at its HR
+ * sample's epoch, a firmware minute at the ring's), and a later night whose
+ * primary block has gaps would otherwise leave the earlier night holes and
+ * an END still past its start. Two residuals, both deterministic: a tail the
+ * later night never reaches (it begins later) stays with the earlier night,
+ * where v3.1's clear wiped it; and a later night not yet derived holds
+ * nothing, so a night synced alone can still run past 18:00 until the next
+ * sync re-derives it as the night before (D5) and cuts it.
+ *
  * Local only. Rows already pushed to a remote catalog are not rewritten; that
  * needs a server-side answer before cloud sync is switched on.
  */
@@ -38,13 +60,18 @@ import type { SensorBuffer } from './buffer'
 import type { BatchFlusher, FlushReason } from './flusher'
 import type { MapperContext, SleepSessionRow, SleepStageRow } from './mapper/types'
 import type { SchedulerLogger } from './scheduler'
+import type { ClassifiedRow } from './sleep-correction/classify'
 import type { SqlRunner } from './sleep-correction/correct'
+import type { NightOutcome } from './sleep-correction/orchestrate'
+import type { FlushResult } from './types'
 
 import { describeError } from '../core/errors'
 import { tailId } from '../core/logger'
-import { sessionsFromCorrected } from './mapper/sleep'
+import { ROW_SECONDS, sessionsFromCorrected } from './mapper/sleep'
 import { computeNightOf } from './mapper/time'
 import { logError } from './scheduler'
+import { parseDateStr } from './sleep-correction/classify'
+import { nightWindow } from './sleep-correction/night'
 import { correctSleepNights, nightsForEpochs, stagingBoundsFor } from './sleep-correction/orchestrate'
 import { stagingViewsSql } from './sleep-correction/staging'
 
@@ -87,8 +114,16 @@ export interface SleepDeriver {
   }) => void
   /** (user, device) ranges still waiting for a cycle. */
   pendingCount: () => number
-  /** Correct every pending range and write its nights into `batchId`. Never throws. */
-  derive: (batchId: string, reason: FlushReason) => Promise<void>
+  /**
+   * Correct every pending range and write its nights into `batchId`. Never
+   * throws. Resolves with the `sleep_session` / `sleep_stage` flush results
+   * (empty when nothing was pending), so a caller's flush summary counts the
+   * derived rows — they are buffered and flushed here, after the caller's own
+   * per-table flushes, which drained those tables while they were still
+   * empty (zivaone_app#452: the handoff logged `sleep_session: 0` on a sync
+   * that derived 20 sessions).
+   */
+  derive: (batchId: string, reason: FlushReason) => Promise<FlushResult[]>
 }
 
 const SIX_HOURS = 6 * 3600
@@ -113,8 +148,30 @@ function storedNightOf(windowStart: number, timeZone: string): string {
 
 /** The night before an ISO night (calendar arithmetic; nights are dates, not instants). */
 function previousNight(iso: string): string {
+  return shiftNight(iso, -1)
+}
+
+/** The night after an ISO night. */
+function nextNight(iso: string): string {
+  return shiftNight(iso, 1)
+}
+
+function shiftNight(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+}
+
+/** The first primary row's minute (epoch s) — the `ts_start` `sessionsFromCorrected` stores. */
+function firstPrimaryMinute(rows: readonly ClassifiedRow[]): number | undefined {
+  let first: number | undefined
+  for (const r of rows) {
+    if (r.block_type !== 'primary')
+      continue
+    const e = parseDateStr(r.date)
+    if (first === undefined || e < first)
+      first = e
+  }
+  return first
 }
 
 /**
@@ -152,6 +209,14 @@ WHERE brand = $brand AND family_id = $family_id AND user_id = $user_id
   AND device_id = $device_id AND night_of = CAST($night AS DATE)`
 }
 
+/** The earliest stored session start of one night — the same key `replaceNight` deletes by. */
+function STORED_START_SQL(catalog: string) {
+  return `
+SELECT CAST(epoch(MIN(ts_start)) AS BIGINT) AS e FROM ${catalog}.main.sleep_session
+WHERE brand = $brand AND family_id = $family_id AND user_id = $user_id
+  AND device_id = $device_id AND night_of = CAST($night AS DATE)`
+}
+
 export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
   const pending = new Map<string, PendingRange>()
   const catalog = deps.localCatalog ?? 'memory'
@@ -168,6 +233,34 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
     }
     await deps.engine.execute(DELETE_STAGES_SQL(catalog), params)
     await deps.engine.execute(DELETE_SESSIONS_SQL(catalog), params)
+  }
+
+  /**
+   * Where the night after `night` begins once this batch is written (see the
+   * header): `next`'s first primary minute when it was corrected here with a
+   * primary block, else its stored `ts_start`; undefined when it holds
+   * nothing. Never before the next night's window start — its Phase 2 reads
+   * nothing earlier — so the earlier night loses only its tail. Read BEFORE
+   * the night is replaced, and only when it reaches into that window at all.
+   */
+  async function nextNightStart(ctx: MapperContext, night: string, rows: readonly ClassifiedRow[], next: NightOutcome | undefined): Promise<number | undefined> {
+    const nextIso = nextNight(night)
+    const nextWindowStart = next?.night === nextIso ? next.windowStart : nightWindow(nextIso, ctx.userTimezone).windowStart
+    if (!rows.some(r => parseDateStr(r.date) + ROW_SECONDS > nextWindowStart))
+      return undefined
+    if (next?.night === nextIso && next.status === 'ok' && next.rows) {
+      const own = firstPrimaryMinute(next.rows)
+      if (own !== undefined)
+        return own
+    }
+    const [stored] = await deps.engine.execute<{ e: number | bigint | null }>(STORED_START_SQL(catalog), {
+      brand: ctx.brand,
+      family_id: ctx.familyId,
+      user_id: ctx.userId,
+      device_id: ctx.deviceId,
+      night: storedNightOf(nextWindowStart, ctx.userTimezone),
+    })
+    return stored?.e == null ? undefined : Number(stored.e)
   }
 
   /**
@@ -252,14 +345,18 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
     const failedNights: string[] = []
     let firstNightError: string | undefined
     let nightsReplaced = 0
-    for (const n of result.nights) {
+    // Ascending, as `nightsBetween` sorts them: a night is cut by the one
+    // after it before either is replaced.
+    for (const [i, n] of result.nights.entries()) {
       if (n.status === 'failed') {
         failedNights.push(n.night)
         firstNightError ??= n.error
       }
       if (n.status !== 'ok' || !n.rows)
         continue
-      const out = sessionsFromCorrected(n.rows, ctx, { settleMin: n.settleMin })
+      const cut = await nextNightStart(ctx, n.night, n.rows, result.nights[i + 1])
+      const rows = cut === undefined ? n.rows : n.rows.filter(r => parseDateStr(r.date) + ROW_SECONDS <= cut)
+      const out = sessionsFromCorrected(rows, ctx, { settleMin: n.settleMin })
       if (out.sleep_session.length === 0)
         continue
       // Two conventions meet here. v3.1 names a night by its MORNING date
@@ -332,7 +429,7 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
 
     async derive(batchId, reason) {
       if (pending.size === 0)
-        return
+        return []
       const ranges = [...pending.values()]
       pending.clear()
       const startedAt = now()
@@ -381,8 +478,44 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       // Once per batch cycle that had sleep to correct.
       deps.logger?.info('sync.sleep-derive: derived', { ...totals, reason, durationMs: now() - startedAt })
       // Land the derived rows inside this batch, so batch:complete follows them.
-      await deps.flusher.flush('sleep_session', reason, batchId)
-      await deps.flusher.flush('sleep_stage', reason, batchId)
+      return [
+        await deps.flusher.flush('sleep_session', reason, batchId),
+        await deps.flusher.flush('sleep_stage', reason, batchId),
+      ]
     },
   }
+}
+
+/**
+ * Fold the deriver's flush results into a batch's per-table results.
+ *
+ * The batch flushed `sleep_session` / `sleep_stage` once already (empty: the
+ * derived rows did not exist yet), so the derived result is merged into that
+ * entry rather than appended — one entry per table, as callers that key by
+ * table (`Object.fromEntries`) expect. Counts add; a failure on either side
+ * makes the table failed, keeping the first error.
+ */
+export function mergeFlushResults(results: readonly FlushResult[], derived: readonly FlushResult[]): FlushResult[] {
+  const out = [...results]
+  for (const d of derived) {
+    const i = out.findIndex(r => r.table === d.table)
+    if (i === -1) {
+      out.push(d)
+      continue
+    }
+    const r = out[i]
+    const inserted = (r.rowsInserted ?? 0) + (d.rowsInserted ?? 0)
+    const rejected = (r.rowsRejected ?? 0) + (d.rowsRejected ?? 0)
+    out[i] = {
+      ...r,
+      ...d,
+      table: r.table,
+      rowsFlushed: r.rowsFlushed + d.rowsFlushed,
+      ...(r.rowsInserted != null || d.rowsInserted != null ? { rowsInserted: inserted } : {}),
+      ...(r.rowsRejected != null || d.rowsRejected != null ? { rowsRejected: rejected } : {}),
+      ok: r.ok && d.ok,
+      ...(r.error ?? d.error ? { error: r.error ?? d.error } : {}),
+    }
+  }
+  return out
 }

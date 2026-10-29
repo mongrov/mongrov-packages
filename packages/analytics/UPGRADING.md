@@ -24,6 +24,59 @@ Plausibility is per vital, not per row (sprint6 spec §13b). The canonical fixtu
 - **The live path changes too.** zivaone_app's `sensor-adapter.ts:276` calls the same function, so on 0.49.0 a live HRV-0 row lands with `hrv_ms` NULL and its stress, where today it is dropped. Its log line fires only when `dropped > 0` and does not report `nulled`. To keep a nulled-only chunk visible, the app should log when `dropped > 0 || nulled > 0` and add `nulled` to the payload.
 - App test assertions that need updating on the pin to 0.49.0: none were found on origin/hex. `__mocks__/@mongrov/analytics.ts` stubs `dropImplausibleRows` as a pass-through returning `{ kept, dropped: 0 }` with no `nulled`. That is harmless unless the app starts reading `nulled`, in which case add `nulled: 0` to the stub. No app test asserts `sensor-adapter.rows.implausible`. zivaone_app#543's suite calls `mapFirmwareExport` directly, not `pushFirmware`, so it is unaffected.
 
+## 0.48.x → 0.49.0 — a minute claimed by two consecutive nights belongs to the later one, as v3.1's `clearNight` did
+
+**Behaviour change (mongrov-packages#75). No API change.**
+
+Phase 2 reads heart rate to `windowEnd + FETCH_AFTER` (30 min past 18:00
+local), so a daytime sleeper's envelope can run into the next night's
+window, where that night's own firmware rows start. The two nights were
+stored as two sessions and the overlap (up to ~35 min) sat in `sleep_stage`
+twice: the Night view drew it on both nights and Week/Month totals counted
+it twice (1 of 92 study nights; 6/92 cross 18:00). v3.1 never stored it
+twice — `clearNight(windowStart, windowEnd)` wiped the later night's window
+before its insert, and `sleep_processed.date` was unique — so a minute
+belonged to the LATER night.
+
+The deriver now does the same: a night ENDS where the night after it
+begins. Before a night's rows become sessions, every row reaching the later
+night's first minute is dropped (`src/sync/sleep-derive.ts`, "a minute past
+18:00" in `src/sync/__tests__/sleep-derive.test.ts`). "First minute" is the
+first the later night will hold once the batch is written — its first
+primary row when it was corrected in the same batch with a primary block,
+otherwise its stored `ts_start` — so the cut holds whichever order the two
+nights arrive in. It is a cut at that minute, not a per-minute drop: the
+two nights' rows need not share a second (the study night had envelope
+minutes at :40 against firmware minutes at :01), and a later night whose
+primary block has gaps must not leave the earlier night holes.
+
+- Residual: a later night not yet derived holds nothing, so a night synced
+  alone can still run past 18:00 until the next sync, which re-derives it as
+  the night before (0.48.0) and cuts it then.
+- Residual vs v3.1: a tail the later night never reaches (it begins later,
+  or classified that stretch as secondary/microsleep, which is not stored)
+  stays with the earlier night; v3.1's clear wiped the whole window.
+- Nights already stored are not re-corrected by the upgrade; a stored
+  overlap goes away when a later sync re-derives the EARLIER night (night
+  replace) — the later night's start is the cut, not the thing cut.
+- The replay harness (`replay-v1.test.ts`) now asserts no two stored
+  sessions overlap, in one sync or two, and names a reference night cut this
+  way cause (e): 6035|2026-06-11, whose oracle tail (a per-night harness
+  without `clearNight`) ran 30 min into the next night's window.
+## 0.48.x → 0.49.0 — flush summaries count the derived sleep rows
+
+**No API change.** `SensorSink.flush()` results and the scheduled cycle's
+`rowsFlushed` / `failedTables` now include the `sleep_session` and
+`sleep_stage` rows the sleep deriver writes inside the batch. Before, each
+table's entry came from the per-table loop, which ran before the deriver and
+drained both tables empty, so a consumer keying results by table saw
+`sleep_session: 0, sleep_stage: 0` on a sync that derived 20 sessions and
+6,942 stages (zivaone_app#452), and a failed derived flush was invisible to
+the summary. The derived counts are added to the existing entry for each
+table (one entry per table, as before); a failed derived flush marks the
+table failed. Expect `sync.flush.manual.ok`'s `rowsFlushed` to grow by the
+derived row count.
+
 ## 0.47.x → 0.48.0 — sleep correction reads 10-minute step buckets again, and re-derives the night before each batch, as v3.1
 
 **Two behaviour changes, both ruled 2026-10-28 to match v1. Requires `activity_bucket`. No API change for `createSyncManager` callers.**
