@@ -47,6 +47,14 @@ export const MAX_CLOCK_AHEAD_DAYS = 30
 /** Nothing from this ring predates the product. */
 export const EARLIEST_PLAUSIBLE_ISO = '2020-01-01T00:00:00.000Z'
 
+/**
+ * The log event a dropped batch is reported on. It is the name the app's live
+ * BLE path (zivaone_app `sensor-adapter.ts`) already logs, so one search finds
+ * every dropped reading whichever path it arrived on; `event` in the payload
+ * says which (`pushFirmware` for a bulk sync or a replayed dump).
+ */
+export const IMPLAUSIBLE_ROWS_EVENT = 'sensor-adapter.rows.implausible'
+
 export interface DropReport {
   /** Rows that survived, in their original order. */
   kept: Record<string, unknown>[]

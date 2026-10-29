@@ -44,6 +44,7 @@ import { bindFlushEvents, bindPushEvents } from './events'
 import { R2Fetcher } from './fetcher'
 import { BatchFlusher, MAX_CONSECUTIVE_FAILURES } from './flusher'
 import { mapFirmwareExport } from './mapper/firmware'
+import { dropImplausibleRows, IMPLAUSIBLE_ROWS_EVENT } from './mapper/plausibility'
 import { OverflowStore } from './overflow'
 import { PendingClosesStore } from './pending_closes'
 import { R2Pusher } from './pusher'
@@ -807,8 +808,26 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
         ['device_battery', asRows(mapped.device_battery)],
         ['device_config', asRows(mapped.device_config)],
       ]
-      for (const [table, rows] of mappedTables) {
-        if (!rows || rows.length === 0)
+      for (const [table, mappedRows] of mappedTables) {
+        if (!mappedRows || mappedRows.length === 0)
+          continue
+        // Filler is not a reading (zivaone_app#225, #81). The live BLE path
+        // has always dropped implausible rows before `push`; this path did
+        // not, so a bulk sync or a replayed dump stored 0 bpm / 0 % SpO2 and
+        // pre-2020 dates in the raw tables, where `health.spo2HasAnyReadings`,
+        // `hr.daysWorn` and `hr.baselineMaturity` counted them as readings.
+        // Tables with no declared range pass through untouched.
+        const { kept: rows, dropped, sample } = dropImplausibleRows(table, mappedRows)
+        if (dropped > 0) {
+          logger?.warn(IMPLAUSIBLE_ROWS_EVENT, {
+            event: 'pushFirmware',
+            table,
+            dropped,
+            kept: rows.length,
+            sample,
+          })
+        }
+        if (rows.length === 0)
           continue
         await buffer.push({
           table,

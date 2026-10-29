@@ -18,6 +18,7 @@ import type { EventBus } from '../events'
 import { describe, expect, it, vi } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { createSyncManager } from '../factory'
+import { IMPLAUSIBLE_ROWS_EVENT } from '../mapper/plausibility'
 import { createFakeEngine } from './__fakes__/fake-engine'
 
 const ctx: AttachContext = {
@@ -545,6 +546,113 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     expect(remoteUpdate).toBeDefined()
     expect(remoteUpdate!.params?.family_id).toBe('fam_A')
     expect(remoteUpdate!.params?.metric).toBe('hrv')
+  })
+})
+
+describe('pushFirmware drops implausible rows (#81)', () => {
+  // A bulk sync goes firmware → `mapFirmwareExport` → buffer → flush, with no
+  // `dropImplausibleRows` of its own until #81. These rows mirror what a ring
+  // really sends: a 0 bpm sentinel, a 0 % SpO2, a pre-2020 date off a reset
+  // clock — next to readings that must still land.
+  const firmware = {
+    heartrate: [
+      { timestamp: '2026.10.28 08:00:00', singleHR: 62 },
+      { timestamp: '2026.10.28 08:05:00', singleHR: 0 },
+      { timestamp: '2019.12.31 23:59:00', singleHR: 70 },
+      { timestamp: '2026.10.28 08:10:00', singleHR: 64 },
+    ],
+    hrv_table: [],
+    spo2: [
+      { timestamp: '2026.10.28 08:00:00', automaticSpo2Data: 97 },
+      { timestamp: '2026.10.28 08:05:00', automaticSpo2Data: 0 },
+    ],
+    temperature_table: [],
+    activitydetails: [],
+    sleep_processed: [],
+    battery_table: [],
+    ring: { automaticMonitoringData: [] },
+  }
+  const mapperCtx = { brand: 'ziva', familyId: 'fam_A', userId: 'u1', deviceId: 'ring_1', userTimezone: 'UTC' }
+
+  function makeMgr(fake: ReturnType<typeof createFakeEngine>, logger: ReturnType<typeof makeLogger>) {
+    return createSyncManager({
+      ...baseConfig(),
+      analytics: fake.engine as unknown as AnalyticsEngine,
+      tables: ['heart_rate', 'spo2'],
+      columnOrder: {
+        heart_rate: ['device_id', 'ts', 'bpm'] as const,
+        spo2: ['device_id', 'ts', 'spo2'] as const,
+      },
+      logger,
+    })
+  }
+  const makeLogger = () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+
+  it('a 0 bpm row and a pre-2020 row never reach the warehouse; valid rows do', async () => {
+    const fake = createFakeEngine()
+    const logger = makeLogger()
+    const mgr = makeMgr(fake, logger)
+
+    await mgr.sink.pushFirmware(firmware, mapperCtx)
+    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(2)
+    expect(await mgr.sink.pendingRowCount('spo2')).toBe(1)
+
+    // The flusher appends into `<table>__stg` and merges from there: what
+    // is appended is exactly what the warehouse receives.
+    await mgr.sink.flush()
+    const written = (table: string) => fake.appended
+      .filter(a => a.table === `${table}__stg`)
+      .map(a => [new Date(a.values[1] as string | Date).toISOString(), a.values[2]])
+    expect(written('heart_rate')).toEqual([
+      ['2026-10-28T08:00:00.000Z', 62],
+      ['2026-10-28T08:10:00.000Z', 64],
+    ])
+    expect(written('spo2')).toEqual([['2026-10-28T08:00:00.000Z', 97]])
+  })
+
+  it('logs the dropped count on the live path\'s event, once per table', async () => {
+    const fake = createFakeEngine()
+    const logger = makeLogger()
+    const mgr = makeMgr(fake, logger)
+
+    await mgr.sink.pushFirmware(firmware, mapperCtx)
+
+    expect(IMPLAUSIBLE_ROWS_EVENT).toBe('sensor-adapter.rows.implausible')
+    const drops = logger.warn.mock.calls.filter(([msg]) => msg === IMPLAUSIBLE_ROWS_EVENT)
+    expect(drops.map(([, meta]) => meta)).toEqual([
+      expect.objectContaining({ event: 'pushFirmware', table: 'heart_rate', dropped: 2, kept: 2, sample: 'bpm=0 outside [30, 220]' }),
+      expect.objectContaining({ event: 'pushFirmware', table: 'spo2', dropped: 1, kept: 1 }),
+    ])
+  })
+
+  it('a table whose every row is implausible is not pushed at all', async () => {
+    const fake = createFakeEngine()
+    const logger = makeLogger()
+    const mgr = makeMgr(fake, logger)
+
+    await mgr.sink.pushFirmware({
+      ...firmware,
+      heartrate: [{ timestamp: '2026.10.28 08:05:00', singleHR: 0 }],
+      spo2: [],
+    }, mapperCtx)
+
+    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(0)
+    expect(logger.warn).toHaveBeenCalledWith(IMPLAUSIBLE_ROWS_EVENT, expect.objectContaining({ table: 'heart_rate', dropped: 1, kept: 0 }))
+  })
+
+  it('a clean export logs nothing', async () => {
+    const fake = createFakeEngine()
+    const logger = makeLogger()
+    const mgr = makeMgr(fake, logger)
+
+    await mgr.sink.pushFirmware({
+      ...firmware,
+      heartrate: [{ timestamp: '2026.10.28 08:00:00', singleHR: 62 }],
+      spo2: [{ timestamp: '2026.10.28 08:00:00', automaticSpo2Data: 97 }],
+    }, mapperCtx)
+
+    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(1)
+    expect(logger.warn.mock.calls.filter(([msg]) => msg === IMPLAUSIBLE_ROWS_EVENT)).toHaveLength(0)
   })
 })
 

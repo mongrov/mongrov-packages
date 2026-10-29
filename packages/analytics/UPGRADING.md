@@ -1,5 +1,17 @@
 # Upgrading
 
+## 0.48.x → 0.49.0 — `pushFirmware` drops implausible rows, as the live path does (#81)
+
+**Behaviour change for every `sink.pushFirmware` caller. No API change.**
+
+`pushFirmware` (bulk sync, and any replayed dump) now runs each mapped table through `dropImplausibleRows` before buffering it. Until now only the app's live BLE path did this, before `sink.push`. So a bulk sync stored 0 bpm, 0 % SpO2 and dates before 2020-01-01 or after now + 30 d in the raw tables. The clean views hid those rows, but raw-view queries counted them as readings: `health.spo2HasAnyReadings`, `hr.daysWorn` and `hr.baselineMaturity` in zivaone_app.
+
+- The bounds are the same as before: `PLAUSIBLE_RANGES` (bpm [30, 220], spo2 [70, 100], temp_c [30, 43], hrv_ms [5, 200]) and the [`EARLIEST_PLAUSIBLE_ISO`, now + `MAX_CLOCK_AHEAD_DAYS`] window. Only `heart_rate`, `spo2`, `temperature` and `hrv` are filtered. Every other table passes through untouched, and `sleep_raw` and the sleep deriver are not affected.
+- Drops are logged at `warn` on `IMPLAUSIBLE_ROWS_EVENT` (`'sensor-adapter.rows.implausible'`, newly exported). That is the event the app's live path already logs. The payload is `{ event: 'pushFirmware', table, dropped, kept, sample }`, one line per table that lost rows. A table that loses every row is not pushed.
+- An `hrv` row is dropped as a whole when `hrv_ms` is outside [5, 200], and that includes 0 and NULL. The `stress` value on that row goes with it. The live path has always behaved this way. It is new for bulk-synced stress.
+- The app's own `dropImplausibleRows` call before `sink.push` (`sensor-adapter.ts`) is still needed: `push` does not filter. Only a caller that runs `dropImplausibleRows` before `pushFirmware` can now drop that call.
+- Rows already stored are not cleaned up by the upgrade.
+
 ## 0.47.x → 0.48.0 — sleep correction reads 10-minute step buckets again, and re-derives the night before each batch, as v3.1
 
 **Two behaviour changes, both ruled 2026-10-28 to match v1. Requires `activity_bucket`. No API change for `createSyncManager` callers.**

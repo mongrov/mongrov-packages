@@ -82,6 +82,7 @@ export { mapHrv } from './mapper/hrv'
 export {
   dropImplausibleRows,
   EARLIEST_PLAUSIBLE_ISO,
+  IMPLAUSIBLE_ROWS_EVENT,
   MAX_CLOCK_AHEAD_DAYS,
 } from './mapper/plausibility'
 
