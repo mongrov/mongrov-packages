@@ -28,6 +28,20 @@
  * Captures are real users' ring data and are not in this repo. Set
  * SLEEP_CAPTURES_DIR to ziva_app `packages/ux/helpers/testFiles` to run.
  * SLEEP_REPLAY_OUT=<file> writes the per-night comparison.
+ *
+ * ## Display parity (report only)
+ *
+ * The two apps put different numbers on the sleep screen from the SAME rows:
+ * v1's Day tab (`ziva_app sqlquery.ts` `sleepSummaryQuery`) shows `total` =
+ * every primary minute, awake included, over `[D-1 18:00, D 17:59:59]` local;
+ * v2's Night range (`zivaone_app derive-night.ts` `durationMin`) shows
+ * light + deep + rem only, bed/wake from the stage rows. After every night is
+ * derived, the stored `sleep_session` / `sleep_stage` rows are read both ways
+ * — the app's own `sleep.night` SQL (copied below, params bound) folded by
+ * `deriveNight`'s rules, and v1's window summary — and set beside the oracle.
+ * The delta between the two headline numbers is exactly the night's awake
+ * minutes, which is the size of the open decision; the distribution is
+ * printed. SLEEP_DISPLAY_OUT=<file> writes the per-night numbers.
  */
 import type { FirmwareExport } from '../../mapper/types'
 import type { SqlRunner } from '../correct'
@@ -52,6 +66,7 @@ import { DEFAULT_RELATIONS } from '../sql'
 
 const CAPTURES = process.env.SLEEP_CAPTURES_DIR
 const OUT = process.env.SLEEP_REPLAY_OUT
+const DISPLAY_OUT = process.env.SLEEP_DISPLAY_OUT
 const REF = JSON.parse(readFileSync(join(__dirname, 'fixtures/reference.v31.json'), 'utf8')) as {
   nights: RefNight[]
 }
@@ -174,6 +189,42 @@ interface Compared {
   experiments?: Experiments
   embeddedExperiments?: EmbeddedExperiments
   cutoff: { production: number, harness: number, hrMin: number | null, affectsBaseline: boolean }
+}
+
+/** What one app's sleep screen would show for the night, from the stored rows. */
+interface Shown {
+  /** v1: every primary minute; v2: light + deep + rem. */
+  headlineMin: number
+  light: number
+  deep: number
+  rem: number
+  awake: number
+  /** v1 `start` / v2 bed, local wall clock `YYYY-MM-DD HH:MM:SS`. */
+  startLocal: string
+  /** v1 `end` (last minute) / v2 wake (last minute + block), local. */
+  endLocal: string
+}
+
+interface Displayed {
+  key: string
+  iso: string
+  night_of: string
+  /** `$offset` bound into `sleep.night`; > 365 is outside the app's input schema. */
+  offset: number
+  /** `sleep.night` row count (one per stage row, LEFT JOIN). */
+  rows: number
+  v2?: Shown & { awakenings: number, sessionCount: number, spacing: number }
+  v1?: Shown & { total: number, asleep: number, efficiency: number, sessions: number }
+  oracle?: Shown & { total: number, asleep: number }
+  /** v1 total − v2 headline; equals v1 awake when both read the same rows. */
+  totalMinusDuration?: number
+  /** v2 bed − v1 start, v2 wake − v1 end, minutes. Wake is +1 by construction (end is the last minute). */
+  dBedMin?: number
+  dWakeMin?: number
+  /** Rows the v1 window saw that are not the night's sessions, or vice versa. */
+  rowMismatch?: string
+  /** Every stored session with a minute inside the v1 window, and how much of it the window holds. */
+  windowSessions?: Array<{ session_id: string, night_of: string, inWindow: number, total: number, startLocal: string, endLocal: string }>
 }
 
 interface CaptureCounts {
@@ -320,9 +371,250 @@ function embeddedNights(dump: Record<string, unknown>, tzHours: number): Map<str
 }
 
 // ---------------------------------------------------------------------------
+// The two screens, from the stored rows
+// ---------------------------------------------------------------------------
+
+/**
+ * zivaone_app `src/features/sleep/queries.ts` — `sleepNight.sql`, copied
+ * verbatim with its four helpers (`tenant`, `local`, `TARGET_NIGHT_SQL`,
+ * `STAGE_CASE_SQL` from `utils/stages.ts`) expanded exactly as the app
+ * emits them. Binds `$userId` / `$brand` / `$familyId` / `$tz` / `$offset`.
+ * Kept as a fixture rather than imported: this package cannot depend on the
+ * app, and a copy that drifts from the app is the point of re-checking it.
+ */
+const APP_TENANT = (alias: string) => `${alias}.user_id = $userId AND ${alias}.brand = $brand AND ${alias}.family_id = $familyId`
+const APP_LOCAL = (expr: string) => `timezone(CAST($tz AS VARCHAR), timezone('UTC', ${expr}))`
+const APP_TARGET_NIGHT_SQL = `
+      date_trunc('day', timezone(CAST($tz AS VARCHAR), now()))
+        - (INTERVAL 1 DAY) * (CAST($offset AS BIGINT) + 1)`
+const APP_STAGE_CASE_SQL = `CASE g.stage
+      WHEN 1 THEN 'awake'
+      WHEN 2 THEN 'light'
+      WHEN 3 THEN 'deep'
+      WHEN 5 THEN 'rem'
+      ELSE 'awake'
+    END`
+const APP_SLEEP_NIGHT_SQL = `
+    WITH params AS (
+      SELECT CAST(${APP_TARGET_NIGHT_SQL} AS DATE) AS night_of
+    ),
+    sessions AS (
+      SELECT s.*
+      FROM v_sleep_session s CROSS JOIN params p
+      WHERE ${APP_TENANT('s')}
+        AND s.night_of = p.night_of
+    )
+    SELECT
+      CAST(s.night_of AS VARCHAR) AS night_of,
+      s.session_id,
+      CAST(${APP_LOCAL('s.ts_start')} AS VARCHAR) AS session_start_local,
+      CAST(${APP_LOCAL('s.ts_end')} AS VARCHAR) AS session_end_local,
+      s.total_minutes,
+      s.deep_minutes,
+      s.rem_minutes,
+      s.light_minutes,
+      s.awake_minutes,
+      CAST(${APP_LOCAL('g.ts')} AS VARCHAR) AS stage_ts_local,
+      ${APP_STAGE_CASE_SQL} AS stage_name
+    FROM sessions s
+    LEFT JOIN v_sleep_stage g
+      ON g.session_id = s.session_id
+     AND ${APP_TENANT('g')}
+    ORDER BY s.ts_start, g.ts
+  `
+
+type AppStage = 'awake' | 'light' | 'deep' | 'rem'
+
+interface AppNightRow {
+  night_of: string
+  session_id: string
+  session_start_local: string
+  session_end_local: string
+  stage_ts_local: string | null
+  stage_name: AppStage | null
+}
+
+/** `derive-night.ts` `minutesFromAnchor`: wall-clock fields, no zone. */
+function minutesFromAnchor(local: string, anchorDay: string): number {
+  const [datePart = '', timePart = '00:00:00'] = local.split(/[ T]/)
+  const [y = 0, mo = 1, d = 1] = datePart.split('-').map(Number)
+  const [hh = 0, mi = 0, ss = 0] = timePart.split(':').map(Number)
+  const [ay = 0, amo = 1, ad = 1] = anchorDay.slice(0, 10).split('-').map(Number)
+  return Math.round((Date.UTC(y, mo - 1, d, hh, mi, ss) - Date.UTC(ay, amo - 1, ad)) / 60_000)
+}
+
+/** Minutes past the anchor midnight → local wall clock, the inverse of the above. */
+function wallClock(anchorDay: string, min: number): string {
+  const [ay = 0, amo = 1, ad = 1] = anchorDay.slice(0, 10).split('-').map(Number)
+  return new Date(Date.UTC(ay, amo - 1, ad) + min * 60_000).toISOString().slice(0, 19).replace('T', ' ')
+}
+
+/**
+ * `derive-night.ts` `deriveNight`, the lines that produce the screen's
+ * numbers: samples → spacing → segments → bed/wake/duration/awakenings.
+ * Re-implemented here (the app is not a dependency of this package) and kept
+ * line-for-line with the app so a difference below is a display-path finding.
+ */
+function deriveNightLikeApp(rows: AppNightRow[]): Displayed['v2'] | undefined {
+  if (rows.length === 0)
+    return undefined
+  const anchorDay = rows[0].night_of
+  const samples = rows
+    .filter(r => r.stage_ts_local != null && r.stage_name != null)
+    .map(r => ({ min: minutesFromAnchor(r.stage_ts_local!, anchorDay), stage: r.stage_name! }))
+    .sort((a, b) => a.min - b.min)
+  const spacing = samples.length > 1
+    ? Math.max(1, Math.min(...samples.slice(1).map((s, i) => s.min - samples[i].min)))
+    : 1
+  const segments: Array<{ stage: AppStage, startMin: number, lengthMin: number }> = []
+  for (const sample of samples) {
+    const open = segments.at(-1)
+    if (open && open.stage === sample.stage && open.startMin + open.lengthMin === sample.min)
+      open.lengthMin += spacing
+    else
+      segments.push({ stage: sample.stage, startMin: sample.min, lengthMin: spacing })
+  }
+  const first = segments[0]
+  const last = segments.at(-1)
+  const bedMin = first ? first.startMin : minutesFromAnchor(rows[0].session_start_local, anchorDay)
+  const wakeMin = last ? last.startMin + last.lengthMin : minutesFromAnchor(rows.at(-1)!.session_end_local, anchorDay)
+  const lane = (s: AppStage) => segments.filter(x => x.stage === s).reduce((a, x) => a + x.lengthMin, 0)
+  const lastAsleep = segments.findLastIndex(s => s.stage !== 'awake')
+  return {
+    headlineMin: lane('light') + lane('deep') + lane('rem'),
+    light: lane('light'),
+    deep: lane('deep'),
+    rem: lane('rem'),
+    awake: lane('awake'),
+    startLocal: wallClock(anchorDay, bedMin),
+    endLocal: wallClock(anchorDay, wakeMin),
+    awakenings: lastAsleep < 0 ? 0 : segments.slice(0, lastAsleep).filter(s => s.stage === 'awake').length,
+    sessionCount: new Set(rows.map(r => r.session_id)).size,
+    spacing,
+  }
+}
+
+/**
+ * v1's `sleepSummaryQuery` over the stored stage rows: every minute in
+ * `[D-1 18:00, D 17:59:59]` local (`nightWindow`'s `[windowStart, windowEnd)`),
+ * whichever session it belongs to, with the warehouse stage codes (2 light /
+ * 3 deep / 5 rem; anything else is v1's `quality NOT IN (1,2,3)` = awake).
+ */
+async function v1Summary(db: HybridDuckDB, w: { windowStart: number, windowEnd: number }, timeZone: string): Promise<Displayed['v1'] | undefined> {
+  const [r] = await db.execute<Record<string, unknown>>(
+    `SELECT count(*) AS total,
+            CAST(timezone('${timeZone}', timezone('UTC', min(ts))) AS VARCHAR) AS start_local,
+            CAST(timezone('${timeZone}', timezone('UTC', max(ts))) AS VARCHAR) AS end_local,
+            sum(CASE WHEN stage = 3 THEN 1 ELSE 0 END) AS deep,
+            sum(CASE WHEN stage = 2 THEN 1 ELSE 0 END) AS light,
+            sum(CASE WHEN stage = 5 THEN 1 ELSE 0 END) AS rem,
+            sum(CASE WHEN stage NOT IN (2, 3, 5) THEN 1 ELSE 0 END) AS awake,
+            count(DISTINCT session_id) AS sessions
+     FROM sleep_stage
+     WHERE epoch(ts) >= ${w.windowStart} AND epoch(ts) < ${w.windowEnd}`,
+  )
+  const total = Number(r.total)
+  if (!total)
+    return undefined
+  const awake = Number(r.awake)
+  return {
+    headlineMin: total,
+    total,
+    asleep: total - awake,
+    efficiency: (total - awake) / total,
+    light: Number(r.light),
+    deep: Number(r.deep),
+    rem: Number(r.rem),
+    awake,
+    startLocal: String(r.start_local),
+    endLocal: String(r.end_local),
+    sessions: Number(r.sessions),
+  }
+}
+
+/** The oracle's night in the same terms (`awake` = nPrimary − stages). */
+function oracleShown(ref: RefNight, tzHours: number): Displayed['oracle'] | undefined {
+  const s = refStats(ref)
+  if (!s)
+    return undefined
+  const awake = s.nPrimary - s.light - s.deep - s.rem
+  const local = (e: number) => new Date((e + tzHours * 3600) * 1000).toISOString().slice(0, 19).replace('T', ' ')
+  return { headlineMin: s.nPrimary, total: s.nPrimary, asleep: s.nPrimary - awake, light: s.light, deep: s.deep, rem: s.rem, awake, startLocal: local(s.procStart), endLocal: local(s.procEnd) }
+}
+
+const wallMinutes = (local: string) => minutesFromAnchor(local, '1970-01-01')
+
+/** Local today in `timeZone`, as `sleep.night`'s `params` CTE computes it. */
+async function localToday(db: HybridDuckDB, timeZone: string): Promise<string> {
+  const [r] = await db.execute<{ d: unknown }>(
+    `SELECT CAST(CAST(date_trunc('day', timezone(CAST($tz AS VARCHAR), now())) AS DATE) AS VARCHAR) AS d`,
+    { tz: timeZone },
+  )
+  return String(r.d)
+}
+
+/**
+ * One night read the way each screen reads it. `sleep.night` anchors on
+ * `now()`, so the night is reached through `$offset` = nights back from
+ * local today − 1, exactly as the Night range chevron would.
+ */
+async function displayNight(
+  db: HybridDuckDB,
+  ref: RefNight,
+  w: { windowStart: number, windowEnd: number, tzOffsetHours: number },
+  timeZone: string,
+  nightOf: string,
+  today: string,
+): Promise<Displayed> {
+  const offset = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${nightOf}T00:00:00Z`)) / 86_400_000) - 1
+  const rows = await db.execute<AppNightRow>(APP_SLEEP_NIGHT_SQL, { ...TENANT, tz: timeZone, offset })
+  const v2 = deriveNightLikeApp(rows)
+  const v1 = await v1Summary(db, w, timeZone)
+  const out: Displayed = { key: ref.key, iso: ref.iso, night_of: nightOf, offset, rows: rows.length, v2, v1, oracle: oracleShown(ref, w.tzOffsetHours) }
+  if (v1 && v2) {
+    out.totalMinusDuration = v1.total - v2.headlineMin
+    out.dBedMin = wallMinutes(v2.startLocal) - wallMinutes(v1.startLocal)
+    out.dWakeMin = wallMinutes(v2.endLocal) - wallMinutes(v1.endLocal)
+    const stageRows = rows.filter(r => r.stage_ts_local != null).length
+    if (stageRows !== v1.total)
+      out.rowMismatch = `sleep.night returned ${stageRows} stage rows for night_of ${nightOf}; the v1 window holds ${v1.total}`
+  }
+  else if ((v1 == null) !== (v2 == null)) {
+    out.rowMismatch = v1 ? `v1 window has ${v1.total} rows but sleep.night found no session for night_of ${nightOf}` : `sleep.night has ${rows.length} rows but the v1 window is empty`
+  }
+  if (out.rowMismatch) {
+    out.windowSessions = (await db.execute<Record<string, unknown>>(
+      `SELECT g.session_id, CAST(s.night_of AS VARCHAR) AS night_of, count(*) AS n, s.total_minutes,
+              CAST(timezone('${timeZone}', timezone('UTC', s.ts_start)) AS VARCHAR) AS start_local,
+              CAST(timezone('${timeZone}', timezone('UTC', s.ts_end)) AS VARCHAR) AS end_local
+       FROM sleep_stage g JOIN sleep_session s USING (session_id)
+       WHERE epoch(g.ts) >= ${w.windowStart} AND epoch(g.ts) < ${w.windowEnd}
+       GROUP BY ALL ORDER BY start_local`,
+    )).map(s => ({
+      session_id: String(s.session_id),
+      night_of: String(s.night_of),
+      inWindow: Number(s.n),
+      total: Number(s.total_minutes),
+      startLocal: String(s.start_local),
+      endLocal: String(s.end_local),
+    }))
+  }
+  return out
+}
+
+function median(xs: number[]): number {
+  if (!xs.length)
+    return Number.NaN
+  const s = [...xs].sort((a, b) => a - b)
+  const mid = s.length >> 1
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
+
+// ---------------------------------------------------------------------------
 // The production rig — `sleep-derive.test.ts` `rig()` fed by the mapper
 // ---------------------------------------------------------------------------
 
+const TENANT = { brand: 'ziva', familyId: 'fam', userId: 'u' } as const
 const TABLES = ['sleep_raw', 'sleep_session', 'sleep_stage', 'heart_rate', 'activity', 'activity_bucket'] as const
 const FLUSHED = ['heart_rate', 'activity', 'activity_bucket', 'sleep_raw'] as const
 
@@ -352,13 +644,18 @@ interface Replay {
  * the two must agree with a single sync wherever the scalars agree.
  */
 async function replayCapture(dump: Record<string, unknown>, deviceId: string, timeZone: string, splitAt?: number): Promise<Replay> {
-  const tenant = { brand: 'ziva', familyId: 'fam', userId: 'u', deviceId }
+  const tenant = { ...TENANT, deviceId }
   const ctx = { ...tenant, userTimezone: timeZone }
 
-  const db = new HybridDuckDB(() => createRealDuckDB([]))
+  // `icu` for the app's `timezone()` calls in the display section; it also
+  // pins the session to UTC, as `bootstrapExtensions` does on the device.
+  const db = new HybridDuckDB(() => createRealDuckDB(['icu']))
   await db.open()
   for (const t of TABLES) await db.execute(LOCAL_SCHEMAS[t])
-  for (const t of ['heart_rate', 'activity', 'activity_bucket'] as const)
+  // The local-mode `v_*` DDL production's `createViews` emits per table
+  // (`createViews` itself also wants the hrv/spo2/temperature tables and the
+  // quality views over them, which this rig does not stage).
+  for (const t of ['heart_rate', 'activity', 'activity_bucket', 'sleep_session', 'sleep_stage'] as const)
     await db.execute(generateViewDdl(t, { brand: tenant.brand, familyId: tenant.familyId, localCatalog: 'memory' }))
   const columnOrder: Record<string, string[]> = {}
   for (const t of TABLES) {
@@ -527,6 +824,7 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
     }
 
     const results: Compared[] = []
+    const display: Displayed[] = []
     const counts: CaptureCounts[] = []
     const surprises: string[] = []
     const splitSync: Array<{ capture: string, splitAt: number, same: boolean, single: string[], split: string[] }> = []
@@ -545,6 +843,7 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
       // are re-read from them (it does not expose per-night tiers).
       const db = r.db as unknown as SqlRunner
       const { p75, p90 } = await globalBaselines(db, r.cutoffEpoch)
+      const today = await localToday(r.db, timeZone)
       let v1StepsReady = false
 
       for (const ref of nights) {
@@ -641,6 +940,10 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
           row.embeddedExperiments = { ...x, reproduced: reproduces(x.fallbackProdTier) || reproduces(x.fallbackRefTier) }
         }
         results.push(row)
+        // The night as each screen would show it, from the rows just stored.
+        // After the re-runs: those write only `stg_*` temp relations, never
+        // `sleep_session` / `sleep_stage`, so the stored night is unchanged.
+        display.push(await displayNight(r.db, ref, w, timeZone, nightOf, today))
       }
       await r.db.close()
 
@@ -709,6 +1012,63 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
     }
     for (const s of surprises) console.log(`  note ${s}`)
 
+    // ---- display parity: what each screen shows for the same stored night ----
+    if (DISPLAY_OUT)
+      writeFileSync(DISPLAY_OUT, JSON.stringify({ generatedAt: new Date().toISOString(), nights: display }, null, 1))
+    const shown = display.filter(d => d.v1 && d.v2)
+    const hm = (m: number) => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`
+    const clock = (local: string) => local.slice(5, 16)
+    console.log(`display parity (${shown.length}/${display.length} reference nights with stored rows): v1 Day-tab total (all primary minutes) vs v2 Night durationMin (light+deep+rem)`)
+    console.log(`  night            | v1 total  asleep  eff  | v2 dur    awake  wakes | delta | v1 start→end            | v2 bed→wake             | dBed dWake | oracle total/awake`)
+    for (const d of shown) {
+      const { v1, v2 } = d as Required<Pick<Displayed, 'v1' | 'v2'>> & Displayed
+      const o = d.oracle ? `${d.oracle.total}/${d.oracle.awake}` : '-'
+      const flag = Math.abs(d.dBedMin!) > 1 || Math.abs(d.dWakeMin!) > 1 ? ' <-- bed/wake differ' : ''
+      console.log(`  ${d.key.padEnd(16)} | ${String(v1.total).padStart(4)} ${hm(v1.total)}  ${String(v1.asleep).padStart(4)}  ${(v1.efficiency * 100).toFixed(0).padStart(3)}% `
+        + `| ${String(v2.headlineMin).padStart(4)} ${hm(v2.headlineMin)} ${String(v2.awake).padStart(4)}   ${String(v2.awakenings).padStart(3)}  `
+        + `| ${String(d.totalMinusDuration).padStart(4)}  | ${clock(v1.startLocal)}→${clock(v1.endLocal)} | ${clock(v2.startLocal)}→${clock(v2.endLocal)} `
+        + `| ${String(d.dBedMin).padStart(4)} ${String(d.dWakeMin).padStart(5)} | ${o}${flag}${d.rowMismatch ? ` <-- ${d.rowMismatch}` : ''}`)
+    }
+    // Nights where the two screens do not read the same rows: a session that
+    // crosses 18:00 local. `correctNightSql` fetches to `windowEnd + FETCH_AFTER`
+    // (30 min, classify.ts — v3.1's constant), so a primary block may end up
+    // to ~18:30; v1's Day tab slices it at 17:59:59 and shows the rest under
+    // the next day, v2 shows the whole session under the night it was derived
+    // in. When the NEXT night's window then starts a new session at 18:00:01,
+    // the same minutes are stored twice — reported as an overlap.
+    const crossing = display.filter(x => x.rowMismatch)
+    let overlapping = 0
+    for (const d of crossing) {
+      console.log(`  ${d.key}: ${d.rowMismatch}; sessions with a minute in the v1 window [${eveningOf(d.iso)} 18:00, ${d.iso} 18:00):`)
+      const ss = d.windowSessions ?? []
+      for (const [i, s] of ss.entries()) {
+        const prev = ss[i - 1]
+        const overlap = prev ? Math.max(0, Math.round((wallMinutes(prev.endLocal) - wallMinutes(s.startLocal)) * 10) / 10) : 0
+        if (overlap > 0)
+          overlapping++
+        console.log(`    night_of ${s.night_of} ${s.startLocal}→${s.endLocal} ${s.total} min, ${s.inWindow} in the window${overlap > 0 ? ` <-- OVERLAPS the previous session by ${overlap} min` : ''}`)
+      }
+    }
+    console.log(`sessions crossing 18:00 local: ${crossing.length}/${display.length} nights read differently by the two screens (v1 slices at 17:59:59, v2 shows the session whole); `
+      + `${overlapping} of them have the next night's session re-claiming the same minutes`)
+    const awakeMins = shown.map(d => d.v1!.awake)
+    const effs = shown.map(d => d.v1!.efficiency)
+    const over = (n: number) => awakeMins.filter(a => a >= n).length
+    console.log(`awake minutes per night (= v1 total − v2 duration), n=${awakeMins.length}: `
+      + `median ${median(awakeMins)}, mean ${(awakeMins.reduce((a, b) => a + b, 0) / awakeMins.length).toFixed(1)}, max ${Math.max(...awakeMins)}, min ${Math.min(...awakeMins)}; `
+      + `nights with ≥15: ${over(15)}, ≥30: ${over(30)}, ≥60: ${over(60)}`)
+    console.log(`sleep efficiency (asleep/total): median ${(median(effs) * 100).toFixed(1)}%, min ${(Math.min(...effs) * 100).toFixed(1)}%; `
+      + `nights < 85%: ${effs.filter(e => e < 0.85).length}/${effs.length}`)
+    const bedWakeDiffer = shown.filter(d => Math.abs(d.dBedMin!) > 1 || Math.abs(d.dWakeMin!) > 1)
+    const sameRows = shown.filter(d => !d.rowMismatch)
+    const displayBug = bedWakeDiffer.filter(d => !d.rowMismatch)
+    console.log(`v2 bed/wake vs v1 start/end: ${shown.length - bedWakeDiffer.length}/${shown.length} within 1 min; `
+      + `${sameRows.length - displayBug.length}/${sameRows.length} where both screens read the same rows `
+      + `(wake − end is +1 min by construction: v1 end is the last minute's start, v2 wake is its end); `
+      + `offsets bound ${Math.min(...display.map(d => d.offset))}..${Math.max(...display.map(d => d.offset))} (app input allows ≤ 365)`)
+    for (const d of bedWakeDiffer)
+      console.log(`  bed/wake differ ${d.key}: v1 ${d.v1!.startLocal}→${d.v1!.endLocal} v2 ${d.v2!.startLocal}→${d.v2!.endLocal}${d.rowMismatch ? ' (session crosses 18:00)' : ' <-- DISPLAY PATH'}`)
+
     // ---- assertions ----
     // Mapper + flush: every dump row reached its table, PK dedupe aside.
     for (const c of counts) {
@@ -721,5 +1081,9 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
     expect(surprises.filter(s => s.includes('stage rows for'))).toEqual([])
     // At least as good as the parity harness, once the known conventions are named.
     expect(exact.length + within.length + explained.length).toBeGreaterThanOrEqual(PARITY_FLOOR)
+    // Display parity: where both screens read the same stored rows, v2's
+    // bed/wake can only differ from v1's start/end by the end-of-minute
+    // convention. Nights with a session crossing 18:00 are report-only above.
+    expect(displayBug.map(d => d.key)).toEqual([])
   }, 600_000)
 })
