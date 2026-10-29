@@ -8,6 +8,7 @@
  * and never touches its neighbours.
  */
 import type { FirmwareActivityRow, FirmwareSleepRawRow, MapperContext } from '../mapper/types'
+import type { FlushResult } from '../types'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -20,7 +21,7 @@ import { BatchFlusher } from '../flusher'
 import { mapActivity } from '../mapper/activity'
 import { mapSleepRaw } from '../mapper/sleep'
 import { OverflowStore } from '../overflow'
-import { createSleepDeriver } from '../sleep-derive'
+import { createSleepDeriver, mergeFlushResults } from '../sleep-derive'
 
 const TENANT = { brand: 'ziva', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
 const CTX: MapperContext = { ...TENANT, userTimezone: 'UTC' }
@@ -82,6 +83,9 @@ async function rig(opts: {
     logger: opts.logger,
   })
 
+  /** What the last `derive` resolved with. */
+  let derived: FlushResult[] = []
+
   /** One sync: raw rows (and any activity) in, flush, derive, close the batch. */
   async function sync(rows: FirmwareSleepRawRow[], extra: { activity?: FirmwareActivityRow[] } = {}) {
     const raw = mapSleepRaw(rows, CTX) as unknown as Record<string, unknown>[]
@@ -97,13 +101,13 @@ async function rig(opts: {
     const batchId = flusher.beginBatch('manual')
     for (const t of ['activity', 'activity_bucket', 'sleep_raw'] as const)
       await flusher.flush(t, 'manual', batchId)
-    await deriver.derive(batchId, 'manual')
+    derived = await deriver.derive(batchId, 'manual')
     return flusher.endBatch(batchId)
   }
 
   async function sessions() {
-    return db.execute<{ session_id: string, night: string, end: string, total_minutes: number, settle_min: number | null, recovered_min: number | null }>(
-      `SELECT session_id, CAST(night_of AS VARCHAR) AS night, CAST(ts_end AS VARCHAR) AS "end", total_minutes, settle_min, recovered_min
+    return db.execute<{ session_id: string, night: string, start: string, end: string, total_minutes: number, settle_min: number | null, recovered_min: number | null }>(
+      `SELECT session_id, CAST(night_of AS VARCHAR) AS night, CAST(ts_start AS VARCHAR) AS start, CAST(ts_end AS VARCHAR) AS "end", total_minutes, settle_min, recovered_min
        FROM sleep_session ORDER BY ts_start`,
     )
   }
@@ -111,8 +115,24 @@ async function rig(opts: {
     const [r] = await db.execute<{ n: number }>(`SELECT CAST(count(*) AS INTEGER) AS n FROM sleep_stage`)
     return r.n
   }
+  /**
+   * The #75 defect, as the Night view would draw it twice: a stage minute
+   * stored under two sessions, and — since two nights' rows need not share a
+   * second — two sessions whose spans overlap at all.
+   */
+  async function overlaps() {
+    const minutes = await db.execute<{ ts: string, sessions: number }>(
+      `SELECT CAST(ts AS VARCHAR) AS ts, CAST(count(DISTINCT session_id) AS INTEGER) AS sessions
+       FROM sleep_stage GROUP BY ts HAVING count(DISTINCT session_id) > 1 ORDER BY ts`,
+    )
+    const sessions = await db.execute<{ a: string, b: string }>(
+      `SELECT a.session_id AS a, b.session_id AS b FROM sleep_session a JOIN sleep_session b
+       ON a.session_id < b.session_id AND a.ts_start < b.ts_end AND b.ts_start < a.ts_end`,
+    )
+    return [...minutes, ...sessions]
+  }
 
-  return { db, deriver, sync, sessions, stageCount }
+  return { db, deriver, sync, sessions, stageCount, overlaps, derived: () => derived }
 }
 
 describe('sleep derive inside the batch', () => {
@@ -153,11 +173,25 @@ describe('sleep derive inside the batch', () => {
     await r.db.close()
   }, 60_000)
 
+  it('resolves with the derived rows\' flush results (zivaone_app#452)', async () => {
+    // The caller's own per-table loop drained sleep_session / sleep_stage
+    // before these rows existed; this is the only place their count is known.
+    const r = await rig()
+    await r.sync(rawNight('2026-06-17T23:00:00', 300))
+    const s = await r.sessions()
+    expect(r.derived()).toEqual([
+      expect.objectContaining({ table: 'sleep_session', ok: true, rowsFlushed: s.length }),
+      expect.objectContaining({ table: 'sleep_stage', ok: true, rowsFlushed: await r.stageCount() }),
+    ])
+    await r.db.close()
+  }, 60_000)
+
   it('does nothing when no raw sleep is pending', async () => {
     const r = await rig()
     const done = await r.sync([])
     expect(done).toBeNull() // nothing flushed ⇒ no batch-complete
     expect(await r.sessions()).toEqual([])
+    expect(r.derived()).toEqual([])
     await r.db.close()
   }, 60_000)
 
@@ -265,6 +299,74 @@ describe('the night before a batch is re-derived (v1 parity, ruled 2026-10-28)',
   }, 60_000)
 })
 
+describe('a minute past 18:00 belongs to the later night (#75, v1 parity)', () => {
+  // A daytime sleeper: firmware light sleep 11:00 → 17:39, sleeping-level HR
+  // on past 18:00. Phase 2 reads HR to windowEnd + FETCH_AFTER (18:30), so
+  // night 1's envelope runs to 18:34 — into night 2's window, where night 2's
+  // own firmware rows start at 18:00. Without the cut both sessions store
+  // 18:00–18:34 and the Night view draws it twice. Night 2's rows sit at
+  // hh:mm:01, as the ring stamps them, and night 1's envelope minutes at its
+  // HR samples' hh:mm:00 — the study case (3787, 2026-06-23) had :01 against
+  // :40 — so no two stage rows share a `ts`; the overlap is in the spans,
+  // and the cut is where night 2 begins, not per equal minute.
+  const HR: readonly (readonly [string, string])[] = [['2026-06-18T10:30:00', '2026-06-18T20:30:00']]
+  const night1 = () => rawNight('2026-06-18T11:00:00', 400)
+  const night2 = () => rawNight('2026-06-18T18:00:01', 135)
+
+  async function expectCut(r: Awaited<ReturnType<typeof rig>>) {
+    const s = await r.sessions()
+    expect(s.map(x => x.night)).toEqual(['2026-06-17', '2026-06-18'])
+    expect(s[0].end).toBe('2026-06-18 18:00:00') // last row not reaching 18:00:01 is 17:59:00; the 18:00:00 row would
+    expect(s[0].total_minutes).toBe(420) // 400 firmware + the 17:40–17:59 envelope
+    expect(s[1].start).toBe('2026-06-18 18:00:01')
+    expect(await r.overlaps()).toEqual([])
+    expect(await r.stageCount()).toBe(s[0].total_minutes + s[1].total_minutes)
+    return s
+  }
+
+  it('cuts the earlier night at the first minute the later night claims', async () => {
+    const r = await rig({ hrWindows: HR })
+    await r.sync([...night1(), ...night2()])
+    await expectCut(r)
+    await r.db.close()
+  }, 60_000)
+
+  it('split batches land the same end state: the earlier night is cut when the later one arrives', async () => {
+    const whole = await rig({ hrWindows: HR })
+    await whole.sync([...night1(), ...night2()])
+    const once = await expectCut(whole)
+    await whole.db.close()
+
+    const r = await rig({ hrWindows: HR })
+    // Night 1 alone: nothing claims its tail yet, so it runs to 18:35 — the
+    // residual the next sync fixes by re-deriving the night before (D5).
+    await r.sync(night1())
+    const [alone] = await r.sessions()
+    expect(alone.end).toBe('2026-06-18 18:35:00')
+    expect(alone.total_minutes).toBe(455)
+
+    // Night 2's batch re-derives night 1 as the night before, so night 1 is
+    // replaced (its id moves with its END) and no stale row keeps the tail.
+    await r.sync(night2())
+    const twice = await expectCut(r)
+    expect(twice).toEqual(once)
+    expect(twice[0].session_id).not.toBe(alone.session_id)
+    await r.db.close()
+  }, 120_000)
+
+  it('a night re-derived alone still loses its tail to the later night already stored', async () => {
+    // The reverse order: night 2 is stored, then a batch touches night 1
+    // only (a re-download). Night 2 is not in the range, so its STORED
+    // ts_start is where it begins; night 1 must not grow back past 18:00.
+    const r = await rig({ hrWindows: HR })
+    await r.sync([...night1(), ...night2()])
+    const before = await expectCut(r)
+    await r.sync(rawNight('2026-06-18T11:00:00', 10)) // night 1's first 10 minutes again
+    expect(await expectCut(r)).toEqual(before)
+    await r.db.close()
+  }, 60_000)
+})
+
 describe('DST — the night window comes from the IANA offset', () => {
   it('keeps the fall-back night whole, and names it by its evening', async () => {
     // Los Angeles falls back 2025-11-02 02:00 → 01:00, so that local night is
@@ -287,4 +389,35 @@ describe('DST — the night window comes from the IANA offset', () => {
     expect(await r.stageCount()).toBe(s[0].total_minutes)
     await r.db.close()
   }, 120_000)
+})
+
+describe('mergeFlushResults', () => {
+  const ok = (table: string, rowsFlushed: number, rowsInserted?: number): FlushResult =>
+    ({ table, rowsFlushed, ok: true, ...(rowsInserted != null ? { rowsInserted } : {}) })
+
+  it('adds the derived counts into the batch\'s entry for the same table', () => {
+    const merged = mergeFlushResults(
+      [ok('sleep_raw', 7015, 7015), ok('sleep_session', 0), ok('sleep_stage', 0)],
+      [ok('sleep_session', 20, 20), ok('sleep_stage', 6942, 6942)],
+    )
+    expect(merged).toEqual([
+      ok('sleep_raw', 7015, 7015),
+      ok('sleep_session', 20, 20),
+      ok('sleep_stage', 6942, 6942),
+    ])
+  })
+
+  it('marks the table failed when the derived flush failed, keeping its error', () => {
+    const error = new Error('appender closed')
+    const merged = mergeFlushResults(
+      [ok('sleep_session', 0)],
+      [{ table: 'sleep_session', rowsFlushed: 0, ok: false, error }],
+    )
+    expect(merged).toEqual([{ table: 'sleep_session', rowsFlushed: 0, ok: false, error }])
+  })
+
+  it('appends a table the batch did not flush, and is a no-op with nothing derived', () => {
+    expect(mergeFlushResults([ok('hrv', 3)], [ok('sleep_session', 2)])).toEqual([ok('hrv', 3), ok('sleep_session', 2)])
+    expect(mergeFlushResults([ok('hrv', 3)], [])).toEqual([ok('hrv', 3)])
+  })
 })

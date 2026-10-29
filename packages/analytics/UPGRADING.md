@@ -35,6 +35,83 @@ await engine.setQuality({ ...brandQuality, motionFilter: on })
   A macro that fails is handled as at attach (plain fallback, else
   `boundedReads` off and `analytics.attach.bounded_reads_off` logged).
 
+## 0.48.x → 0.49.0 — `pushFirmware` drops implausible rows, as the live path does; an implausible HRV is nulled, not dropped (#81)
+
+**Behaviour change for every `sink.pushFirmware` caller and every `dropImplausibleRows` caller. `DropReport` gains a field.**
+
+### `pushFirmware` filters
+
+`pushFirmware` (bulk sync, and any replayed dump) now runs each mapped table through `dropImplausibleRows` before buffering it. Until now only the app's live BLE path did this, before `sink.push`. So a bulk sync stored 0 bpm, 0 % SpO2 and dates before 2020-01-01 or after now + 30 d in the raw tables. The clean views hid those rows, but raw-view queries counted them as readings: `health.spo2HasAnyReadings`, `hr.daysWorn` and `hr.baselineMaturity` in zivaone_app.
+
+- The bounds are the same as before: `PLAUSIBLE_RANGES` (bpm [30, 220], spo2 [70, 100], temp_c [30, 43], hrv_ms [5, 200]) and the [`EARLIEST_PLAUSIBLE_ISO`, now + `MAX_CLOCK_AHEAD_DAYS`] window. Only `heart_rate`, `spo2`, `temperature` and `hrv` are filtered. Every other table passes through untouched, and `sleep_raw` and the sleep deriver are not affected.
+- Changes are logged at `warn` on `IMPLAUSIBLE_ROWS_EVENT` (`'sensor-adapter.rows.implausible'`, newly exported). That is the event the app's live path already logs. The payload is `{ event: 'pushFirmware', table, dropped, nulled, kept, sample }`, one line per table that lost or nulled rows. A table that loses every row is not pushed.
+- Rows already stored are not cleaned up by the upgrade.
+
+### `dropImplausibleRows` nulls an implausible HRV instead of dropping the row
+
+Plausibility is per vital, not per row (sprint6 spec §13b). The canonical fixture `techspec/.specifica/fixtures/firmware-dirty-readings.json` says in its `$comment`: "10:00 HRV 0 is below the 5 ms clamp; its stress 35 stays clean". `src/core/__tests__/reading-quality.test.ts` pins that in the views.
+
+- On `hrv`, a row whose `hrv_ms` is outside [5, 200] but whose timestamp is sane is now **kept with `hrv_ms: null`**, so its `stress` and BP fields survive. Before, the whole row was dropped, and with it the stress.
+- A row whose `hrv_ms` is already NULL is kept unchanged and not counted.
+- An `hrv` row with an implausible timestamp is still dropped.
+- `heart_rate`, `spo2` and `temperature` still drop the whole row.
+- `DropReport` has a new `nulled: number` field: rows kept with the reading nulled. It is always present, and 0 except on `hrv`.
+- **The live path changes too.** zivaone_app's `sensor-adapter.ts:276` calls the same function, so on 0.49.0 a live HRV-0 row lands with `hrv_ms` NULL and its stress, where today it is dropped. Its log line fires only when `dropped > 0` and does not report `nulled`. To keep a nulled-only chunk visible, the app should log when `dropped > 0 || nulled > 0` and add `nulled` to the payload.
+- App test assertions that need updating on the pin to 0.49.0: none were found on origin/hex. `__mocks__/@mongrov/analytics.ts` stubs `dropImplausibleRows` as a pass-through returning `{ kept, dropped: 0 }` with no `nulled`. That is harmless unless the app starts reading `nulled`, in which case add `nulled: 0` to the stub. No app test asserts `sensor-adapter.rows.implausible`. zivaone_app#543's suite calls `mapFirmwareExport` directly, not `pushFirmware`, so it is unaffected.
+
+## 0.48.x → 0.49.0 — a minute claimed by two consecutive nights belongs to the later one, as v3.1's `clearNight` did
+
+**Behaviour change (mongrov-packages#75). No API change.**
+
+Phase 2 reads heart rate to `windowEnd + FETCH_AFTER` (30 min past 18:00
+local), so a daytime sleeper's envelope can run into the next night's
+window, where that night's own firmware rows start. The two nights were
+stored as two sessions and the overlap (up to ~35 min) sat in `sleep_stage`
+twice: the Night view drew it on both nights and Week/Month totals counted
+it twice (1 of 92 study nights; 6/92 cross 18:00). v3.1 never stored it
+twice — `clearNight(windowStart, windowEnd)` wiped the later night's window
+before its insert, and `sleep_processed.date` was unique — so a minute
+belonged to the LATER night.
+
+The deriver now does the same: a night ENDS where the night after it
+begins. Before a night's rows become sessions, every row reaching the later
+night's first minute is dropped (`src/sync/sleep-derive.ts`, "a minute past
+18:00" in `src/sync/__tests__/sleep-derive.test.ts`). "First minute" is the
+first the later night will hold once the batch is written — its first
+primary row when it was corrected in the same batch with a primary block,
+otherwise its stored `ts_start` — so the cut holds whichever order the two
+nights arrive in. It is a cut at that minute, not a per-minute drop: the
+two nights' rows need not share a second (the study night had envelope
+minutes at :40 against firmware minutes at :01), and a later night whose
+primary block has gaps must not leave the earlier night holes.
+
+- Residual: a later night not yet derived holds nothing, so a night synced
+  alone can still run past 18:00 until the next sync, which re-derives it as
+  the night before (0.48.0) and cuts it then.
+- Residual vs v3.1: a tail the later night never reaches (it begins later,
+  or classified that stretch as secondary/microsleep, which is not stored)
+  stays with the earlier night; v3.1's clear wiped the whole window.
+- Nights already stored are not re-corrected by the upgrade; a stored
+  overlap goes away when a later sync re-derives the EARLIER night (night
+  replace) — the later night's start is the cut, not the thing cut.
+- The replay harness (`replay-v1.test.ts`) now asserts no two stored
+  sessions overlap, in one sync or two, and names a reference night cut this
+  way cause (e): 6035|2026-06-11, whose oracle tail (a per-night harness
+  without `clearNight`) ran 30 min into the next night's window.
+## 0.48.x → 0.49.0 — flush summaries count the derived sleep rows
+
+**No API change.** `SensorSink.flush()` results and the scheduled cycle's
+`rowsFlushed` / `failedTables` now include the `sleep_session` and
+`sleep_stage` rows the sleep deriver writes inside the batch. Before, each
+table's entry came from the per-table loop, which ran before the deriver and
+drained both tables empty, so a consumer keying results by table saw
+`sleep_session: 0, sleep_stage: 0` on a sync that derived 20 sessions and
+6,942 stages (zivaone_app#452), and a failed derived flush was invisible to
+the summary. The derived counts are added to the existing entry for each
+table (one entry per table, as before); a failed derived flush marks the
+table failed. Expect `sync.flush.manual.ok`'s `rowsFlushed` to grow by the
+derived row count.
+
 ## 0.47.x → 0.48.0 — sleep correction reads 10-minute step buckets again, and re-derives the night before each batch, as v3.1
 
 **Two behaviour changes, both ruled 2026-10-28 to match v1. Requires `activity_bucket`. No API change for `createSyncManager` callers.**

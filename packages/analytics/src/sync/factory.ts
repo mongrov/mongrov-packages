@@ -44,11 +44,12 @@ import { bindFlushEvents, bindPushEvents } from './events'
 import { R2Fetcher } from './fetcher'
 import { BatchFlusher, MAX_CONSECUTIVE_FAILURES } from './flusher'
 import { mapFirmwareExport } from './mapper/firmware'
+import { dropImplausibleRows, IMPLAUSIBLE_ROWS_EVENT } from './mapper/plausibility'
 import { OverflowStore } from './overflow'
 import { PendingClosesStore } from './pending_closes'
 import { R2Pusher } from './pusher'
 import { logError, SyncScheduler } from './scheduler'
-import { createSleepDeriver } from './sleep-derive'
+import { createSleepDeriver, mergeFlushResults } from './sleep-derive'
 
 import { FlushTriggers } from './triggers'
 import { WatermarkStore } from './watermark'
@@ -468,12 +469,13 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         // as a single unit rather than one wake-up per table.
         const batchId = flusher.beginBatch('scheduled')
         try {
-          const results = await Promise.all(
+          const flushed = await Promise.all(
             config.tables.map(t => flusher.flush(t, 'scheduled', batchId)),
           )
           // After the raw tables land, before endBatch: corrected nights
           // are written into this batch so rules see them (never throws).
-          await sleepDeriver?.derive(batchId, 'scheduled')
+          // Their flush counts in the summary (zivaone_app#452).
+          const results = mergeFlushResults(flushed, await sleepDeriver?.derive(batchId, 'scheduled') ?? [])
           // Reported, not thrown: a failed table keeps its rows buffered for
           // the next cycle, and the rest of the cycle (push, fetch,
           // baselines) should still run. The scheduler logs the summary.
@@ -807,8 +809,29 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
         ['device_battery', asRows(mapped.device_battery)],
         ['device_config', asRows(mapped.device_config)],
       ]
-      for (const [table, rows] of mappedTables) {
-        if (!rows || rows.length === 0)
+      for (const [table, mappedRows] of mappedTables) {
+        if (!mappedRows || mappedRows.length === 0)
+          continue
+        // Filler is not a reading (zivaone_app#225, #81). The live BLE path
+        // has always dropped implausible rows before `push`; this path did
+        // not, so a bulk sync or a replayed dump stored 0 bpm / 0 % SpO2 and
+        // pre-2020 dates in the raw tables, where `health.spo2HasAnyReadings`,
+        // `hr.daysWorn` and `hr.baselineMaturity` counted them as readings.
+        // Tables with no declared range pass through untouched. On `hrv` an
+        // implausible HRV is nulled and the row kept, so its stress survives
+        // (spec §13b: plausibility is per vital, not per row).
+        const { kept: rows, dropped, nulled, sample } = dropImplausibleRows(table, mappedRows)
+        if (dropped > 0 || nulled > 0) {
+          logger?.warn(IMPLAUSIBLE_ROWS_EVENT, {
+            event: 'pushFirmware',
+            table,
+            dropped,
+            nulled,
+            kept: rows.length,
+            sample,
+          })
+        }
+        if (rows.length === 0)
           continue
         await buffer.push({
           table,
@@ -827,13 +850,16 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       // strictBatchOrdering exists to close.
       const batchId = flusher.beginBatch('manual')
       const startedAt = Date.now()
-      const results: FlushResult[] = []
+      let results: FlushResult[] = []
       try {
         for (const table of tables) {
           results.push(await flusher.flush(table, 'manual', batchId))
           triggers.noteDrain(table)
         }
-        await sleepDeriver?.derive(batchId, 'manual')
+        // The derived sleep rows are flushed by the deriver, after the loop
+        // drained `sleep_session` / `sleep_stage` empty — fold them in, or
+        // the caller reads 0 for both (zivaone_app#452).
+        results = mergeFlushResults(results, await sleepDeriver?.derive(batchId, 'manual') ?? [])
       }
       finally {
         flusher.endBatch(batchId)

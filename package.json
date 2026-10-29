@@ -7,6 +7,7 @@
     "lint:sql-comments": "node scripts/check-sql-comment-backticks.mjs",
     "lint": "pnpm run lint:sql-comments && eslint .",
     "lint:fix": "eslint . --fix",
+    "pretest": "node scripts/ensure-built.mjs",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "clean": "pnpm -r run clean"
