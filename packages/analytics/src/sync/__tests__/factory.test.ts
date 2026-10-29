@@ -620,7 +620,7 @@ describe('pushFirmware drops implausible rows (#81)', () => {
     expect(IMPLAUSIBLE_ROWS_EVENT).toBe('sensor-adapter.rows.implausible')
     const drops = logger.warn.mock.calls.filter(([msg]) => msg === IMPLAUSIBLE_ROWS_EVENT)
     expect(drops.map(([, meta]) => meta)).toEqual([
-      expect.objectContaining({ event: 'pushFirmware', table: 'heart_rate', dropped: 2, kept: 2, sample: 'bpm=0 outside [30, 220]' }),
+      expect.objectContaining({ event: 'pushFirmware', table: 'heart_rate', dropped: 2, nulled: 0, kept: 2, sample: 'bpm=0 outside [30, 220]' }),
       expect.objectContaining({ event: 'pushFirmware', table: 'spo2', dropped: 1, kept: 1 }),
     ])
   })
@@ -638,6 +638,48 @@ describe('pushFirmware drops implausible rows (#81)', () => {
 
     expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(0)
     expect(logger.warn).toHaveBeenCalledWith(IMPLAUSIBLE_ROWS_EVENT, expect.objectContaining({ table: 'heart_rate', dropped: 1, kept: 0 }))
+  })
+
+  // Spec §13b: plausibility is per vital. The canonical fixture
+  // (firmware-dirty-readings.json) says "10:00 HRV 0 is below the 5 ms clamp;
+  // its stress 35 stays clean".
+  it('an HRV 0 row is kept with hrv_ms NULL and its stress; a 2019 HRV row is dropped', async () => {
+    const fake = createFakeEngine()
+    const logger = makeLogger()
+    const mgr = createSyncManager({
+      ...baseConfig(),
+      analytics: fake.engine as unknown as AnalyticsEngine,
+      tables: ['hrv'],
+      columnOrder: { hrv: ['device_id', 'ts', 'hrv_ms', 'stress'] as const },
+      logger,
+    })
+
+    await mgr.sink.pushFirmware({
+      ...firmware,
+      heartrate: [],
+      spo2: [],
+      hrv_table: [
+        { timestamp: '2026.10.28 10:00:00', hrv: 0, stress: 35 },
+        { timestamp: '2026.10.28 10:10:00', hrv: 50, stress: 30 },
+        { timestamp: '2019.12.31 23:59:00', hrv: 48, stress: 25 },
+      ],
+    }, mapperCtx)
+    await mgr.sink.flush()
+
+    const written = fake.appended
+      .filter(a => a.table === 'hrv__stg')
+      .map(a => [new Date(a.values[1] as string | Date).toISOString(), a.values[2], a.values[3]])
+    expect(written).toEqual([
+      ['2026-10-28T10:00:00.000Z', null, 35],
+      ['2026-10-28T10:10:00.000Z', 50, 30],
+    ])
+    expect(logger.warn).toHaveBeenCalledWith(IMPLAUSIBLE_ROWS_EVENT, expect.objectContaining({
+      event: 'pushFirmware',
+      table: 'hrv',
+      dropped: 1,
+      nulled: 1,
+      kept: 2,
+    }))
   })
 
   it('a clean export logs nothing', async () => {

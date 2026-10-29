@@ -816,13 +816,16 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
         // not, so a bulk sync or a replayed dump stored 0 bpm / 0 % SpO2 and
         // pre-2020 dates in the raw tables, where `health.spo2HasAnyReadings`,
         // `hr.daysWorn` and `hr.baselineMaturity` counted them as readings.
-        // Tables with no declared range pass through untouched.
-        const { kept: rows, dropped, sample } = dropImplausibleRows(table, mappedRows)
-        if (dropped > 0) {
+        // Tables with no declared range pass through untouched. On `hrv` an
+        // implausible HRV is nulled and the row kept, so its stress survives
+        // (spec §13b: plausibility is per vital, not per row).
+        const { kept: rows, dropped, nulled, sample } = dropImplausibleRows(table, mappedRows)
+        if (dropped > 0 || nulled > 0) {
           logger?.warn(IMPLAUSIBLE_ROWS_EVENT, {
             event: 'pushFirmware',
             table,
             dropped,
+            nulled,
             kept: rows.length,
             sample,
           })
