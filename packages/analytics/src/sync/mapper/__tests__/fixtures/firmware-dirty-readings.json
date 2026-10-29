@@ -1,5 +1,5 @@
 {
-  "$comment": "Signal-quality gates (sprint6 spec §13d, T-25). One UTC morning, tz = UTC. 06:00-07:00 the ring sits on the nightstand (temps 23-24 C = ambient; HR logged then is not worn). 07:30 it goes back on: the first on-wrist temp is the warm-up onset, so temperature readings in 07:30-07:39 are warm_up (HR, SpO2 and HRV are not gated by it). 08:50-08:59 the user walks (activity burst): SpO2 88 at 09:00 and the 09:00 HRV/stress row (stress 72, the active-context hour) are not still. 09:10 HR 190 between 60 and 62 is a single-slot spike; 10:10-10:20 (110, 120) is a real rise, not a spike. 09:30 temp 365 is a 10x decode (scale_suspect). 10:00 HRV 0 is below the 5 ms clamp; its stress 35 stays clean. 10:30 SpO2 65 and 10:40 HR 250 are outside the clamps. Clean survivors: temp 6 (max 37), HR 20 (max 120), SpO2 6 (min 94), HRV rows 3 (hrv 45/-/48, stress max 35).",
+  "$comment": "Signal-quality gates (sprint6 spec §13d, T-25). One UTC morning, tz = UTC. 06:00-07:00 the ring reads 23-24 C (ambient). 06:40 SpO2 95 has no heart rate within 10 min, so it is off-wrist. 07:00-07:20 HR 52/50/51 sit beside the 07:00 24 C reading: heart rate proves wear (#482), so they are kept and that temperature counts as worn (it is still below the 30 C clamp). 07:30 it goes back on: the first on-wrist temp is the warm-up onset, so temperature readings in 07:30-07:39 are warm_up (HR, SpO2 and HRV are not gated by it). 08:50-08:59 the user walks (activity burst): SpO2 88 at 09:00 and the 09:00 HRV/stress row (stress 72, the active-context hour) are not still. 09:10 HR 190 between 60 and 62 is a single-slot spike; 10:10-10:20 (110, 120) is a real rise, not a spike. 09:30 temp 365 is a 10x decode (scale_suspect). 10:00 HRV 0 is below the 5 ms clamp; its stress 35 stays clean. 10:30 SpO2 65 and 10:40 HR 250 are outside the clamps. Clean survivors: temp 6 (max 37), HR 23 (max 120), SpO2 6 (min 94), HRV rows 3 (hrv 45/-/48, stress max 35).",
   "heartrate": [
     { "timestamp": "2026.08.20 07:00:00", "singleHR": 52 },
     { "timestamp": "2026.08.20 07:10:00", "singleHR": 50 },
@@ -34,6 +34,7 @@
     { "timestamp": "2026.08.20 11:00:00", "hrv": 48, "stress": 32 }
   ],
   "spo2": [
+    { "timestamp": "2026.08.20 06:40:00", "automaticSpo2Data": 95 },
     { "timestamp": "2026.08.20 07:30:00", "automaticSpo2Data": 94 },
     { "timestamp": "2026.08.20 08:00:00", "automaticSpo2Data": 97 },
     { "timestamp": "2026.08.20 08:30:00", "automaticSpo2Data": 97 },
