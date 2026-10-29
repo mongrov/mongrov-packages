@@ -34,6 +34,7 @@
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist",
     "prebuild": "pnpm run clean",
+    "pretest": "node ../../scripts/ensure-built.mjs @mongrov/types",
     "test": "jest",
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",

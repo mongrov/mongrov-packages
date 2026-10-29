@@ -63,6 +63,7 @@
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist",
     "prebuild": "pnpm run clean",
+    "pretest": "node ../../scripts/ensure-built.mjs @mongrov/types",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
