@@ -8,6 +8,7 @@
  * and never touches its neighbours.
  */
 import type { FirmwareActivityRow, FirmwareSleepRawRow, MapperContext } from '../mapper/types'
+import type { FlushResult } from '../types'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -20,7 +21,7 @@ import { BatchFlusher } from '../flusher'
 import { mapActivity } from '../mapper/activity'
 import { mapSleepRaw } from '../mapper/sleep'
 import { OverflowStore } from '../overflow'
-import { createSleepDeriver } from '../sleep-derive'
+import { createSleepDeriver, mergeFlushResults } from '../sleep-derive'
 
 const TENANT = { brand: 'ziva', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
 const CTX: MapperContext = { ...TENANT, userTimezone: 'UTC' }
@@ -82,6 +83,9 @@ async function rig(opts: {
     logger: opts.logger,
   })
 
+  /** What the last `derive` resolved with. */
+  let derived: FlushResult[] = []
+
   /** One sync: raw rows (and any activity) in, flush, derive, close the batch. */
   async function sync(rows: FirmwareSleepRawRow[], extra: { activity?: FirmwareActivityRow[] } = {}) {
     const raw = mapSleepRaw(rows, CTX) as unknown as Record<string, unknown>[]
@@ -97,7 +101,7 @@ async function rig(opts: {
     const batchId = flusher.beginBatch('manual')
     for (const t of ['activity', 'activity_bucket', 'sleep_raw'] as const)
       await flusher.flush(t, 'manual', batchId)
-    await deriver.derive(batchId, 'manual')
+    derived = await deriver.derive(batchId, 'manual')
     return flusher.endBatch(batchId)
   }
 
@@ -112,7 +116,7 @@ async function rig(opts: {
     return r.n
   }
 
-  return { db, deriver, sync, sessions, stageCount }
+  return { db, deriver, sync, sessions, stageCount, derived: () => derived }
 }
 
 describe('sleep derive inside the batch', () => {
@@ -153,11 +157,25 @@ describe('sleep derive inside the batch', () => {
     await r.db.close()
   }, 60_000)
 
+  it('resolves with the derived rows\' flush results (zivaone_app#452)', async () => {
+    // The caller's own per-table loop drained sleep_session / sleep_stage
+    // before these rows existed; this is the only place their count is known.
+    const r = await rig()
+    await r.sync(rawNight('2026-06-17T23:00:00', 300))
+    const s = await r.sessions()
+    expect(r.derived()).toEqual([
+      expect.objectContaining({ table: 'sleep_session', ok: true, rowsFlushed: s.length }),
+      expect.objectContaining({ table: 'sleep_stage', ok: true, rowsFlushed: await r.stageCount() }),
+    ])
+    await r.db.close()
+  }, 60_000)
+
   it('does nothing when no raw sleep is pending', async () => {
     const r = await rig()
     const done = await r.sync([])
     expect(done).toBeNull() // nothing flushed ⇒ no batch-complete
     expect(await r.sessions()).toEqual([])
+    expect(r.derived()).toEqual([])
     await r.db.close()
   }, 60_000)
 
@@ -287,4 +305,35 @@ describe('DST — the night window comes from the IANA offset', () => {
     expect(await r.stageCount()).toBe(s[0].total_minutes)
     await r.db.close()
   }, 120_000)
+})
+
+describe('mergeFlushResults', () => {
+  const ok = (table: string, rowsFlushed: number, rowsInserted?: number): FlushResult =>
+    ({ table, rowsFlushed, ok: true, ...(rowsInserted != null ? { rowsInserted } : {}) })
+
+  it('adds the derived counts into the batch\'s entry for the same table', () => {
+    const merged = mergeFlushResults(
+      [ok('sleep_raw', 7015, 7015), ok('sleep_session', 0), ok('sleep_stage', 0)],
+      [ok('sleep_session', 20, 20), ok('sleep_stage', 6942, 6942)],
+    )
+    expect(merged).toEqual([
+      ok('sleep_raw', 7015, 7015),
+      ok('sleep_session', 20, 20),
+      ok('sleep_stage', 6942, 6942),
+    ])
+  })
+
+  it('marks the table failed when the derived flush failed, keeping its error', () => {
+    const error = new Error('appender closed')
+    const merged = mergeFlushResults(
+      [ok('sleep_session', 0)],
+      [{ table: 'sleep_session', rowsFlushed: 0, ok: false, error }],
+    )
+    expect(merged).toEqual([{ table: 'sleep_session', rowsFlushed: 0, ok: false, error }])
+  })
+
+  it('appends a table the batch did not flush, and is a no-op with nothing derived', () => {
+    expect(mergeFlushResults([ok('hrv', 3)], [ok('sleep_session', 2)])).toEqual([ok('hrv', 3), ok('sleep_session', 2)])
+    expect(mergeFlushResults([ok('hrv', 3)], [])).toEqual([ok('hrv', 3)])
+  })
 })
