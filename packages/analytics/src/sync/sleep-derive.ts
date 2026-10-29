@@ -57,6 +57,12 @@ export interface SleepDeriverDeps {
   now?: () => number
   logger?: SchedulerLogger
   localCatalog?: string
+  /**
+   * Step relation for Step 5.6 (`staging.ts`): the firmware's 10-minute
+   * bucket totals, as v3.1 (`'bucket'`, default), or the 1-minute rows when
+   * `activity_bucket` is not subscribed (`'minute'`; the factory warns once).
+   */
+  activitySteps?: 'bucket' | 'minute'
 }
 
 export interface SleepDeriver {
@@ -207,7 +213,7 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
       cutoffEpoch: Math.floor(now() / 1000) - lookbackDays * 86400,
     }
     // Bounded to what this run reads, so the views prune on `ts` (#460).
-    for (const sql of stagingViewsSql({ ...ctx, localCatalog: catalog }, undefined, stagingBoundsFor(input)))
+    for (const sql of stagingViewsSql({ ...ctx, localCatalog: catalog, activitySteps: deps.activitySteps }, undefined, stagingBoundsFor(input)))
       await deps.engine.execute(sql)
 
     const result = await correctSleepNights(deps.engine as unknown as SqlRunner, input)

@@ -23,7 +23,7 @@ import { createSleepDeriver } from '../sleep-derive'
 
 const TENANT = { brand: 'ziva', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
 const CTX: MapperContext = { ...TENANT, userTimezone: 'UTC' }
-const TABLES = ['sleep_raw', 'sleep_session', 'sleep_stage', 'heart_rate', 'activity'] as const
+const TABLES = ['sleep_raw', 'sleep_session', 'sleep_stage', 'heart_rate', 'activity', 'activity_bucket'] as const
 const DASH_RE = /-/g
 
 const at = (iso: string) => Date.parse(`${iso}Z`)
@@ -50,7 +50,7 @@ async function rig(opts: {
   const db = new HybridDuckDB(() => createRealDuckDB([]))
   await db.open()
   for (const t of TABLES) await db.execute(LOCAL_SCHEMAS[t])
-  for (const t of ['heart_rate', 'activity'] as const)
+  for (const t of ['heart_rate', 'activity', 'activity_bucket'] as const)
     await db.execute(generateViewDdl(t, { brand: TENANT.brand, familyId: TENANT.familyId, localCatalog: 'memory' }))
 
   const columnOrder: Record<string, string[]> = {}

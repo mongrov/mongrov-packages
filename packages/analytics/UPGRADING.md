@@ -1,5 +1,36 @@
 # Upgrading
 
+## 0.47.x → 0.48.0 — sleep correction reads 10-minute step buckets again, as v3.1
+
+**Behaviour change on nights whose END depended on 1-minute step placement. Requires `activity_bucket`. No API change for `createSyncManager` callers.**
+
+Step 5.6 of the correction (the HR + movement end refinement) sums steps in
+windows around each HR sample. v3.1 and the QA study fed it the firmware
+record's 10-minute `activitydetails.step` total, stamped at the bucket start;
+since the v2 mapper unnests `arraySteps`, 0.25–0.47 fed the 1-minute
+`activity.steps` rows instead. Same totals, different placement — and on
+3/92 study nights that moved the corrected END by 6–20 min
+(`src/sync/sleep-correction/__tests__/replay-v1.test.ts`). Ruled 2026-10-28:
+align to v1.
+
+- The staging `activity` relation (`stagingViewsSql`) is now one row per
+  `activity_bucket` record: `date` = the bucket's start, `step` = the sum of
+  the 1-minute `activity` rows inside its 10 minutes, built with an ASOF join
+  so it stays cheap over a year of history. Both `v_activity` and
+  `v_activity_bucket` must exist (`createViews` makes both).
+- `createSyncManager` passes `activitySteps: 'bucket'` to the deriver when
+  `activity_bucket` is in `tables`. If it is not, the deriver reads the
+  1-minute rows as before (`'minute'`) and the factory logs one warning —
+  an unsubscribed bucket table would otherwise read as "no movement".
+  `StagingScope.activitySteps` and `SleepDeriverDeps.activitySteps` are new,
+  optional, and default to `'bucket'`.
+- Residuals against v1, by design: `sum(arraySteps)` differs from the
+  record's `step` on ~1.3% of firmware records, and a bucket with no minute
+  rows produces no step row at all (v1 fed its `step`).
+
+Nights already stored are not re-corrected by the upgrade; a night moves
+only when a later sync touches it (night replace, principle 66 as amended).
+
 ## 0.46.x → 0.47.0 — heart rate is wear evidence (zivaone_app#482)
 
 **Behaviour change while the wear gate is on (`wearFilter`, default on). No API change.**

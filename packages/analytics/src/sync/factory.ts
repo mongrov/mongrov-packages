@@ -340,6 +340,11 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // Sleep sessions and stages are derived from sleep_raw by the correction
   // pipeline, inside each batch cycle (sleep-correction §3). Needs all three
   // tables subscribed; `correctSleep: false` opts out.
+  // Step 5.6 reads the firmware's 10-minute step buckets, as v3.1 did
+  // (staging.ts). Without `activity_bucket` subscribed the bucket table never
+  // fills, which would read as "no movement" — so fall back to the 1-minute
+  // rows, and say so once, rather than correct sleep on silent zero steps.
+  const stepBuckets = config.tables.includes('activity_bucket')
   const sleepDeriver = config.correctSleep !== false
     && ['sleep_raw', 'sleep_session', 'sleep_stage'].every(t => config.tables.includes(t))
     ? createSleepDeriver({
@@ -348,8 +353,14 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         flusher,
         resolveTimezone,
         logger: config.logger,
+        activitySteps: stepBuckets ? 'bucket' : 'minute',
       })
     : undefined
+  if (sleepDeriver && !stepBuckets) {
+    config.logger?.warn('sync.factory: activity_bucket not subscribed; sleep correction reads 1-minute steps, not the v3.1 10-minute buckets', {
+      tables: config.tables.length,
+    })
+  }
 
   const watermark = new WatermarkStore({ kv: config.storage })
 

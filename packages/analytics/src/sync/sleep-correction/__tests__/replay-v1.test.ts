@@ -19,8 +19,10 @@
  * conditions so its cause can be named:
  *   (a) tier — D3 per-night tier vs v3.1's whole-history median
  *   (b) scalars — exact `quantile_cont` p75/p90 vs DataFusion's approximation
- *   (c) steps — production stages 1-min `activity.steps`, v3.1 fed the 10-min
- *       `activitydetails.step` (Step 5.6 end refinement)
+ *   (c) steps — production re-aggregates the 1-min `activity.steps` into the
+ *       10-min `activity_bucket` (staging.ts, 0.48.0); v3.1 fed the record's
+ *       own `activitydetails.step`. The two differ where sum(arraySteps) ≠
+ *       step (~1.3% of records) or a bucket has no minute rows.
  *   (d) other
  *
  * Captures are real users' ring data and are not in this repo. Set
@@ -123,12 +125,12 @@ type Cause = 'a' | 'b' | 'c' | 'a+c' | 'b+c' | 'd'
 type Outcome = Delta | { error: string }
 
 interface Experiments {
-  /** Reference scalars (tier/p75/p90), production 1-min steps. */
+  /** Reference scalars (tier/p75/p90), production step relation. */
   refScalars?: Outcome
-  /** Production scalars, v3.1's 10-min `activitydetails.step`. */
-  steps10?: Outcome
-  /** Reference scalars AND 10-min steps. */
-  refScalarsSteps10?: Outcome
+  /** Production scalars, v1's exact input: the record's `activitydetails.step`. */
+  v1Steps?: Outcome
+  /** Reference scalars AND v1 step totals. */
+  refScalarsV1Steps?: Outcome
   cause: Cause
 }
 
@@ -136,13 +138,13 @@ interface Experiments {
  * Why the dump's own `sleep_processed` differs: the phone's v3.1 ran with
  * `cutoff = now − 30 d`, so with no sleeping HR in that window its baselines
  * fell back to p75 = 80 / p90 = 120 (`HR_MAX`), which lets the envelope run
- * to the last firmware minute + 2 h. Re-run with those fallbacks (and v3.1's
- * 10-min steps) and see whether the embedded night is reproduced.
+ * to the last firmware minute + 2 h. Re-run with those fallbacks (and v1's
+ * step totals) and see whether the embedded night is reproduced.
  */
 interface EmbeddedExperiments {
-  /** Fallback scalars, production (per-night) tier, 10-min steps. */
+  /** Fallback scalars, production (per-night) tier, v1 step totals. */
   fallbackProdTier?: Outcome
-  /** Fallback scalars, the oracle's whole-history tier, 10-min steps. */
+  /** Fallback scalars, the oracle's whole-history tier, v1 step totals. */
   fallbackRefTier?: Outcome
   reproduced: boolean
 }
@@ -349,7 +351,7 @@ async function replayCapture(dump: Record<string, unknown>, deviceId: string, ti
   const db = new HybridDuckDB(() => createRealDuckDB([]))
   await db.open()
   for (const t of TABLES) await db.execute(LOCAL_SCHEMAS[t])
-  for (const t of ['heart_rate', 'activity'] as const)
+  for (const t of ['heart_rate', 'activity', 'activity_bucket'] as const)
     await db.execute(generateViewDdl(t, { brand: tenant.brand, familyId: tenant.familyId, localCatalog: 'memory' }))
   const columnOrder: Record<string, string[]> = {}
   for (const t of TABLES) {
@@ -479,9 +481,9 @@ const reproduces = (d: Outcome | undefined) => d != null && ('error' in d ? d.er
 function causeOf(tierChanged: boolean, x: Omit<Experiments, 'cause'>): Cause {
   if (reproduces(x.refScalars))
     return tierChanged ? 'a' : 'b'
-  if (reproduces(x.steps10))
+  if (reproduces(x.v1Steps))
     return 'c'
-  if (reproduces(x.refScalarsSteps10))
+  if (reproduces(x.refScalarsV1Steps))
     return tierChanged ? 'a+c' : 'b+c'
   return 'd'
 }
@@ -523,7 +525,7 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
       // are re-read from them (it does not expose per-night tiers).
       const db = r.db as unknown as SqlRunner
       const { p75, p90 } = await globalBaselines(db, r.cutoffEpoch)
-      let steps10Ready = false
+      let v1StepsReady = false
 
       for (const ref of nights) {
         const w = nightWindow(ref.iso, timeZone)
@@ -579,39 +581,41 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
           surprises.push(`${ref.key}: no session stored for night_of ${nightOf}; stored nights: ${near || 'none'}`)
         }
 
-        const steps10: SleepRelations = { ...DEFAULT_RELATIONS, activity: 'stg_activity_10' }
-        const ensureSteps10 = async () => {
-          if (steps10Ready)
+        // v1's exact step input: the record's own 10-min `step` total, as the
+        // parity harness stages it (not the sum of its `arraySteps`).
+        const v1Steps: SleepRelations = { ...DEFAULT_RELATIONS, activity: 'stg_activity_v1' }
+        const ensureV1Steps = async () => {
+          if (v1StepsReady)
             return
-          await db.execute(`CREATE TEMP TABLE stg_activity_10 (date BIGINT, step DOUBLE)`)
+          await db.execute(`CREATE TEMP TABLE stg_activity_v1 (date BIGINT, step DOUBLE)`)
           const act = (Array.isArray(dump.activitydetails) ? dump.activitydetails : []) as Array<Record<string, unknown>>
-          await insertChunks(db, 'stg_activity_10', act.map(a => [epoch(a.date), a.step]))
-          steps10Ready = true
+          await insertChunks(db, 'stg_activity_v1', act.map(a => [epoch(a.date), a.step]))
+          v1StepsReady = true
         }
 
         // Drift from the oracle (or a session where the oracle had none):
         // re-run under controlled conditions to name the cause.
         const driftsFromRef = want ? row.vsRef != null && !row.vsRef.within : ref.error != null && stats != null
         if (driftsFromRef && ref.tier != null && ref.p75 != null && ref.p90 != null) {
-          await ensureSteps10()
+          await ensureV1Steps()
           const refScalars = { tier: ref.tier, p75: ref.p75, p90: ref.p90 }
           const prodScalars = { tier: tier.tier, p75, p90 }
           const x = {
             refScalars: toOutcome(want, ref.error, await rerunNight(db, ref, timeZone, refScalars, DEFAULT_RELATIONS)),
-            steps10: toOutcome(want, ref.error, await rerunNight(db, ref, timeZone, prodScalars, steps10)),
-            refScalarsSteps10: toOutcome(want, ref.error, await rerunNight(db, ref, timeZone, refScalars, steps10)),
+            v1Steps: toOutcome(want, ref.error, await rerunNight(db, ref, timeZone, prodScalars, v1Steps)),
+            refScalarsV1Steps: toOutcome(want, ref.error, await rerunNight(db, ref, timeZone, refScalars, v1Steps)),
           }
           row.experiments = { ...x, cause: causeOf(tier.tier !== ref.tier, x) }
         }
 
         // Drift from the phone's own output: the empty-baseline fallback hypothesis.
         if (emb && row.vsEmbedded && !row.vsEmbedded.within) {
-          await ensureSteps10()
+          await ensureV1Steps()
           const fallback = { p75: 80, p90: 120 }
           const x = {
-            fallbackProdTier: toOutcome(emb, undefined, await rerunNight(db, ref, timeZone, { tier: tier.tier, ...fallback }, steps10)),
+            fallbackProdTier: toOutcome(emb, undefined, await rerunNight(db, ref, timeZone, { tier: tier.tier, ...fallback }, v1Steps)),
             fallbackRefTier: ref.tier != null
-              ? toOutcome(emb, undefined, await rerunNight(db, ref, timeZone, { tier: ref.tier, ...fallback }, steps10))
+              ? toOutcome(emb, undefined, await rerunNight(db, ref, timeZone, { tier: ref.tier, ...fallback }, v1Steps))
               : undefined,
           }
           row.embeddedExperiments = { ...x, reproduced: reproduces(x.fallbackProdTier) || reproduces(x.fallbackRefTier) }
@@ -636,7 +640,7 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
     const driftLine = (r: Compared, d: Outcome) =>
       `  drift ${r.key}: ${fmt(d)} | tier ${r.ref.tier}->${r.port.tier}/${r.port.tierSource} `
       + `p75 ${r.ref.p75}->${r.port.p75} p90 ${r.ref.p90}->${r.port.p90} | cause (${r.experiments?.cause ?? '?'}) `
-      + `[ref scalars: ${fmt(r.experiments?.refScalars)}; 10-min steps: ${fmt(r.experiments?.steps10)}; both: ${fmt(r.experiments?.refScalarsSteps10)}]`
+      + `[ref scalars: ${fmt(r.experiments?.refScalars)}; v1 step totals: ${fmt(r.experiments?.v1Steps)}; both: ${fmt(r.experiments?.refScalarsV1Steps)}]`
     for (const r of drift) console.log(driftLine(r, r.vsRef!))
     // Oracle nights with no primary block that the production path did correct.
     const unexpected = results.filter(r => r.ref.error && r.port.stats)
@@ -651,7 +655,7 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
       + `(${results.length - withEmb.length} reference nights without an embedded night)`)
     for (const r of embDrift) {
       console.log(`  drift ${r.key}: ${fmt(r.vsEmbedded)} | embedded vs oracle: ${fmt(r.embeddedVsRef)} | `
-        + `fallback p75=80/p90=120 + 10-min steps reproduces embedded: ${r.embeddedExperiments?.reproduced ? 'yes' : 'no'} `
+        + `fallback p75=80/p90=120 + v1 step totals reproduces embedded: ${r.embeddedExperiments?.reproduced ? 'yes' : 'no'} `
         + `[prod tier: ${fmt(r.embeddedExperiments?.fallbackProdTier)}; oracle tier: ${fmt(r.embeddedExperiments?.fallbackRefTier)}]`)
     }
     console.log(`embedded drift reproduced by the empty-baseline fallback: ${embDrift.filter(r => r.embeddedExperiments?.reproduced).length}/${embDrift.length}`)
