@@ -1,5 +1,22 @@
 # Upgrading
 
+## 0.46.x → 0.47.0 — heart rate is wear evidence (zivaone_app#482)
+
+**Behaviour change while the wear gate is on (`wearFilter`, default on). No API change.**
+
+`worn` used to come from temperature alone, so a worn ring reading 26–30 °C
+on cool skin hid its own heart rates, SpO2s and HRVs. Now a plausible heart
+rate within `WEAR_HR_EVIDENCE_MINUTES` (10, either side, inclusive) means
+worn; temperature decides only when there is none.
+
+- A heart-rate reading is its own evidence, so the wear gate never removes
+  heart rate: `v_heart_rate_q.worn` is always TRUE and its `off_wrist` count
+  is 0.
+- SpO2, HRV and temperature `_q` views (and their `_between` macros) gain two
+  ASOF lookups against plausible heart rates. With the wear gate off — the
+  v1 parity setting — the clean relations still skip every join (0.45.0).
+- `warm_up` is unchanged: still a temperature onset.
+
 ## 0.45.x → 0.46.0 — sleep correction stages each night at its own HR tier (packages#68)
 
 **Breaking for `correctSleepNights` callers, and it changes corrected output on rings whose HR cadence changed.**
