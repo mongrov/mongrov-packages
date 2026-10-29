@@ -127,7 +127,8 @@ interface CommonAnalyticsConfig {
   eventBus?: EventBus
   /**
    * How readings are judged clean. Applied at every attach, when the quality
-   * views are recreated. See `QualityOptions`. `motionFilter` is off when
+   * views are recreated, until `AnalyticsEngine.setQuality` replaces it. See
+   * `QualityOptions`. `motionFilter` is off when
    * omitted; the wear, warm-up, range and spike gates are on when omitted.
    */
   quality?: QualityOptions
@@ -226,6 +227,30 @@ export interface AnalyticsEngine {
    */
   dismissInsight: (args: { insightId: string, userId: string }) => Promise<void>
   setRetention: (days: number) => Promise<void>
+  /**
+   * Replace the quality options the clean views are built with, and rebuild
+   * them now if attached (zivaone_app#474: the motion-filter switch in
+   * Settings).
+   *
+   * Why at once rather than at the next attach: alerts follow what is shown
+   * (principle 69). The same `v_{table}_clean` views feed the charts AND the
+   * rules, baselines and verdicts, so a flipped filter that waited for the
+   * next attach would leave alerts counting readings the screen no longer
+   * shows, or the reverse, until the app happened to restart.
+   *
+   * Attached: recreates the `_q` / `_clean` views and the bounded macros with
+   * `opts` (the union views do not depend on them) and recomputes
+   * `boundedReads` exactly as attach does. Not attached: stores only. Either
+   * way `opts` replaces `AnalyticsConfig.quality` for every later attach of
+   * this engine — the whole object, not a merge, so pass every switch you
+   * set at `createAnalytics`.
+   *
+   * Serialised with attach and detach: a call during attach is applied by
+   * that attach or right after it, never lost; one during detach never
+   * recreates views the detach dropped. Rejects with `query_failed` if a
+   * quality view cannot be created; the options are still stored.
+   */
+  setQuality: (opts: QualityOptions) => Promise<void>
   /**
    * Return the last successfully-attached ctx (persisted via KVStore) if it
    * was written within the freshness window (24h). Apps may pass the result

@@ -33,6 +33,7 @@ describe('KV_KEY_REGISTRY', () => {
       'user:hrSensitivity',
       'user:hrvDropDays',
       'user:hrvDropMs',
+      'user:motionFilter',
       'user:spo2Day30BannerDismissed',
       'user:spo2Notify',
       'user:spo2SafeLevel',
@@ -56,6 +57,21 @@ describe('KV_KEY_REGISTRY', () => {
       .filter(([, e]) => e.defaultValue !== true)
       .map(([key]) => key)
     expect(offenders).toEqual([])
+  })
+
+  it('the motion filter is an app switch, default OFF (#474, #494)', () => {
+    // Off by default like analytics' `QualityOptions.motionFilter`: what the
+    // chart shows is what the alerts count, so an untouched switch must not
+    // filter. `ux_state` because it changes which readings every rule sees
+    // rather than arming one; a rule must not threshold on it.
+    expect(KV_KEY_REGISTRY['user:motionFilter']).toMatchObject({
+      kind: 'ux_state',
+      valueType: 'boolean',
+      defaultValue: false,
+    })
+    expect(isRegisteredKvKey('user:motionFilter')).toBe(true)
+    expect(isRuleReadableKvKey('user:motionFilter')).toBe(false)
+    expect(kvKeyFor('alice', 'user:motionFilter')).toBe('analytics:alice:user:motionFilter')
   })
 
   it('numeric thresholds declare a default inside their own range', () => {

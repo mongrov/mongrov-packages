@@ -61,6 +61,7 @@ export function createFakeEngine(): FakeEngine {
     mode: 'r2',
     subscribe: () => () => {},
     async setRetention() {},
+    async setQuality() {},
     async getLastAttach() { return null },
     async close() {},
     calls,

@@ -1,5 +1,40 @@
 # Upgrading
 
+## 0.48.x → 0.49.0 — engine.setQuality
+
+**Additive for `createAnalytics` callers. Hand-written `AnalyticsEngine` implementations (test fakes) must add `setQuality`.**
+
+`engine.setQuality(opts: QualityOptions): Promise<void>` replaces the quality
+options the clean views are built with (zivaone_app#474: the motion-filter
+switch in Settings, persisted under `@mongrov/types`' new
+`user:motionFilter` key, default off).
+
+```ts
+const on = (await kv.get<boolean>(kvKeyFor(userId, 'user:motionFilter'))) ?? false
+await engine.setQuality({ ...brandQuality, motionFilter: on })
+```
+
+- **Attached:** the `v_{table}_q` / `v_{table}_clean` views and their bounded
+  macros are rebuilt with `opts` at once (the `v_{table}` union views are
+  untouched), and `boundedReads` is recomputed exactly as attach computes it,
+  including resetting the run-time failure count. Why at once: alerts follow
+  what is shown (principle 69). The same clean views feed the charts and the
+  rules, baselines and verdicts, so a flip that waited for the next attach
+  would leave the alerts counting a different set of readings from the one on
+  screen.
+- **Not attached:** stored only; the next attach builds with it.
+- **Either way** it replaces `AnalyticsConfig.quality` for every later attach
+  of this engine. It is the whole object, not a merge: pass every switch you
+  set at `createAnalytics` (ZivaOne's parity switches included), or they
+  return to their defaults.
+- **Serialised** with attach's view step and detach's drop: a call during
+  attach is applied by it or right after, never lost; one during detach never
+  recreates the views it dropped.
+- **Failure:** a quality view that cannot be created rejects with
+  `AnalyticsError('query_failed')`; the options are kept for the next attach.
+  A macro that fails is handled as at attach (plain fallback, else
+  `boundedReads` off and `analytics.attach.bounded_reads_off` logged).
+
 ## 0.47.x → 0.48.0 — sleep correction reads 10-minute step buckets again, and re-derives the night before each batch, as v3.1
 
 **Two behaviour changes, both ruled 2026-10-28 to match v1. Requires `activity_bucket`. No API change for `createSyncManager` callers.**

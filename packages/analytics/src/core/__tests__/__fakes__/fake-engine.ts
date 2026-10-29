@@ -78,6 +78,7 @@ export function createFakeEngine(initial: {
       return () => subscribers.delete(listener) as unknown as void
     },
     async setRetention() {},
+    async setQuality() {},
     async getLastAttach() {
       return null
     },

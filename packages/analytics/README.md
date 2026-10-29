@@ -172,6 +172,9 @@ Full method surface:
 - `createAppender(table): AnalyticsAppender`
 - `setRetention(days: number): Promise<void>` — persists user override and
   re-runs sweep with the effective value
+- `setQuality(opts: QualityOptions): Promise<void>` — replaces the quality
+  options; when attached, rebuilds the clean views + bounded macros at once
+  and recomputes `boundedReads`; before attach, stored for the attach
 - `getLastAttach(brand: string): Promise<AttachContext | null>` — restore
   ctx from KV (null when older than 24h)
 - `subscribe(listener): Unsubscribe`
