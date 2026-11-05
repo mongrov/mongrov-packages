@@ -96,6 +96,12 @@ export interface CreateSyncManagerConfig {
   eventBus?: EventBus
   refreshToken?: () => Promise<void>
   backgroundTask?: BackgroundTaskPort
+  /**
+   * Wi-Fi + charging probes gating scheduled cycles in `r2` mode (the
+   * transfer to and from R2). Never consulted in local mode, where nothing
+   * leaves the device (#80). Omitting it in `r2` mode logs a warning and
+   * runs every scheduled cycle on any network.
+   */
   constraints?: ConstraintPort
   flush?: {
     maxRows?: number
@@ -454,7 +460,23 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       + 'fire (flush, push, fetch and baseline compute are all unreachable)',
     )
   }
-  if (!config.constraints) {
+
+  // The gates exist for the transfer to and from R2. Local mode has no
+  // transfer (`pushAll` / `fetchIncremental` are short-circuited below), so
+  // it never consults them (#80): a missing port is not a warning there, and
+  // a supplied one is not used. The scheduler checks the gate before the
+  // whole cycle, so a port saying "no" would otherwise skip the local flush,
+  // the sleep derivation, baselines and rules — none of which leave the
+  // device. The warning is real in r2 mode: without a port, scheduled
+  // cycles push and fetch on any network.
+  const constraints = isLocal ? undefined : config.constraints
+  if (isLocal) {
+    config.logger?.info(
+      'sync.factory: local mode — wifi/charging gates not used; nothing leaves the device',
+      { constraintsSupplied: config.constraints !== undefined },
+    )
+  }
+  else if (!constraints) {
     config.logger?.warn(
       'sync.factory: no constraints supplied — wifi/charging gates are disabled',
     )
@@ -462,7 +484,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
 
   const scheduler = new SyncScheduler({
     backgroundTask: config.backgroundTask ?? noopBackgroundTask(),
-    constraints: config.constraints ?? alwaysAllowedConstraints(),
+    constraints: constraints ?? alwaysAllowedConstraints(),
     coordinator: {
       flushAll: async () => {
         // One batch per scheduler cycle: rules see the whole cycle's write

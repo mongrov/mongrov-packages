@@ -374,6 +374,97 @@ describe('scheduler wiring', () => {
   })
 })
 
+describe('wifi/charging gates by mode (#80)', () => {
+  const LOCAL_GATES_EVENT = 'sync.factory: local mode — wifi/charging gates not used; nothing leaves the device'
+  const NO_CONSTRAINTS_EVENT = 'sync.factory: no constraints supplied — wifi/charging gates are disabled'
+
+  const makeLogger = () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+
+  /** The fake engine carries no `mode`, so `baseConfig()` takes the r2 path. */
+  function localAnalytics(): AnalyticsEngine {
+    return { ...makeAnalytics(), mode: 'local' } as AnalyticsEngine
+  }
+
+  /** A port that says "cellular, on battery" to every probe. */
+  function cellularOnBattery() {
+    return {
+      isOnWifi: vi.fn().mockResolvedValue(false),
+      isCharging: vi.fn().mockResolvedValue(false),
+    }
+  }
+
+  /** Captures the registered handler so a test can run a scheduled (gated) cycle. */
+  function makeCapturingBackgroundTask() {
+    const handlers = new Map<string, () => Promise<void>>()
+    return {
+      port: {
+        register: async (name: string, handler: () => Promise<void>) => { handlers.set(name, handler) },
+        unregister: async (name: string) => { handlers.delete(name) },
+        isRegistered: async (name: string) => handlers.has(name),
+      },
+      runScheduledCycle: async () => {
+        const [handler] = handlers.values()
+        if (!handler)
+          throw new Error('no handler registered')
+        await handler()
+      },
+    }
+  }
+
+  it('local mode: a missing port is not a warning', () => {
+    const logger = makeLogger()
+    createSyncManager({ ...baseConfig(), analytics: localAnalytics(), logger })
+    expect(logger.warn).not.toHaveBeenCalledWith(NO_CONSTRAINTS_EVENT)
+    expect(logger.info).toHaveBeenCalledWith(LOCAL_GATES_EVENT, { constraintsSupplied: false })
+  })
+
+  it('local mode: a supplied port is not consulted, and a scheduled cycle runs on cellular', async () => {
+    const logger = makeLogger()
+    const constraints = cellularOnBattery()
+    const bg = makeCapturingBackgroundTask()
+    const mgr = createSyncManager({
+      ...baseConfig(),
+      analytics: localAnalytics(),
+      constraints,
+      backgroundTask: bg.port,
+      scheduler: { requiresWifi: true, requiresCharging: true },
+      logger,
+    })
+    await mgr.start()
+    await bg.runScheduledCycle()
+    expect(constraints.isOnWifi).not.toHaveBeenCalled()
+    expect(constraints.isCharging).not.toHaveBeenCalled()
+    expect(logger.info).toHaveBeenCalledWith('scheduler.cycle.ok', expect.anything())
+    expect(logger.info).not.toHaveBeenCalledWith('scheduler.cycle.skip', expect.anything())
+    expect(logger.info).toHaveBeenCalledWith(LOCAL_GATES_EVENT, { constraintsSupplied: true })
+    expect(logger.warn).not.toHaveBeenCalledWith(NO_CONSTRAINTS_EVENT)
+  })
+
+  it('r2 mode: a missing port still warns', () => {
+    const logger = makeLogger()
+    createSyncManager({ ...baseConfig(), logger })
+    expect(logger.warn).toHaveBeenCalledWith(NO_CONSTRAINTS_EVENT)
+    expect(logger.info).not.toHaveBeenCalledWith(LOCAL_GATES_EVENT, expect.anything())
+  })
+
+  it('r2 mode: a supplied port gates the scheduled cycle, and triggerNow still bypasses it (T-24)', async () => {
+    const logger = makeLogger()
+    const constraints = cellularOnBattery()
+    const bg = makeCapturingBackgroundTask()
+    const mgr = createSyncManager({ ...baseConfig(), constraints, backgroundTask: bg.port, logger })
+    await mgr.start()
+    await bg.runScheduledCycle()
+    expect(constraints.isOnWifi).toHaveBeenCalledTimes(1)
+    expect(logger.info).toHaveBeenCalledWith('scheduler.cycle.skip', { reason: 'constraint_not_met' })
+    expect(logger.warn).not.toHaveBeenCalledWith(NO_CONSTRAINTS_EVENT)
+    expect(logger.info).not.toHaveBeenCalledWith(LOCAL_GATES_EVENT, expect.anything())
+
+    const result = await mgr.triggerNow()
+    expect(result.ok).toBe(true)
+    expect(constraints.isOnWifi).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('device_config sink (SCD-2 close semantics)', () => {
   const deviceConfigColumns = [
     'device_id',

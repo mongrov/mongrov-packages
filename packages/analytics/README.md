@@ -442,7 +442,7 @@ export default function App() {
 | `eventBus?` | `EventBus` | Optional bus for `{table}:insert` / `{table}:sync_complete` fan-out. |
 | `refreshToken?` | `() => Promise<void>` | Called by pusher on `401 token_expired` before retry. |
 | `backgroundTask?` | `BackgroundTaskPort` | Inject a native background port (defaults to an in-process no-op). |
-| `constraints?` | `ConstraintPort` | Inject Wi-Fi + charging probes (defaults to always-allowed). |
+| `constraints?` | `ConstraintPort` | Inject Wi-Fi + charging probes for the R2 transfer. Consulted in `r2` mode only; local mode never gates a cycle, since nothing leaves the device (#80). Omitting it in `r2` mode logs a warning and runs every scheduled cycle on any network. |
 | `logger?` | `SchedulerLogger` | Debug hook for the scheduler cycle. |
 | `ringConfigTranslator?` | `RingConfigTranslator` | **Required** when `tables` includes `'device_config'`. Consumer-provided translation between firmware metric names (e.g. `'hrv'`) and the schema `data_type` integer, plus firmware monitoring windows → schema `start_time`/`end_time`/`weeks` fields. Enforced at construction via a Zod refinement (throws `z.ZodError` if missing). |
 
@@ -516,7 +516,9 @@ Call `sync.prefetch(ctx)` right after `analytics.attach(ctx)` completes.
 the injected `BackgroundTaskPort`. Every registered cycle:
 
 1. Constraint check (Wi-Fi + optional charging). Missing constraints emit
-   `constraint_not_met` and skip.
+   `constraint_not_met` and skip. `r2` mode only: in local mode there is no
+   push or fetch to gate, so this step is skipped and flush, sleep
+   derivation, baselines and rules run on every cycle (#80).
 2. `coordinator.flushAll()` — parallel `flusher.flush(table, 'scheduled')`.
 3. `coordinator.pushAll(tables, ctx)` — `R2Pusher.pushAll` (concurrency-safe).
 4. `coordinator.fetchIncremental(ctx)` — `R2Fetcher.fetchIncremental`.

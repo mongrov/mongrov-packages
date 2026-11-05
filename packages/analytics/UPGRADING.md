@@ -1,5 +1,30 @@
 # Upgrading
 
+## 0.49.x → 0.50.0 — local mode never consults the wifi/charging gates (#80)
+
+**Behaviour change only for a consumer that passes `constraints` to `createSyncManager` in local mode. No type change; nothing to do in ZivaOne.**
+
+The gates exist for the transfer to and from R2. In `analytics.mode === 'local'`
+there is no transfer (`pushAll` / `fetchIncremental` are no-ops), so
+`createSyncManager` now
+
+- never consults a `ConstraintPort` there, supplied or not, and
+- logs `sync.factory: local mode — wifi/charging gates not used; nothing
+  leaves the device` once at `info`, with `{ constraintsSupplied }`, instead
+  of the `no constraints supplied — wifi/charging gates are disabled`
+  warning. zivaone_app#452's export showed that warning on every launch of a
+  local-mode install, where it described intended behaviour.
+
+Why not gate at all: `SyncScheduler` checks the gate before the whole cycle,
+so a port answering "cellular" would have skipped the local flush, the sleep
+derivation, baselines and rules — none of which leave the device.
+
+`r2` mode is unchanged: a supplied port gates scheduled cycles as before, a
+missing one still warns, and `triggerNow()` still bypasses the gate (T-24).
+Narrowing the gate to the push and fetch steps, so a phone on cellular in `r2`
+mode still flushes and derives locally, is a separate change to the
+scheduler's contract.
+
 ## 0.48.x → 0.49.0 — engine.setQuality
 
 **Additive for `createAnalytics` callers. Hand-written `AnalyticsEngine` implementations (test fakes) must add `setQuality`.**
