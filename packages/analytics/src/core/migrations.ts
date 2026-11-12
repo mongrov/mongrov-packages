@@ -383,6 +383,24 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
       }
     },
   },
+  {
+    version: 9,
+    name: 'practice_session table (prana P-01)',
+    // Prana's breathing sessions (techspec prana R1). New table, so installs
+    // past migration 1 need it created here; installs that run step 1 on
+    // this version already have it from the baseline `ensureSchemas`, and
+    // CREATE IF NOT EXISTS makes this a no-op there (same as step 2).
+    //
+    // The remote copy is created when attached, as step 2 does: this is a new
+    // table, not an evolution of an existing one, so there is nothing to
+    // rewrite server-side.
+    async up(db, catalogs) {
+      await db.execute(qualifyDdl(LOCAL_SCHEMAS.practice_session, 'practice_session', catalogs.local))
+      if (catalogs.remote) {
+        await db.execute(qualifyDdl(SCHEMAS.practice_session, 'practice_session', `${quoteQualifier(catalogs.remote)}.${REMOTE_NAMESPACE}`))
+      }
+    },
+  },
 ])
 
 /** Version of the latest known migration — target for every attach. */

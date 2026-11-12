@@ -42,6 +42,7 @@ export const TABLE_METADATA: Readonly<Record<TableName, TableSyncMetadata>> = Ob
   // `computed_at` is a recompute stamp rather than a sync cursor.
   user_baseline: { timeColumn: 'computed_at', syncable: false },
   tool_call_audit: { timeColumn: 'ts', syncable: false },
+  practice_session: { timeColumn: 'started_at', syncable: true },
 })
 
 /**

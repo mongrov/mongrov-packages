@@ -127,12 +127,14 @@ describe('createAnalytics — attach / detach lifecycle', () => {
     //   step-2    = device_battery re-ensured in both catalogs
     //   step-3    = remote insight (CREATE IF NOT EXISTS)
     //   step-4    = user_baseline, local only
+    //   step-9    = practice_session re-ensured in both catalogs
     const expectedCreateTables
       = TABLE_NAMES.length
         + (TABLE_NAMES.length - LOCAL_ONLY_TABLES.size)
         + 2
         + 1
         + 1
+        + 2
     expect(fakeDb.calls.some(c => c.sql.includes('CREATE OR REPLACE SECRET'))).toBe(true)
     expect(fakeDb.calls.some(c => c.sql.includes('ATTACH'))).toBe(true)
     expect(fakeDb.calls.filter(c => c.sql.includes('CREATE TABLE IF NOT EXISTS')).length)
