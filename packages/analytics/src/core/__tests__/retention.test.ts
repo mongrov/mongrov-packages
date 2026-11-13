@@ -107,10 +107,9 @@ describe('runRetentionSweep (scripted engine)', () => {
     const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90, mode: 'local' })
     const deletes = fake.calls.slice(openCalls).filter(c => c.sql.startsWith('DELETE FROM'))
 
-    // 17 tables total in SCHEMAS; device_config, sync_watermark and user_baseline
-    // skipped → 14 DELETEs.
-    expect(deletes).toHaveLength(14)
-    expect(result.swept).toHaveLength(14)
+    // 15 tables total in SCHEMAS; device_config + sync_watermark skipped → 13 DELETEs.
+    expect(deletes).toHaveLength(13)
+    expect(result.swept).toHaveLength(13)
     expect(result.skipped).toEqual([])
     const swept = new Set(result.swept.map(e => e.table))
     expect(swept.has('device_config')).toBe(false)
@@ -148,8 +147,8 @@ describe('runRetentionSweep (scripted engine)', () => {
 
     // Only the non-pushed internal table gets a DELETE.
     expect(result.swept.map(e => e.table)).toEqual(['tool_call_audit'])
-    // 13 pushed tables (11 sensor + insight + practice_session) skipped untouched.
-    expect(result.skipped).toHaveLength(13)
+    // 12 pushed tables (11 sensor + insight) skipped untouched.
+    expect(result.skipped).toHaveLength(12)
     expect(result.skipped).toContain('hrv')
     expect(result.skipped).toContain('insight')
     const deletes = fake.calls.slice(openCalls).filter(c => c.sql.startsWith('DELETE FROM'))
@@ -163,7 +162,7 @@ describe('runRetentionSweep (scripted engine)', () => {
 
     const result = await runRetentionSweep(db, 'memory', { tenant: TENANT, effectiveDays: 90 })
     expect(result.swept.map(e => e.table)).toEqual(['tool_call_audit'])
-    expect(result.skipped).toHaveLength(13)
+    expect(result.skipped).toHaveLength(12)
   })
 
   it('r2 mode binds $pushWatermark per table when a watermark exists', async () => {

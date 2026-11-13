@@ -19,6 +19,7 @@ export type AnalyticsErrorCode
     | 'not_attached'
     | 'not_ready'
     | 'not_implemented'
+    | 'invalid_config'
 
 export class AnalyticsError extends Error {
   public readonly code: AnalyticsErrorCode

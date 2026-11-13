@@ -43,7 +43,6 @@ export const TABLE_NAMES = [
   'sync_watermark',
   'tool_call_audit',
   'user_baseline',
-  'practice_session',
 ] as const
 
 export type TableName = (typeof TABLE_NAMES)[number]
@@ -287,32 +286,6 @@ export const SCHEMAS: Readonly<Record<TableName, string>> = Object.freeze({
   computed_at TIMESTAMP NOT NULL,
   PRIMARY KEY (brand, family_id, user_id, metric, window_days)
 );`,
-
-  // Prana (techspec prana R1): one row per breathing session that lasted at
-  // least 60 s, written when it ends for any reason. `session_id` is minted
-  // on the phone, so the row's identity survives a re-record (principle 66).
-  // The four reading columns start NULL and `read_state` 'pending'; the app's
-  // settle job fills them from the ring's clean HR/HRV once those sync.
-  // Times are naive UTC (principle 67).
-  practice_session: `CREATE TABLE practice_session (
-  session_id VARCHAR PRIMARY KEY,
-  brand VARCHAR NOT NULL,
-  family_id VARCHAR NOT NULL,
-  user_id VARCHAR NOT NULL,
-  device_id VARCHAR NOT NULL,
-  practice VARCHAR NOT NULL,
-  started_at TIMESTAMP NOT NULL,
-  ended_at TIMESTAMP NOT NULL,
-  planned_min INTEGER NOT NULL,
-  completed_sec INTEGER NOT NULL,
-  completed BOOLEAN NOT NULL,
-  cue VARCHAR,
-  hr_start INTEGER,
-  hr_end INTEGER,
-  hrv_start INTEGER,
-  hrv_end INTEGER,
-  read_state VARCHAR NOT NULL
-) PARTITIONED BY (day(started_at));`,
 })
 
 /**
@@ -473,7 +446,7 @@ export function quoteQualifier(qualifier: string): string {
  *
  * Exported for tests; call sites should prefer `ensureSchemas`.
  */
-export function qualifyDdl(baseDdl: string, table: TableName, catalog: string): string {
+export function qualifyDdl(baseDdl: string, table: string, catalog: string): string {
   return baseDdl.replace(
     `CREATE TABLE ${table}`,
     `CREATE TABLE IF NOT EXISTS ${quoteQualifier(catalog)}.${table}`,

@@ -16,6 +16,7 @@
  * without hard-coding.
  */
 
+import type { AppSchema } from './app-schema'
 import type { TableName } from './schemas'
 
 export interface TableSyncMetadata {
@@ -42,17 +43,21 @@ export const TABLE_METADATA: Readonly<Record<TableName, TableSyncMetadata>> = Ob
   // `computed_at` is a recompute stamp rather than a sync cursor.
   user_baseline: { timeColumn: 'computed_at', syncable: false },
   tool_call_audit: { timeColumn: 'ts', syncable: false },
-  practice_session: { timeColumn: 'started_at', syncable: true },
 })
 
+function metadataFor(table: string, appSchema?: AppSchema): TableSyncMetadata | undefined {
+  return (TABLE_METADATA as Record<string, TableSyncMetadata>)[table] ?? appSchema?.tables[table]
+}
+
 /**
- * Resolve the sync watermark column for a table.
+ * Resolve the sync watermark column for a table — a package table, or one the
+ * app declared in `appSchema`.
  *
  * Falls back to `'ts'` for unknown table names so downstream callers stay
  * compatible if the schema catalog and this registry drift.
  */
-export function timeColumnFor(table: TableName | string): string {
-  return (TABLE_METADATA as Record<string, TableSyncMetadata>)[table]?.timeColumn ?? 'ts'
+export function timeColumnFor(table: TableName | string, appSchema?: AppSchema): string {
+  return metadataFor(table, appSchema)?.timeColumn ?? 'ts'
 }
 
 /**
@@ -60,6 +65,6 @@ export function timeColumnFor(table: TableName | string): string {
  * tables that carry no cross-device state (`sync_watermark`,
  * `tool_call_audit`).
  */
-export function isSyncable(table: TableName | string): boolean {
-  return (TABLE_METADATA as Record<string, TableSyncMetadata>)[table]?.syncable ?? false
+export function isSyncable(table: TableName | string, appSchema?: AppSchema): boolean {
+  return metadataFor(table, appSchema)?.syncable ?? false
 }

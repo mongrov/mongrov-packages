@@ -1,26 +1,51 @@
 # Upgrading
 
-## 0.50.x → 0.51.0 — `practice_session` table (Prana P-01)
+## 0.50.x → 0.51.0 — app-owned tables (`appSchema`, principle 71)
 
-**Additive. A new table and migration 9; no API change. Code that counts tables or migration steps (test fakes) shifts by one.**
+**Additive. New optional config; no package table or migration added. Nothing to do unless the app owns a table.**
 
-`practice_session` holds one row per Prana breathing session (techspec
-prana R1): identity, `session_id` (PRIMARY KEY, minted on the phone),
-`practice`, `started_at` / `ended_at` (naive UTC), `planned_min`,
-`completed_sec`, `completed`, `cue`, the nullable `hr_start` / `hr_end` /
-`hrv_start` / `hrv_end`, and `read_state` (`pending` / `measured` /
-`no_read`).
+The package owns the ring-sensor and platform tables in `TABLE_NAMES`. A table
+only one app's feature needs is now declared by the app and passed to
+`createAnalytics`:
 
-- Migration 9 creates it locally, and remotely when a catalog is attached
-  (CREATE IF NOT EXISTS, as step 2 does for `device_battery`). Fresh installs
-  get it from the baseline.
-- Written by the app (`INSERT … ON CONFLICT (session_id)`), not by the sync
-  appender, so a re-record is a no-op (principle 66). Not a `v_*` union view:
-  like `insight` it is local-authoritative.
-- Retention: sensor retention on `started_at`. Sync: `syncable`, watermark
-  `started_at`. Known limit for cloud sync (off today): the settle job fills the
-  reading columns after a row was written, and a row already pushed is not
-  re-pushed when they change — the same limit `insight.acknowledged_at` has.
+```ts
+const appSchema: AppSchema = {
+  namespace: 'zivaone',                       // scopes the app's migration version
+  tables: {
+    practice_session: {
+      ddl: `CREATE TABLE practice_session ( ... ) PARTITIONED BY (day(started_at));`,
+      timeColumn: 'started_at',               // push / fetch watermark
+      syncable: true,                         // retention waits for the push watermark in r2 mode
+      retention: { tsColumn: 'started_at', kind: 'sensor' },
+    },
+  },
+  migrations: [],                             // the app's own, numbered from 1
+}
+createAnalytics({ ...config, appSchema })
+createSyncManager({ ...syncConfig, appSchema }) // only if `tables` lists an app table
+```
+
+- On every attach, after the package's migrations: `CREATE TABLE IF NOT
+  EXISTS` for each declared table (locally with `PARTITIONED BY` stripped;
+  remotely as written unless `localOnly`), then the app's pending migrations
+  under `analytics:app_schema_version:<namespace>:<brand>:<tenant>`. App
+  migrations run after the create, so each `up` must be idempotent against
+  the current shape (`ADD COLUMN IF NOT EXISTS`).
+- `createAnalytics` throws `AnalyticsError('invalid_config')` for a name the
+  package owns, a `v_` name, DDL that creates a different table, a
+  `timeColumn` / `retention.tsColumn` that is not a column, a swept table
+  without `brand` / `family_id` / `user_id`, or migrations not numbered 1..n.
+- Declare the row key as a `PRIMARY KEY` in the DDL (principle 66); the
+  fetcher's `ON CONFLICT DO NOTHING` follows it.
+- No `v_*` view is generated; read the table directly.
+- `timeColumnFor` / `isSyncable` take an optional `appSchema`.
+  `RetentionSweepResult.swept[].table` / `.skipped` and
+  `PushWatermarkAccessor` are typed `string` rather than `TableName`.
+- `AnalyticsErrorCode` gains `'invalid_config'`; an exhaustive `switch` over it
+  needs the case.
+
+The `practice_session` table merged in #84 never shipped (0.51.0 was not
+published); it is removed here and declared by zivaone_app instead.
 
 ## 0.49.x → 0.50.0 — local mode never consults the wifi/charging gates (#80)
 

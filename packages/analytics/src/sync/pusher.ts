@@ -16,6 +16,7 @@
  * `Promise.allSettled` so per-table failures don't hold up the rest.
  */
 
+import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
 import type { AttachContext } from '../core/types'
 import type { PushEmitter } from './events'
@@ -57,6 +58,8 @@ export interface R2PusherConfig {
    */
   localTable?: (ctx: AttachContext, table: string) => string
   remoteTable?: (ctx: AttachContext, table: string) => string
+  /** The app's own tables (principle 71), for their watermark column. */
+  appSchema?: AppSchema
   /**
    * Optional event-bus adapter. Emits `${table}:sync_complete` after each
    * successful push. See `events.ts` / `bindPushEvents()`.
@@ -85,6 +88,7 @@ export class R2Pusher {
   readonly #is401: (err: unknown) => boolean
   readonly #localTable: (ctx: AttachContext, table: string) => string
   readonly #remoteTable: (ctx: AttachContext, table: string) => string
+  readonly #appSchema: AppSchema | undefined
   readonly #emit: PushEmitter | undefined
   readonly #logger: SchedulerLogger | undefined
 
@@ -95,6 +99,7 @@ export class R2Pusher {
     this.#is401 = config.is401 ?? DEFAULT_IS_401
     this.#localTable = config.localTable ?? DEFAULT_LOCAL
     this.#remoteTable = config.remoteTable ?? DEFAULT_REMOTE
+    this.#appSchema = config.appSchema
     this.#emit = config.emit
     this.#logger = config.logger
   }
@@ -214,7 +219,7 @@ export class R2Pusher {
   }
 
   async #pushOnce(table: string, ctx: AttachContext): Promise<PushResult> {
-    const tsCol = timeColumnFor(table)
+    const tsCol = timeColumnFor(table, this.#appSchema)
     const watermark = await this.#watermark.get(
       ctx.brand,
       ctx.tenantId,
