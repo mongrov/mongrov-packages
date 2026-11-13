@@ -38,6 +38,8 @@ createSyncManager({ ...syncConfig, appSchema }) // only if `tables` lists an app
 - Declare the row key as a `PRIMARY KEY` in the DDL (principle 66); the
   fetcher's `ON CONFLICT DO NOTHING` follows it.
 - No `v_*` view is generated; read the table directly.
+- `toLocalDdl` is exported, so an app's tests can build its tables the way
+  the attach does.
 - `timeColumnFor` / `isSyncable` take an optional `appSchema`.
   `RetentionSweepResult.swept[].table` / `.skipped` and
   `PushWatermarkAccessor` are typed `string` rather than `TableName`.

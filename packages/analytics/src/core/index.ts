@@ -120,6 +120,7 @@ export {
   LOCAL_SCHEMAS,
   quoteQualifier,
   TABLE_NAMES,
+  toLocalDdl,
   VIEWED_TABLES,
   watermarkColumnFor,
 } from './schemas'
