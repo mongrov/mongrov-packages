@@ -7,6 +7,7 @@
  * MetricId + METRIC_METADATA land in T-07.
  */
 
+import type { AppSchema } from './app-schema'
 import type { QualityOptions } from './reading-quality'
 
 // -------------------- primitives --------------------
@@ -132,6 +133,13 @@ interface CommonAnalyticsConfig {
    * omitted; the wear, warm-up, range and spike gates are on when omitted.
    */
   quality?: QualityOptions
+  /**
+   * Tables the app owns (principle 71): created and migrated on each attach
+   * after the package's own, and swept by retention. Pass the same object
+   * to `createSyncManager` for tables the app lists in its `tables`.
+   * Validated when the engine is created; see `AppSchema`.
+   */
+  appSchema?: AppSchema
 }
 
 /**

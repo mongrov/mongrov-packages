@@ -5,6 +5,11 @@
  * phased tasks in `.specifica/features/analytics-core/tasks.md`.
  */
 
+// App-owned tables (principle 71): a product table is declared by the app
+// and passed as `appSchema`, never added to `TABLE_NAMES`.
+export { appSchemaVersionKey, ensureAppSchema, validateAppSchema } from './app-schema'
+
+export type { AppMigration, AppSchema, AppTable, AppTableRetention } from './app-schema'
 // Provider (Phase 5)
 export { AnalyticsProvider } from './context'
 
@@ -115,11 +120,12 @@ export {
   LOCAL_SCHEMAS,
   quoteQualifier,
   TABLE_NAMES,
+  toLocalDdl,
   VIEWED_TABLES,
   watermarkColumnFor,
 } from './schemas'
-export type { ViewedTable } from './schemas'
 
+export type { ViewedTable } from './schemas'
 // Table sync metadata registry (v0.2.0 — public surface for consumers
 // who need to know a table's sync watermark column or syncability flag,
 // e.g. when composing custom pushAll/fetch loops).

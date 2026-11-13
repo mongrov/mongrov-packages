@@ -25,6 +25,7 @@ import type {
   Unsubscribe,
 } from './types'
 import { createActor } from 'xstate'
+import { ensureAppSchema, validateAppSchema } from './app-schema'
 import { BOUNDED_FAILURE_LIMIT } from './bounded-read'
 import { HybridDuckDB } from './engine'
 import { AnalyticsError, describeError, NotImplementedError } from './errors'
@@ -161,6 +162,8 @@ export function createAnalytics(
   internal: CreateAnalyticsInternal = {},
 ): AnalyticsEngine {
   const log = resolveLogger(config.logger)
+  if (config.appSchema)
+    validateAppSchema(config.appSchema)
   const duckdbFactory = internal.duckdbFactory ?? defaultDuckdbFactory()
   const db = new HybridDuckDB(duckdbFactory)
 
@@ -213,6 +216,20 @@ export function createAnalytics(
       // case and says nothing new.
       if (migrated.from !== migrated.to) {
         log.info('analytics.migrations.applied', { from: migrated.from, to: migrated.to, mode })
+      }
+      // The app's own tables (principle 71), after the package's: an app
+      // migration may read a package table, never the other way round.
+      if (config.appSchema) {
+        const app = await ensureAppSchema(
+          db,
+          config.storage,
+          { brand: ctx.brand, tenantId: ctx.tenantId },
+          { local: localCatalog, remote: remoteCatalog },
+          config.appSchema,
+        )
+        if (app.from !== app.to) {
+          log.info('analytics.app_migrations.applied', { namespace: config.appSchema.namespace, from: app.from, to: app.to, mode })
+        }
       }
 
       // Union views last — they read the tables migrations just ensured,
@@ -509,6 +526,7 @@ export function createAnalytics(
       // `memory.duckdb` across accounts, so without this the delete reached
       // other families' rows (2026-09-26 review, finding 2).
       tenant: { brand: ctx.brand, familyId: ctx.tenantId, userId: ctx.userId },
+      appSchema: config.appSchema,
     })
     // Once per attach / setRetention. `skipped` tables have nothing pushed
     // yet, so their rows are kept on purpose — worth seeing when local data

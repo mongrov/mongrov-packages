@@ -17,6 +17,7 @@
  * controls; hooks in `hooks.ts` subscribe to state transitions.
  */
 
+import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
 
 import type { TableName } from '../core/schemas'
@@ -153,6 +154,12 @@ export interface CreateSyncManagerConfig {
    */
   correctSleep?: boolean
   logger?: SchedulerLogger
+  /**
+   * The app's own tables (principle 71) — the same object given to
+   * `createAnalytics`. Needed only when `tables` lists one of them, so the
+   * pusher and fetcher bound it on its declared `timeColumn`.
+   */
+  appSchema?: AppSchema
   /**
    * @deprecated Ignored since Sprint 5 T-09/T-10. The mapper reads the
    * vendor `AutomaticMonitoring_J2301A` struct directly and owns the
@@ -415,6 +422,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     watermark,
     refreshToken: config.refreshToken,
     logger: config.logger,
+    appSchema: config.appSchema,
     emit: (result) => {
       if (result.ok && result.rowsPushed > 0) {
         progress.lastSyncCompleteAt = Date.now()
@@ -429,6 +437,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     engine: engineAsHybrid,
     watermark,
     tables: [...config.tables],
+    appSchema: config.appSchema,
   })
 
   // Local-mode gate: in `analytics.mode === 'local'` there's no remote R2

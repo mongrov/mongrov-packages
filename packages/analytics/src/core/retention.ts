@@ -30,6 +30,7 @@
  * are skipped.
  */
 
+import type { AppSchema } from './app-schema'
 import type { HybridDuckDB } from './engine'
 import type { TableName } from './schemas'
 import type { AnalyticsMode } from './types'
@@ -105,9 +106,6 @@ const TABLE_RETENTION: Readonly<Record<TableName, TableRetention | null>> = Obje
   // by `computed_at` would drop live baselines for any metric whose
   // recompute is stale.
   user_baseline: null,
-  // A practice session is the user's own record, kept as long as their
-  // readings are (sensor retention), dated by when it started.
-  practice_session: { tsColumn: 'started_at', kind: 'sensor' },
 })
 
 // -------------------- constants --------------------
@@ -125,7 +123,7 @@ export const AUDIT_RETENTION_DAYS = 30
  * the pusher writes (`analytics:watermark:{brand}:{familyId}:{table}:push`,
  * see sync/watermark.ts). `null` means nothing pushed yet.
  */
-export type PushWatermarkAccessor = (table: TableName) => Promise<Date | null>
+export type PushWatermarkAccessor = (table: string) => Promise<Date | null>
 
 export interface RetentionSweepInput {
   /** Effective retention days for sensor tables (see `resolveEffectiveRetention`). */
@@ -153,17 +151,22 @@ export interface RetentionSweepInput {
    * specified exactly that unscoped DELETE, so the code passed its own AC.
    */
   tenant: RetentionTenant
+  /**
+   * The app's own tables (principle 71), swept after the package's by their
+   * declared `retention`, push-watermark guarded when `syncable`.
+   */
+  appSchema?: AppSchema
 }
 
 export interface RetentionSweepEntry {
-  table: TableName
+  table: string
   days: number
 }
 
 export interface RetentionSweepResult {
   swept: RetentionSweepEntry[]
   /** Syncable tables left untouched because no push watermark exists yet. */
-  skipped: TableName[]
+  skipped: string[]
 }
 
 /**
@@ -197,15 +200,19 @@ export async function runRetentionSweep(
 ): Promise<RetentionSweepResult> {
   const mode = input.mode ?? 'r2'
   const swept: RetentionSweepEntry[] = []
-  const skipped: TableName[] = []
-  const tableNames = Object.keys(TABLE_RETENTION) as TableName[]
-  for (const table of tableNames) {
-    const cfg = TABLE_RETENTION[table]
+  const skipped: string[] = []
+  const appTables = Object.entries(input.appSchema?.tables ?? {})
+    .map(([table, t]) => [table, t.retention] as const)
+  const targets = [
+    ...(Object.entries(TABLE_RETENTION) as Array<[string, TableRetention | null]>),
+    ...appTables,
+  ]
+  for (const [table, cfg] of targets) {
     if (!cfg)
       continue
 
     const days = daysForKind(cfg.kind, input.effectiveDays)
-    const guarded = mode !== 'local' && isSyncable(table)
+    const guarded = mode !== 'local' && isSyncable(table, input.appSchema)
     const tenantColumns = tenantColumnsFor(table)
     // Bound on EVERY sweep, guarded or not: the scope is not an optimisation,
     // it is what keeps the delete inside this tenant.
@@ -270,7 +277,7 @@ const TENANT_PARAM_FOR: Readonly<Record<string, string>> = Object.freeze({
  * `requester_user_id` — so scoping it by `user_id` would not compile into
  * valid SQL at all.
  */
-function tenantColumnsFor(table: TableName): readonly string[] {
+function tenantColumnsFor(table: string): readonly string[] {
   return table === 'tool_call_audit'
     ? ['brand', 'family_id']
     : ['brand', 'family_id', 'user_id']
@@ -294,7 +301,7 @@ function tenantParamsFor(columns: readonly string[], tenant: RetentionTenant): R
 
 interface DeleteSqlInput {
   catalog: string
-  table: TableName
+  table: string
   tsCol: string
   days: number
   /** Bound by `$pushWatermark` (ISO string param, cast to TIMESTAMP). */

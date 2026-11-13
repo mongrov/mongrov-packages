@@ -19,6 +19,7 @@
  * incremental pulls stay bounded.
  */
 
+import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
 import type { TableName } from '../core/schemas'
 import type { AttachContext } from '../core/types'
@@ -53,8 +54,8 @@ import { SyncError } from './errors'
  * `DO UPDATE` is part of the sync-contract decision tracked on
  * mongrov-packages#10 and #35.
  */
-function conflictClause(table: string): string {
-  const ddl = (LOCAL_SCHEMAS as Record<string, string>)[table as TableName]
+function conflictClause(table: string, appSchema?: AppSchema): string {
+  const ddl = (LOCAL_SCHEMAS as Record<string, string>)[table as TableName] ?? appSchema?.tables[table]?.ddl
   return ddl?.includes('PRIMARY KEY') ? ' ON CONFLICT DO NOTHING' : ''
 }
 
@@ -85,6 +86,8 @@ export interface R2FetcherConfig {
   now?: () => Date
   localTable?: (ctx: AttachContext, table: string) => string
   remoteTable?: (ctx: AttachContext, table: string) => string
+  /** The app's own tables (principle 71), for their watermark column. */
+  appSchema?: AppSchema
 }
 
 const DEFAULT_LOCAL = (_c: AttachContext, table: string) => `main.${table}`
@@ -100,6 +103,7 @@ export class R2Fetcher {
   readonly #now: () => Date
   readonly #localTable: (ctx: AttachContext, table: string) => string
   readonly #remoteTable: (ctx: AttachContext, table: string) => string
+  readonly #appSchema: AppSchema | undefined
 
   constructor(config: R2FetcherConfig) {
     this.#engine = config.engine
@@ -108,6 +112,7 @@ export class R2Fetcher {
     this.#now = config.now ?? (() => new Date())
     this.#localTable = config.localTable ?? DEFAULT_LOCAL
     this.#remoteTable = config.remoteTable ?? DEFAULT_REMOTE
+    this.#appSchema = config.appSchema
   }
 
   /**
@@ -175,7 +180,7 @@ export class R2Fetcher {
     params: FetchParams,
   ): Promise<FetchResult> {
     try {
-      const tsCol = timeColumnFor(params.table)
+      const tsCol = timeColumnFor(params.table, this.#appSchema)
       const local = this.#localTable(ctx, params.table)
       const remote = this.#remoteTable(ctx, params.table)
       const bindings: Record<string, unknown> = {
@@ -239,12 +244,12 @@ export class R2Fetcher {
     policy: PrefetchPolicy,
     cutoff: string,
   ): Promise<FetchResult> {
-    const tsCol = timeColumnFor(table)
+    const tsCol = timeColumnFor(table, this.#appSchema)
     const local = this.#localTable(ctx, table)
     const remote = this.#remoteTable(ctx, table)
 
     if (policy.kind === 'all-family-on-attach') {
-      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $cutoff${conflictClause(table)}`
+      const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $cutoff${conflictClause(table, this.#appSchema)}`
       await this.#engine.execute(sql, {
         familyId: ctx.tenantId,
         cutoff,
@@ -255,7 +260,7 @@ export class R2Fetcher {
       const activeCutoff = new Date(activeCutoffMs).toISOString()
       // CTE picks user_ids seen in the recent window, then filters the window
       // pull down to those users.
-      const sql = `WITH active AS (SELECT DISTINCT user_id FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $activeCutoff) INSERT INTO ${local} SELECT r.* FROM ${remote} r JOIN active a ON r.user_id = a.user_id WHERE r.family_id = $familyId AND r.${tsCol} >= $cutoff${conflictClause(table)}`
+      const sql = `WITH active AS (SELECT DISTINCT user_id FROM ${remote} WHERE family_id = $familyId AND ${tsCol} >= $activeCutoff) INSERT INTO ${local} SELECT r.* FROM ${remote} r JOIN active a ON r.user_id = a.user_id WHERE r.family_id = $familyId AND r.${tsCol} >= $cutoff${conflictClause(table, this.#appSchema)}`
       await this.#engine.execute(sql, {
         familyId: ctx.tenantId,
         cutoff,
@@ -278,7 +283,7 @@ export class R2Fetcher {
     ctx: AttachContext,
     table: string,
   ): Promise<FetchResult> {
-    const tsCol = timeColumnFor(table)
+    const tsCol = timeColumnFor(table, this.#appSchema)
     const watermark = await this.#watermark.get(
       ctx.brand,
       ctx.tenantId,
@@ -287,7 +292,7 @@ export class R2Fetcher {
     )
     const local = this.#localTable(ctx, table)
     const remote = this.#remoteTable(ctx, table)
-    const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${tsCol} > $watermark AND family_id = $familyId${conflictClause(table)}`
+    const sql = `INSERT INTO ${local} SELECT * FROM ${remote} WHERE ${tsCol} > $watermark AND family_id = $familyId${conflictClause(table, this.#appSchema)}`
     await this.#engine.execute(sql, {
       watermark: watermark.toISOString(),
       familyId: ctx.tenantId,
