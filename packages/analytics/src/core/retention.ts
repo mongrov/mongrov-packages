@@ -105,6 +105,9 @@ const TABLE_RETENTION: Readonly<Record<TableName, TableRetention | null>> = Obje
   // by `computed_at` would drop live baselines for any metric whose
   // recompute is stale.
   user_baseline: null,
+  // A practice session is the user's own record, kept as long as their
+  // readings are (sensor retention), dated by when it started.
+  practice_session: { tsColumn: 'started_at', kind: 'sensor' },
 })
 
 // -------------------- constants --------------------

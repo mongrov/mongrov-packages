@@ -1,5 +1,27 @@
 # Upgrading
 
+## 0.50.x → 0.51.0 — `practice_session` table (Prana P-01)
+
+**Additive. A new table and migration 9; no API change. Code that counts tables or migration steps (test fakes) shifts by one.**
+
+`practice_session` holds one row per Prana breathing session (techspec
+prana R1): identity, `session_id` (PRIMARY KEY, minted on the phone),
+`practice`, `started_at` / `ended_at` (naive UTC), `planned_min`,
+`completed_sec`, `completed`, `cue`, the nullable `hr_start` / `hr_end` /
+`hrv_start` / `hrv_end`, and `read_state` (`pending` / `measured` /
+`no_read`).
+
+- Migration 9 creates it locally, and remotely when a catalog is attached
+  (CREATE IF NOT EXISTS, as step 2 does for `device_battery`). Fresh installs
+  get it from the baseline.
+- Written by the app (`INSERT … ON CONFLICT (session_id)`), not by the sync
+  appender, so a re-record is a no-op (principle 66). Not a `v_*` union view:
+  like `insight` it is local-authoritative.
+- Retention: sensor retention on `started_at`. Sync: `syncable`, watermark
+  `started_at`. Known limit for cloud sync (off today): the settle job fills the
+  reading columns after a row was written, and a row already pushed is not
+  re-pushed when they change — the same limit `insight.acknowledged_at` has.
+
 ## 0.49.x → 0.50.0 — local mode never consults the wifi/charging gates (#80)
 
 **Behaviour change only for a consumer that passes `constraints` to `createSyncManager` in local mode. No type change; nothing to do in ZivaOne.**
