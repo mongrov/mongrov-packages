@@ -45,7 +45,7 @@ import { bindFlushEvents, bindPushEvents } from './events'
 import { R2Fetcher } from './fetcher'
 import { BatchFlusher, MAX_CONSECUTIVE_FAILURES } from './flusher'
 import { mapFirmwareExport } from './mapper/firmware'
-import { dropImplausibleRows, IMPLAUSIBLE_ROWS_EVENT } from './mapper/plausibility'
+import { dropMalformedRows, DROPPED_ROWS_EVENT, DropTally } from './mapper/plausibility'
 import { OverflowStore } from './overflow'
 import { PendingClosesStore } from './pending_closes'
 import { R2Pusher } from './pusher'
@@ -447,6 +447,9 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // no push/fetch SQL actually runs. Rules still fire on-batch via the
   // flusher; scheduled rules also fire via `onCycleComplete`.
   const isLocal = config.analytics.mode === 'local'
+  // Rows dropped at ingest (sink.push / pushFirmware) since the last flush;
+  // each flush reports and resets it (spec §13 S10, T-60).
+  const dropTally = new DropTally()
 
   const pendingClosesStore = new PendingClosesStore(config.storage)
 
@@ -521,6 +524,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
           // should be woken. Leaving it open would leak the record and
           // silently suppress the next cycle's evaluation.
           flusher.endBatch(batchId)
+          logDroppedRows(config.logger, dropTally, 'scheduled')
         }
       },
       pushAll: isLocal
@@ -632,6 +636,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     pendingClosesStore,
     sleepDeriver,
     logger: config.logger,
+    dropTally,
   })
 
   return {
@@ -679,6 +684,7 @@ interface CreateSinkDeps {
   pendingClosesStore: PendingClosesStore
   sleepDeriver?: SleepDeriver
   logger?: SchedulerLogger
+  dropTally: DropTally
 }
 
 /**
@@ -777,13 +783,20 @@ async function fetchActivePriorConfigs(
 }
 
 function createSensorSink(deps: CreateSinkDeps): SensorSink {
-  const { buffer, flusher, triggers, tables, engine, attachCtx, pendingClosesStore, sleepDeriver, logger } = deps
+  const { buffer, flusher, triggers, tables, engine, attachCtx, pendingClosesStore, sleepDeriver, logger, dropTally } = deps
   // Gated on subscription alone now — the mapper owns the translation, so
   // there is no consumer wiring left that could be missing.
   const handlesConfig = tables.includes('device_config')
 
   return {
-    push: async (batch: SensorBatch) => {
+    push: async (input: SensorBatch) => {
+      // The live path (spec §13 S10, T-60): malformed rows are dropped and
+      // counted; out-of-range readings are stored for `_q` to flag.
+      const report = dropMalformedRows(input.table, input.rows)
+      dropTally.add(input.table, report)
+      if (report.kept.length === 0)
+        return
+      const batch = report.dropped === 0 && report.nulled === 0 ? input : { ...input, rows: report.kept }
       await buffer.push(batch)
       triggers.noteEnqueue(batch.table, Date.now())
       if (batch.table === 'sleep_raw')
@@ -843,25 +856,13 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       for (const [table, mappedRows] of mappedTables) {
         if (!mappedRows || mappedRows.length === 0)
           continue
-        // Filler is not a reading (zivaone_app#225, #81). The live BLE path
-        // has always dropped implausible rows before `push`; this path did
-        // not, so a bulk sync or a replayed dump stored 0 bpm / 0 % SpO2 and
-        // pre-2020 dates in the raw tables, where `health.spo2HasAnyReadings`,
-        // `hr.daysWorn` and `hr.baselineMaturity` counted them as readings.
-        // Tables with no declared range pass through untouched. On `hrv` an
-        // implausible HRV is nulled and the row kept, so its stress survives
-        // (spec §13b: plausibility is per vital, not per row).
-        const { kept: rows, dropped, nulled, sample } = dropImplausibleRows(table, mappedRows)
-        if (dropped > 0 || nulled > 0) {
-          logger?.warn(IMPLAUSIBLE_ROWS_EVENT, {
-            event: 'pushFirmware',
-            table,
-            dropped,
-            nulled,
-            kept: rows.length,
-            sample,
-          })
-        }
+        // Same ingest rule as `push` (spec §13 S10, T-60): only malformed
+        // rows are dropped, counted for the next flush's log line; a value
+        // outside the §13b clamps is stored and flagged by `v_*_q`. Tables
+        // with no reading column pass through untouched.
+        const report = dropMalformedRows(table, mappedRows)
+        dropTally.add(table, report)
+        const rows = report.kept
         if (rows.length === 0)
           continue
         await buffer.push({
@@ -896,6 +897,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
         flusher.endBatch(batchId)
       }
       logManualFlush(logger, results, startedAt)
+      logDroppedRows(logger, dropTally, 'manual')
       return results
     },
     pendingRowCount: async (table?: string) => {
@@ -925,6 +927,24 @@ function logManualFlush(logger: SchedulerLogger | undefined, results: FlushResul
     logger?.warn('sync.flush.manual.partial', summary)
   else
     logger?.info('sync.flush.manual.ok', summary)
+}
+
+/**
+ * One line per flush with the rows dropped at ingest since the previous one,
+ * by table and reason (spec §13 S10, T-60). Silent when nothing was dropped
+ * or nulled. `warn` when rows were dropped; `info` when readings were only
+ * nulled (a "no value" sentinel on a row that carries other readings,
+ * routine on every sync).
+ */
+function logDroppedRows(logger: SchedulerLogger | undefined, tally: DropTally, trigger: 'manual' | 'scheduled'): void {
+  const summary = tally.drain()
+  if (!summary)
+    return
+  const meta = { trigger, ...summary }
+  if (summary.total > 0)
+    logger?.warn(DROPPED_ROWS_EVENT, meta)
+  else
+    logger?.info(DROPPED_ROWS_EVENT, meta)
 }
 
 function noopBackgroundTask(): BackgroundTaskPort {

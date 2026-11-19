@@ -12,7 +12,7 @@
  *   an R2 attach an unqualified name resolves to the remote catalog.
  * - HR and steps come from `v_heart_rate` / `v_activity` (+
  *   `v_activity_bucket`), so a 30-day baseline lookback sees remote history
- *   too.
+ *   too. HR is limited to the §13b clamp (`BPM_MIN`..`BPM_MAX`).
  * - One user and one device: the correction is per ring.
  *
  * `sleep_raw.quality` must hold the firmware's own codes (1 deep / 2 light /
@@ -62,6 +62,8 @@
 
 import type { SleepRelations } from './sql'
 
+import { PLAUSIBLE_RANGES } from '../../core/reading-quality'
+
 import { DEFAULT_RELATIONS, rel } from './sql'
 
 export interface StagingScope {
@@ -86,6 +88,13 @@ export interface StagingBounds {
 }
 
 const CATALOG_RE = /^[a-z_]\w*$/i
+/**
+ * Only a heart rate inside the §13b clamp feeds the correction. Until S10
+ * (spec §13 amendment 2026-11-12, T-60) the ingest dropped the rest, so v3.1's
+ * parity was proved on clamped data; now out-of-range values are stored and
+ * flagged, and must not move a sleep boundary.
+ */
+const [BPM_MIN, BPM_MAX] = PLAUSIBLE_RANGES.bpm
 const QUOTE_RE = /'/g
 
 function lit(s: string): string {
@@ -147,7 +156,7 @@ WHERE brand = ${lit(scope.brand)} AND family_id = ${lit(scope.familyId)} AND ${t
     `CREATE OR REPLACE TEMP VIEW ${rel(r.heartrate)} AS
 SELECT CAST(epoch(ts) AS BIGINT) AS date, bpm AS "singleHR"
 FROM v_heart_rate
-WHERE ${tenant}`,
+WHERE ${tenant} AND bpm BETWEEN ${BPM_MIN} AND ${BPM_MAX}`,
     activityViewSql(rel(r.activity), tenant, since(bounds.activityFromEpoch), scope.activitySteps ?? 'bucket'),
   ]
 }

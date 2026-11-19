@@ -18,7 +18,7 @@ import type { EventBus } from '../events'
 import { describe, expect, it, vi } from 'vitest'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { createSyncManager } from '../factory'
-import { IMPLAUSIBLE_ROWS_EVENT } from '../mapper/plausibility'
+import { DROPPED_ROWS_EVENT } from '../mapper/plausibility'
 import { createFakeEngine } from './__fakes__/fake-engine'
 
 const ctx: AttachContext = {
@@ -136,7 +136,7 @@ describe('SensorSink', () => {
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
-      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't', rmssd_ms: 42 }],
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42 }],
     })
     const count = await mgr.sink.pendingRowCount('hrv')
     expect(count).toBe(1)
@@ -150,7 +150,7 @@ describe('SensorSink', () => {
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
-      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42 }],
     })
     const results = await mgr.sink.flush()
     expect(results).toHaveLength(2) // hrv + heart_rate
@@ -164,7 +164,7 @@ describe('SensorSink', () => {
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
-      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't', rmssd_ms: 42 }],
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42 }],
     })
     await mgr.sink.clear()
     expect(await mgr.sink.pendingRowCount()).toBe(0)
@@ -181,7 +181,7 @@ describe('event bus + progress', () => {
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
-      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42 }],
     })
     await mgr.sink.flush()
     expect(mgr.progress().lastFlushAt).toBeTypeOf('number')
@@ -213,7 +213,7 @@ describe('rules-engine integration', () => {
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
-      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42 }],
     })
     await mgr.sink.flush()
     // Flush drains both configured tables. Only hrv had rows, so evaluate is
@@ -250,7 +250,7 @@ describe('rules-engine integration', () => {
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
-      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42 }],
     })
     await mgr.sink.flush()
     expect(evaluateOnBatch).not.toHaveBeenCalled()
@@ -344,7 +344,7 @@ describe('rules-engine integration', () => {
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
-      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't1', rmssd_ms: 42 }],
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42 }],
     })
     const results = await mgr.sink.flush()
     // Give the fire-and-forget catch a tick to run.
@@ -640,21 +640,24 @@ describe('device_config sink (SCD-2 close semantics)', () => {
   })
 })
 
-describe('pushFirmware drops implausible rows (#81)', () => {
-  // A bulk sync goes firmware → `mapFirmwareExport` → buffer → flush, with no
-  // `dropImplausibleRows` of its own until #81. These rows mirror what a ring
-  // really sends: a 0 bpm sentinel, a 0 % SpO2, a pre-2020 date off a reset
-  // clock — next to readings that must still land.
+describe('ingest stores out-of-range readings, drops only malformed rows (S10, T-60)', () => {
+  // Spec §13 amendment 2026-11-12: a value outside the §13b clamps is stored
+  // and flagged `plausible = false` by `v_*_q`; only malformed rows (bad,
+  // future or pre-epoch timestamp, undecodable value) and the firmware's
+  // "no value" sentinel are dropped, counted once per flush by table and
+  // reason. HR 250 and SpO2 40 are the T-60 acceptance values.
   const firmware = {
     heartrate: [
       { timestamp: '2026.10.28 08:00:00', singleHR: 62 },
       { timestamp: '2026.10.28 08:05:00', singleHR: 0 },
-      { timestamp: '2019.12.31 23:59:00', singleHR: 70 },
+      { timestamp: '2026.10.28 08:07:00', singleHR: 250 },
+      { timestamp: '1970.01.01 00:00:00', singleHR: 70 },
       { timestamp: '2026.10.28 08:10:00', singleHR: 64 },
     ],
     hrv_table: [],
     spo2: [
       { timestamp: '2026.10.28 08:00:00', automaticSpo2Data: 97 },
+      { timestamp: '2026.10.28 08:03:00', automaticSpo2Data: 40 },
       { timestamp: '2026.10.28 08:05:00', automaticSpo2Data: 0 },
     ],
     temperature_table: [],
@@ -678,63 +681,101 @@ describe('pushFirmware drops implausible rows (#81)', () => {
     })
   }
   const makeLogger = () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() })
+  const written = (fake: ReturnType<typeof createFakeEngine>, table: string) => fake.appended
+    .filter(a => a.table === `${table}__stg`)
+    .map(a => [new Date(a.values[1] as string | Date).toISOString(), a.values[2]])
+  const dropLines = (logger: ReturnType<typeof makeLogger>) =>
+    [...logger.warn.mock.calls, ...logger.info.mock.calls].filter(([msg]) => msg === DROPPED_ROWS_EVENT)
 
-  it('a 0 bpm row and a pre-2020 row never reach the warehouse; valid rows do', async () => {
+  it('pushFirmware: HR 250 and SpO2 40 land; the 1970 row and the 0 sentinels do not', async () => {
     const fake = createFakeEngine()
     const logger = makeLogger()
     const mgr = makeMgr(fake, logger)
 
     await mgr.sink.pushFirmware(firmware, mapperCtx)
-    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(2)
-    expect(await mgr.sink.pendingRowCount('spo2')).toBe(1)
+    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(3)
+    expect(await mgr.sink.pendingRowCount('spo2')).toBe(2)
 
     // The flusher appends into `<table>__stg` and merges from there: what
     // is appended is exactly what the warehouse receives.
     await mgr.sink.flush()
-    const written = (table: string) => fake.appended
-      .filter(a => a.table === `${table}__stg`)
-      .map(a => [new Date(a.values[1] as string | Date).toISOString(), a.values[2]])
-    expect(written('heart_rate')).toEqual([
+    expect(written(fake, 'heart_rate')).toEqual([
       ['2026-10-28T08:00:00.000Z', 62],
+      ['2026-10-28T08:07:00.000Z', 250],
       ['2026-10-28T08:10:00.000Z', 64],
     ])
-    expect(written('spo2')).toEqual([['2026-10-28T08:00:00.000Z', 97]])
+    expect(written(fake, 'spo2')).toEqual([
+      ['2026-10-28T08:00:00.000Z', 97],
+      ['2026-10-28T08:03:00.000Z', 40],
+    ])
   })
 
-  it('logs the dropped count on the live path\'s event, once per table', async () => {
+  it('logs one line per flush with dropped counts by table and reason, then resets', async () => {
     const fake = createFakeEngine()
     const logger = makeLogger()
     const mgr = makeMgr(fake, logger)
 
     await mgr.sink.pushFirmware(firmware, mapperCtx)
+    // Nothing is logged per pushed chunk any more.
+    expect(dropLines(logger)).toHaveLength(0)
 
-    expect(IMPLAUSIBLE_ROWS_EVENT).toBe('sensor-adapter.rows.implausible')
-    const drops = logger.warn.mock.calls.filter(([msg]) => msg === IMPLAUSIBLE_ROWS_EVENT)
-    expect(drops.map(([, meta]) => meta)).toEqual([
-      expect.objectContaining({ event: 'pushFirmware', table: 'heart_rate', dropped: 2, nulled: 0, kept: 2, sample: 'bpm=0 outside [30, 220]' }),
-      expect.objectContaining({ event: 'pushFirmware', table: 'spo2', dropped: 1, kept: 1 }),
-    ])
+    await mgr.sink.flush()
+    expect(dropLines(logger)).toEqual([[DROPPED_ROWS_EVENT, expect.objectContaining({
+      trigger: 'manual',
+      total: 3,
+      dropped: {
+        heart_rate: { no_value: 1, before_epoch: 1 },
+        spo2: { no_value: 1 },
+      },
+      nulled: {},
+    })]])
+    expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.anything())
+
+    // The counts belong to that flush: the next one has nothing to report.
+    await mgr.sink.flush()
+    expect(dropLines(logger)).toHaveLength(1)
   })
 
-  it('a table whose every row is implausible is not pushed at all', async () => {
+  it('the scheduled flush reports the same line', async () => {
     const fake = createFakeEngine()
     const logger = makeLogger()
     const mgr = makeMgr(fake, logger)
 
-    await mgr.sink.pushFirmware({
-      ...firmware,
-      heartrate: [{ timestamp: '2026.10.28 08:05:00', singleHR: 0 }],
-      spo2: [],
-    }, mapperCtx)
+    await mgr.sink.pushFirmware(firmware, mapperCtx)
+    await mgr.triggerNow()
+    expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({ trigger: 'scheduled', total: 3 }))
+  })
 
-    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(0)
-    expect(logger.warn).toHaveBeenCalledWith(IMPLAUSIBLE_ROWS_EVENT, expect.objectContaining({ table: 'heart_rate', dropped: 1, kept: 0 }))
+  it('live sink.push applies the same rule and counts into the same line', async () => {
+    const fake = createFakeEngine()
+    const logger = makeLogger()
+    const mgr = makeMgr(fake, logger)
+    const batch = { table: 'heart_rate', brand: 'ziva', familyId: 'fam_A', userId: 'u1', deviceId: 'ring_1' }
+
+    await mgr.sink.push({
+      ...batch,
+      rows: [
+        { device_id: 'ring_1', ts: new Date('2026-10-28T08:00:00Z'), bpm: 250 },
+        { device_id: 'ring_1', ts: new Date(0), bpm: 60 },
+        { device_id: 'ring_1', ts: 'garbage', bpm: 60 },
+      ],
+    })
+    // A batch with nothing left is not buffered at all.
+    await mgr.sink.push({ ...batch, rows: [{ device_id: 'ring_1', ts: new Date(0), bpm: 60 }] })
+    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(1)
+
+    await mgr.sink.flush()
+    expect(written(fake, 'heart_rate')).toEqual([['2026-10-28T08:00:00.000Z', 250]])
+    expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({
+      total: 3,
+      dropped: { heart_rate: { before_epoch: 2, bad_timestamp: 1 } },
+    }))
   })
 
   // Spec §13b: plausibility is per vital. The canonical fixture
   // (firmware-dirty-readings.json) says "10:00 HRV 0 is below the 5 ms clamp;
-  // its stress 35 stays clean".
-  it('an HRV 0 row is kept with hrv_ms NULL and its stress; a 2019 HRV row is dropped', async () => {
+  // its stress 35 stays clean". 0 is the firmware's "no value": NULL.
+  it('an HRV 0 row is kept with hrv_ms NULL and its stress; HRV 250 is stored; a 2019 HRV row is dropped', async () => {
     const fake = createFakeEngine()
     const logger = makeLogger()
     const mgr = createSyncManager({
@@ -752,25 +793,45 @@ describe('pushFirmware drops implausible rows (#81)', () => {
       hrv_table: [
         { timestamp: '2026.10.28 10:00:00', hrv: 0, stress: 35 },
         { timestamp: '2026.10.28 10:10:00', hrv: 50, stress: 30 },
+        { timestamp: '2026.10.28 10:20:00', hrv: 250, stress: 31 },
         { timestamp: '2019.12.31 23:59:00', hrv: 48, stress: 25 },
       ],
     }, mapperCtx)
     await mgr.sink.flush()
 
-    const written = fake.appended
+    const rows = fake.appended
       .filter(a => a.table === 'hrv__stg')
       .map(a => [new Date(a.values[1] as string | Date).toISOString(), a.values[2], a.values[3]])
-    expect(written).toEqual([
+    expect(rows).toEqual([
       ['2026-10-28T10:00:00.000Z', null, 35],
       ['2026-10-28T10:10:00.000Z', 50, 30],
+      ['2026-10-28T10:20:00.000Z', 250, 31],
     ])
-    expect(logger.warn).toHaveBeenCalledWith(IMPLAUSIBLE_ROWS_EVENT, expect.objectContaining({
-      event: 'pushFirmware',
-      table: 'hrv',
-      dropped: 1,
-      nulled: 1,
-      kept: 2,
+    expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({
+      dropped: { hrv: { before_epoch: 1 } },
+      nulled: { hrv: 1 },
     }))
+  })
+
+  it('only nulled sentinels: the line is info, not warn', async () => {
+    const fake = createFakeEngine()
+    const logger = makeLogger()
+    const mgr = createSyncManager({
+      ...baseConfig(),
+      analytics: fake.engine as unknown as AnalyticsEngine,
+      tables: ['hrv'],
+      columnOrder: { hrv: ['device_id', 'ts', 'hrv_ms', 'stress'] as const },
+      logger,
+    })
+    await mgr.sink.pushFirmware({
+      ...firmware,
+      heartrate: [],
+      spo2: [],
+      hrv_table: [{ timestamp: '2026.10.28 10:00:00', hrv: 0, stress: 35 }],
+    }, mapperCtx)
+    await mgr.sink.flush()
+    expect(logger.info).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({ total: 0, nulled: { hrv: 1 } }))
+    expect(logger.warn.mock.calls.filter(([msg]) => msg === DROPPED_ROWS_EVENT)).toHaveLength(0)
   })
 
   it('a clean export logs nothing', async () => {
@@ -783,9 +844,10 @@ describe('pushFirmware drops implausible rows (#81)', () => {
       heartrate: [{ timestamp: '2026.10.28 08:00:00', singleHR: 62 }],
       spo2: [{ timestamp: '2026.10.28 08:00:00', automaticSpo2Data: 97 }],
     }, mapperCtx)
+    await mgr.sink.flush()
 
-    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(1)
-    expect(logger.warn.mock.calls.filter(([msg]) => msg === IMPLAUSIBLE_ROWS_EVENT)).toHaveLength(0)
+    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(0)
+    expect(dropLines(logger)).toHaveLength(0)
   })
 })
 
@@ -815,7 +877,7 @@ describe('strictBatchOrdering (Sprint 5 item (a))', () => {
       familyId: 'fam_A',
       userId,
       deviceId: 'ring',
-      rows: [{ user_id: userId, device_id: 'ring', ts: 't1', rmssd_ms: 42, bpm: 60 }],
+      rows: [{ user_id: userId, device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42, bpm: 60 }],
     })
 
   it('evaluates ONCE per batch with every landed table, not once per table', async () => {
@@ -924,7 +986,7 @@ describe('flush failures reach the logger', () => {
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
-      rows: [{ user_id: 'u1', device_id: 'ring', ts: 't', rmssd_ms: 42 }],
+      rows: [{ user_id: 'u1', device_id: 'ring', ts: '2026-10-28T08:00:00.000Z', rmssd_ms: 42 }],
     })
 
     const results = await mgr.sink.flush()

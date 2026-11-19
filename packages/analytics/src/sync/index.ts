@@ -81,12 +81,15 @@ export { mapHrv } from './mapper/hrv'
 
 export {
   dropImplausibleRows,
+  dropMalformedRows,
+  DROPPED_ROWS_EVENT,
+  DropTally,
   EARLIEST_PLAUSIBLE_ISO,
   IMPLAUSIBLE_ROWS_EVENT,
   MAX_CLOCK_AHEAD_DAYS,
 } from './mapper/plausibility'
 
-export type { DropReport } from './mapper/plausibility'
+export type { DropReason, DropReport, DropSummary } from './mapper/plausibility'
 
 export {
   mapRingConfig,
