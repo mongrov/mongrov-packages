@@ -20,7 +20,6 @@
  */
 
 import type { PackTool } from '../core/packs'
-import type { AnalyticsToolMap } from '../packs/health/tools'
 import type { RateLimiter } from './rate-limit'
 
 import type {
@@ -39,7 +38,8 @@ import {
 } from './types'
 import { makeTool } from './wrap'
 
-export type { AnalyticsToolMap } from '../packs/health/tools'
+/** Every registered pack's wrapped tools, by name. */
+export type AnalyticsToolMap = Record<string, ReturnType<typeof makeTool<any>>>
 
 export interface AnalyticsToolsHandle {
   tools: AnalyticsToolMap

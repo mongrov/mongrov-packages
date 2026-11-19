@@ -15,9 +15,9 @@ import type { AnalyticsEngine, EventBus } from '../../core/types'
 import { describe, expect, it, vi } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { zivaDefaults } from '../../__tests__/packs/health/rules'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { createAnalytics } from '../../core/factory'
-import { zivaDefaults } from '../defaults'
 import { createRulesEngine } from '../index'
 
 const BRAND = 'ziva'

@@ -7,21 +7,22 @@
  * follows them. Re-correcting a night replaces it (principle 66 as amended)
  * and never touches its neighbours.
  */
-import type { FirmwareActivityRow, FirmwareSleepRawRow, MapperContext } from '../mapper/types'
+import type { FirmwareActivityRow, FirmwareSleepRawRow, MapperContext } from '../../__tests__/packs/ring/mapper/types'
 import type { FlushResult } from '../types'
 
 import { describe, expect, it, vi } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { mapActivity } from '../../__tests__/packs/ring/mapper/activity'
+import { mapSleepRaw } from '../../__tests__/packs/ring/mapper/sleep'
+import { createSleepDeriver, mergeFlushResults } from '../../__tests__/packs/ring/sleep-derive'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { HybridDuckDB } from '../../core/engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
+import { generateViewDdl } from '../../core/schemas'
 import { SensorBuffer } from '../buffer'
 import { BatchFlusher } from '../flusher'
-import { mapActivity } from '../mapper/activity'
-import { mapSleepRaw } from '../mapper/sleep'
 import { OverflowStore } from '../overflow'
-import { createSleepDeriver, mergeFlushResults } from '../sleep-derive'
 
 const TENANT = { brand: 'ziva', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
 const CTX: MapperContext = { ...TENANT, userTimezone: 'UTC' }

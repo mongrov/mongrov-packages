@@ -23,11 +23,11 @@ import type {
   FirmwareRingConfig,
   FirmwareWeekdays,
   MapperContext,
-} from '../types'
+} from '../../../__tests__/packs/ring/mapper/types'
 
 import { describe, expect, it } from 'vitest'
-import { mapBattery } from '../battery'
-import { mapRingConfig } from '../ring-config'
+import { mapBattery } from '../../../__tests__/packs/ring/mapper/battery'
+import { mapRingConfig } from '../../../__tests__/packs/ring/mapper/ring-config'
 
 const ctx: MapperContext = {
   brand: 'ziva',

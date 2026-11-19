@@ -11,7 +11,8 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { LOCAL_SCHEMAS, qualifyDdl, quoteQualifier } from '../schemas'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { qualifyDdl, quoteQualifier } from '../schemas'
 
 describe('quoteQualifier', () => {
   it('leaves plain identifiers bare', () => {

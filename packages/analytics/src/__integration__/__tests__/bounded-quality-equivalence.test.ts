@@ -36,7 +36,7 @@
  * Windows step every 7 minutes (coprime with the 5-minute cadence and the
  * 240-minute bursts) so every edge lands at every offset.
  */
-import type { QualityOptions } from '../../core/reading-quality'
+import type { QualityOptions } from '../../__tests__/packs/health/reading-quality'
 import { describe, expect, it } from 'vitest'
 import {
   cleanMacroFor,
@@ -45,7 +45,7 @@ import {
   QUALITY_TABLES,
   qualityMacroFor,
   qualityViewFor,
-} from '../../core/reading-quality'
+} from '../../__tests__/packs/health/reading-quality'
 import { createViews, dropViews } from '../../core/warehouse'
 import { at, B, F, openSeeded, U, windows } from '../setup/quality-fixture'
 

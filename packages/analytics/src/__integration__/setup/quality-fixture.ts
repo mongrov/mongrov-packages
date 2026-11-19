@@ -2,9 +2,9 @@
  * The edge-case warehouse the quality equivalence suites run on. Why each day
  * is shaped the way it is: `bounded-quality-equivalence.test.ts`.
  */
-import type { QualityOptions } from '../../core/reading-quality'
+import type { QualityOptions } from '../../__tests__/packs/health/reading-quality'
+import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../../core/engine'
-import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../core/schemas'
 import { createViews } from '../../core/warehouse'
 import { createRealDuckDB } from './real-engine'
 

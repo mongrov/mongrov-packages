@@ -235,10 +235,3 @@ export async function ensureMigrations(
 function versionKeyOf(pack: AnalyticsPack, ctx: MigrationContext): string {
   return pack.versionKey?.(ctx.brand, ctx.tenantId) ?? packVersionKey(pack.name, ctx.brand, ctx.tenantId)
 }
-
-// The package ledger as it was before packs (≤ 0.52): its steps are the
-// health pack's now. Re-exported (live bindings) for existing callers.
-export {
-  HEALTH_CURRENT_VERSION as CURRENT_VERSION,
-  HEALTH_MIGRATIONS as MIGRATIONS,
-} from '../packs/health/migrations'

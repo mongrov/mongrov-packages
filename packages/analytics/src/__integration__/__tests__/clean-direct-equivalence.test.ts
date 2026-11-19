@@ -10,7 +10,7 @@
  * on one side only. The fixture is the bounded suite's, built to put wear,
  * warm-up, motion and spike edges inside the windows.
  */
-import type { QualityOptions, QualityTable } from '../../core/reading-quality'
+import type { QualityOptions, QualityTable } from '../../__tests__/packs/health/reading-quality'
 import { describe, expect, it } from 'vitest'
 import {
   cleanMacroFor,
@@ -20,7 +20,7 @@ import {
   QUALITY_TABLES,
   qualityMacroFor,
   qualityViewFor,
-} from '../../core/reading-quality'
+} from '../../__tests__/packs/health/reading-quality'
 import { openSeeded, U, windows } from '../setup/quality-fixture'
 
 const SWITCHES = ['wearFilter', 'warmUpFilter', 'rangeFilter', 'spikeFilter', 'motionFilter'] as const

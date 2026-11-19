@@ -17,26 +17,12 @@
  */
 
 import type { AppSchema } from './app-schema'
-import type { TableName } from './schemas'
-import { HEALTH_TABLES } from '../packs/health/tables'
 import { packTable } from './packs'
-import { PLATFORM_TABLES } from './platform-tables'
 
 export interface TableSyncMetadata {
   timeColumn: string
   syncable: boolean
 }
-
-/**
- * The pre-pack registry (≤ 0.52), for existing callers. The engine reads the
- * pack registry (`packTable`), which also knows tables registered later.
- */
-export const TABLE_METADATA: Readonly<Record<TableName, TableSyncMetadata>> = Object.freeze(
-  Object.fromEntries(
-    Object.entries({ ...HEALTH_TABLES, ...PLATFORM_TABLES })
-      .map(([name, t]) => [name, { timeColumn: t.timeColumn, syncable: t.syncable }]),
-  ) as Record<TableName, TableSyncMetadata>,
-)
 
 function metadataFor(table: string, appSchema?: AppSchema): TableSyncMetadata | undefined {
   return packTable(table) ?? appSchema?.tables[table]

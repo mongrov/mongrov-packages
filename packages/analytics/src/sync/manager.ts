@@ -10,7 +10,6 @@ import type { IngestContext } from '../core/packs'
 import type { AnalyticsEngine, AttachContext } from '../core/types'
 import type { FetchResult, R2Fetcher } from './fetcher'
 import type { BatchFlusher } from './flusher'
-import type { FirmwareExport, MapperContext } from './mapper/types'
 import type { R2Pusher } from './pusher'
 import type {
   CycleResult,
@@ -29,8 +28,6 @@ export interface SensorSink {
    * validate each table's rows, and buffer them.
    */
   ingest: (adapter: string, raw: unknown, ctx: IngestContext) => Promise<void>
-  /** `ingest('firmware', fw, ctx)`: the ring pack's firmware adapter. */
-  pushFirmware: (fw: FirmwareExport, ctx: MapperContext) => Promise<void>
   flush: () => Promise<FlushResult[]>
   pendingRowCount: (table?: string) => Promise<number>
   clear: () => Promise<void>

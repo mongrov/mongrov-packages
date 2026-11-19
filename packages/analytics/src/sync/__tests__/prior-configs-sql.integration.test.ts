@@ -17,8 +17,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { LOCAL_SCHEMAS } from '../../core/schemas'
-import { ACTIVE_PRIOR_CONFIGS_SQL } from '../factory'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { ACTIVE_PRIOR_CONFIGS_SQL } from '../../__tests__/packs/ring/config-closes'
 
 const PARAMS = {
   device_id: 'ring_1',

@@ -9,8 +9,8 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { buildBaselineSql } from '../../sync/baseline-compute'
-import { createBaselineReader } from '../baseline-reader'
+import { createBaselineReader } from '../../__tests__/packs/health/baseline-reader'
+import { buildBaselineSql } from '../../__tests__/packs/health/baselines'
 
 const CTX = { brand: 'ziva', familyId: 'fam1' }
 

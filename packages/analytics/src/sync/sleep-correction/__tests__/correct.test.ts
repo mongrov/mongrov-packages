@@ -9,14 +9,14 @@
  * from the last firmware minute (04:00) toward 06:00 on sleeping-level HR,
  * everything stitches into one block, and that block is primary.
  */
-import type { SqlRunner } from '../correct'
+import type { SqlRunner } from '../../../__tests__/packs/ring/sleep-correction/correct'
 
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
-import { computeNightEpochs, parseDateStr } from '../classify'
-import { correctNight, detectHrTier, detectNightHrTier, globalBaselines, NIGHT_TIER_MIN_GAPS } from '../correct'
-import { correctNightSql, detectHrTierSql, morningVitalsSql } from '../sql'
+import { computeNightEpochs, parseDateStr } from '../../../__tests__/packs/ring/sleep-correction/classify'
+import { correctNight, detectHrTier, detectNightHrTier, globalBaselines, NIGHT_TIER_MIN_GAPS } from '../../../__tests__/packs/ring/sleep-correction/correct'
+import { correctNightSql, detectHrTierSql, morningVitalsSql } from '../../../__tests__/packs/ring/sleep-correction/sql'
 
 const at = (iso: string) => Date.parse(`${iso}Z`) / 1000
 

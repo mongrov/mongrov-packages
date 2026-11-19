@@ -2,12 +2,12 @@
  * Per-night IANA offsets (the DST fix over v3.1's fixed offset) and the two
  * scalars the port adds: settle_min (R-C) and recovered_min.
  */
-import type { ClassifiedRow, VitalSample } from '../classify'
+import type { ClassifiedRow, VitalSample } from '../../../__tests__/packs/ring/sleep-correction/classify'
 
 import { describe, expect, it } from 'vitest'
 
-import { nightOffsetHours, nightWindow } from '../night'
-import { computeSettleMin, recoveredMinutes } from '../settle'
+import { nightOffsetHours, nightWindow } from '../../../__tests__/packs/ring/sleep-correction/night'
+import { computeSettleMin, recoveredMinutes } from '../../../__tests__/packs/ring/sleep-correction/settle'
 
 const at = (iso: string) => Date.parse(`${iso}Z`) / 1000
 const DASH_RE = /-/g

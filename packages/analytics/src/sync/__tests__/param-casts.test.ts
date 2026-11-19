@@ -24,8 +24,8 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { BASELINE_WINDOW_DAYS, getBaselineMetricIds } from '../../core/metric_metadata'
-import { buildBaselineSql } from '../baseline-compute'
+import { buildBaselineSql } from '../../__tests__/packs/health/baselines'
+import { BASELINE_WINDOW_DAYS, getBaselineMetricIds } from '../../__tests__/packs/health/metrics'
 
 /**
  * Params that carry their own context and must NOT be cast.
@@ -99,12 +99,15 @@ describe('local-day bucketing converts rather than labels', () => {
 })
 
 describe('tools/impls bind no untyped interval params', () => {
-  const IMPL_DIR = join(__dirname, '..', '..', 'tools', 'impls')
+  // The test pack's tool impls, and the platform's own.
+  const PACK_DIR = join(__dirname, '..', '..', '__tests__', 'packs', 'health', 'tools', 'impls')
+  const PLATFORM_DIR = join(__dirname, '..', '..', 'tools', 'impls')
   const FILES = ['spo2.ts', 'hrv.ts', 'sleep.ts', 'activity.ts', 'insights.ts', 'compare.ts', 'anomaly.ts']
+  const dirOf = (file: string) => (file === 'insights.ts' ? PLATFORM_DIR : PACK_DIR)
 
   for (const file of FILES) {
     it(`${file} — every INTERVAL parameter is cast`, () => {
-      const src = readFileSync(join(IMPL_DIR, file), 'utf8')
+      const src = readFileSync(join(dirOf(file), file), 'utf8')
       // `INTERVAL (${jsExpr})` is interpolation, not binding — no param
       // reaches the driver, so those are fine. Only `$name` matters.
       const bare = Array.from(src.matchAll(/INTERVAL\s*\(\s*\$([a-z_]\w*)\s*\)/gi), m => m[1])
@@ -114,7 +117,7 @@ describe('tools/impls bind no untyped interval params', () => {
 
   it('at least one impl actually binds an interval param — guard is not vacuous', () => {
     const bound = FILES.filter(f =>
-      /INTERVAL\s*\(\s*CAST\(\s*\$/i.test(readFileSync(join(IMPL_DIR, f), 'utf8')),
+      /INTERVAL\s*\(\s*CAST\(\s*\$/i.test(readFileSync(join(dirOf(f), f), 'utf8')),
     )
     expect(bound.length).toBeGreaterThan(0)
   })

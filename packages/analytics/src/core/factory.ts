@@ -14,13 +14,13 @@
 import type { DuckDBFactory, DuckDBInstance } from './engine'
 
 import type { MachineActors } from './machine'
-import type { QualityOptions } from './reading-quality'
 import type {
   AnalyticsAppender,
   AnalyticsConfig,
   AnalyticsEngine,
   AnalyticsState,
   AttachContext,
+  QualityOptions,
   R2AnalyticsConfig,
   Unsubscribe,
 } from './types'

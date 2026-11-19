@@ -14,10 +14,10 @@ import type { AnalyticsEngine, EventBus } from '../../core/types'
 import type { RulesEngine } from '../index'
 import { describe, expect, it, vi } from 'vitest'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { luminxDefaults } from '../../__tests__/packs/health/rules'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
-import { createAnalytics } from '../../core/factory'
 
-import { luminxDefaults } from '../defaults'
+import { createAnalytics } from '../../core/factory'
 import { createRulesEngine } from '../index'
 
 const BRAND = 'luminx'

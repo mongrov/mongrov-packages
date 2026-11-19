@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { createFakeStorage } from '../__fakes__/fakeStorage'
 import {
   luminxDefaults,
   parseCatalog,
   vivaDefaults,
   yogaringDefaults,
   zivaDefaults,
-} from '../defaults'
+} from '../../__tests__/packs/health/rules'
+import { createFakeStorage } from '../__fakes__/fakeStorage'
 import { createRulesRegistry } from '../registry'
 import { RuleValidationError } from '../schema'
 import { validateRule } from '../validator'
@@ -172,31 +172,6 @@ describe('brand default catalogs', () => {
      */
     expect(shipped).not.toContain('baseline_stddev')
     expect(shipped).not.toContain('range')
-  })
-})
-
-describe('TOML catalogs ↔ bundled wrappers', () => {
-  // The `.toml` files are the authored source of truth, but Metro/tsup
-  // cannot resolve `.toml` imports, so each is mirrored into a template
-  // literal in the sibling `.ts`. Two copies can drift silently — and did:
-  // three wrappers had lost their catalog header comment. This asserts the
-  // mirror is byte-exact, which is what `scripts/sync-toml.mjs` produces.
-  it('each <brand>.ts embeds its <brand>.toml verbatim', async () => {
-    const { readFileSync } = await import('node:fs')
-    const { join } = await import('node:path')
-    const { BRANDS, spliceWrapper } = await import(
-      '../../../scripts/sync-toml.mjs',
-    )
-    const dir = join(__dirname, '..', 'defaults')
-
-    for (const brand of BRANDS) {
-      const toml = readFileSync(join(dir, `${brand}.toml`), 'utf-8')
-      const wrapper = readFileSync(join(dir, `${brand}.ts`), 'utf-8')
-      expect(
-        spliceWrapper(wrapper, toml),
-        `${brand}.ts is stale — run: node scripts/sync-toml.mjs`,
-      ).toBe(wrapper)
-    }
   })
 })
 

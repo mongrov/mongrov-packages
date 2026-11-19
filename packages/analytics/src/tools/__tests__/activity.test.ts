@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { getActivityTotal } from '../../__tests__/packs/health/tools/impls/activity'
 import { createFakeEngine } from '../__fakes__/engine'
-import { getActivityTotal } from '../impls/activity'
 
 const baseCtx = {
   requesterUserId: 'alice',

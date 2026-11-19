@@ -345,73 +345,36 @@ docker. See `.github/workflows/ci.yml`.
 shipped bundle. React Native consumers still ship
 `react-native-duckdb` via the app-level `duckdbFactory`.
 
-## Sleep parity harnesses (v1 = ziva_app v3.1)
+## Packs
 
-Sleep is carried forward from ziva_app v1 (`fix/sleepProcessed`, v3.1): where
-v2's numbers differ from v1's, v1 wins unless techspec records a ruling
-(sleep-correction spec: D3 per-night HR tier, D4 10-minute step buckets, D5
-the night before, D6 the later night owns 18:00, SC4 time asleep is the
-headline). Three harnesses check that, all env-gated because the 171 ring dumps
-they read are real users' data and never enter a repo. Point them at
-ziva_app's `packages/ux/helpers/testFiles`:
+The engine is domain-free (techspec principle 73). A domain arrives as a
+**pack**, built with `definePack` and registered with `registerPack` or
+`createAnalytics({ packs })`:
 
-```bash
-export SLEEP_CAPTURES_DIR=~/work/mongrov/ziva_app/packages/ux/helpers/testFiles
-```
+| Plug-in | Pack field |
+|---|---|
+| Tables (DDL, time column, sync, retention, identity, union view) | `tables` |
+| Migrations, with their own KV ledger | `migrations`, `versionKey`, `adoptVersion` |
+| Quality views (and their bounded macros) | `quality` |
+| Ingest adapters + per-table validation | `ingest`, `tables[t].validate` |
+| Post-flush jobs | `postFlush` |
+| After-push sync hooks | `sync.afterPush` |
+| Baselines (`user_baseline`) | `baselines` |
+| Metrics, rule contexts, window minimums, settings registry | `metrics`, `rules` |
+| AI tools, copy guard | `tools`, `copyGuard` |
 
-**1. Correction logic** — `src/sync/sleep-correction/__tests__/parity.test.ts`.
-The DuckDB port against `fixtures/reference.v31.json` (v3.1 run on
-datafusion-cli), 92 study nights. Mode B injects the reference scalars and must
-be 92/92; mode A computes its own (exact quantiles) and stands at 89/92.
+The platform pack (`insight`, `sync_watermark`, `tool_call_audit`,
+`user_baseline`, the `getInsights` tool) is always present. An app's own
+tables (`appSchema`, principle 71) run through the same migration runner.
 
-```bash
-pnpm vitest run src/sync/sleep-correction/__tests__/parity.test.ts   # SLEEP_PARITY_OUT=<file> for per-night rows
-```
+ZivaOne's packs live in zivaone_app: `@zivaone/health` (reading, sleep and
+device tables, quality views, metrics, baselines, rules, tools) and
+`@zivaone/ring` (firmware ingest, SCD-2 schedule closes, sleep correction).
+The sleep parity harnesses moved with sleep correction to
+`zivaone_app/packages/ring`.
 
-**2. Production path** — `src/sync/sleep-correction/__tests__/replay-v1.test.ts`.
-Each study dump through the path a ring sync takes (`mapFirmwareExport` →
-buffer → flusher → `LOCAL_SCHEMAS` DuckDB → `createSleepDeriver`) against the
-same oracle. Every drifting night is re-run to name its cause: (a) D3 tier,
-(b) exact quantiles, (c) steps, (e) the 18:00 window, (d) other — (d) must be
-empty. 2026-11-19: 73/92 exact, 18 explained (13 a, 2 b, 3 e).
-
-```bash
-pnpm vitest run src/sync/sleep-correction/__tests__/replay-v1.test.ts   # SLEEP_REPLAY_OUT=<file>
-```
-
-**3. What the screens show** — three steps across two repos, every dump and
-every night (2026-11-19: 170 dumps, 1421 dump-nights).
-
-```bash
-export SLEEP_REPLAY_EXPORT_DIR=/tmp/sleep-parity        # any scratch folder
-
-# a) v2: every dump through the production path; per dump, parquet of what the
-#    app's sleep reads touch + meta.json (zone, scalars, per-night tier)
-pnpm vitest run src/sync/sleep-correction/__tests__/replay-v1.test.ts -t "step 1"
-
-# b) v1: v3.1's own code, out of ziva_app git, on datafusion-cli — the
-#    correction loop of AppContextProvider (clearNight + insert, night by
-#    night) and the Day tab's sleepSummaryQuery / aggregateValuesQuery.
-#    Writes <dump>/v1-display.json: v1 as it ran, and v1 fed v2's scalars.
-ZIVA_APP_DIR=~/work/mongrov/ziva_app node scripts/sleep-v1-display-oracle.mjs
-#    (V1_REF=fix/sleepProcessed, DATAFUSION_CLI=/opt/homebrew/bin/datafusion-cli, JOBS=6)
-
-# c) the app's own queries and derivations over (a), compared field by field
-#    with (b): asleep, asleep (week), time in bed, deep/light/REM/awake,
-#    bedtime, wake, efficiency, heart rate, SpO₂, HRV
-cd ../../../zivaone_app && pnpm jest src/data/__tests__/sleep-v1-display-parity   # SLEEP_DISPLAY_OUT=<file>
-```
-
-Step (c) asserts every field exact against "v1 fed v2's scalars" on every
-night; "v1 as it ran" is printed beside it, its differences being the
-rulings'. A package change shows in (c) only after (a) is re-run from this
-checkout; an app change, after (c) alone.
-
-Two things these harnesses found about the reference itself:
-datafusion-cli 53's `--format csv` stdout drops rows from multi-batch results
-(the "N row(s) fetched" line stays right), and v3.1's window functions break
-`date` ties differently across partitions. The oracle script therefore COPYs
-every result to a file and runs one partition; it is deterministic run to run.
+This package's own suites run the engine with a copy of those packs as a test
+fixture (`src/__tests__/packs/`, registered by `src/__tests__/packs/setup.ts`).
 
 ## Boundaries
 
@@ -425,7 +388,7 @@ every result to a file and runs one partition; it is deterministic run to run.
 ## Sync (`@mongrov/analytics/sync`)
 
 The `/sync` subpath layers the write-side pipeline on top of the core engine:
-firmware/live rows → mapper → in-memory ring buffer → BatchFlusher (p-queue
+device output → a pack's ingest adapter → in-memory buffer → BatchFlusher (p-queue
 serialised per table) → local DuckDB → R2Pusher → R2Fetcher (incremental /
 prefetch) → SyncScheduler (`expo-background-task`-friendly cycle).
 
@@ -483,8 +446,9 @@ export default function App() {
 `useSensorSink()` (or `sync.sink`) returns:
 
 - `push(batch: SensorBatch): Promise<void>` — enqueue a pre-mapped batch.
-- `pushFirmware(fw: FirmwareExport, ctx: MapperContext): Promise<void>` —
-  runs the firmware mapper (`mapFirmwareExport`) and fans out per table.
+- `ingest(adapter: string, raw: unknown, ctx: IngestContext): Promise<void>` —
+  maps a device's raw output with a registered pack's ingest adapter,
+  validates each table's rows (`PackTable.validate`) and fans out per table.
 - `flush(): Promise<FlushResult[]>` — drain every configured table now.
 - `pendingRowCount(table?: string): Promise<number>` — in-memory + overflow.
 - `clear(): Promise<void>` — reset buffer + overflow (used on sign-out).
@@ -512,60 +476,7 @@ export default function App() {
 | `backgroundTask?` | `BackgroundTaskPort` | Inject a native background port (defaults to an in-process no-op). |
 | `constraints?` | `ConstraintPort` | Inject Wi-Fi + charging probes for the R2 transfer. Consulted in `r2` mode only; local mode never gates a cycle, since nothing leaves the device (#80). Omitting it in `r2` mode logs a warning and runs every scheduled cycle on any network. |
 | `logger?` | `SchedulerLogger` | Debug hook for the scheduler cycle. |
-| `ringConfigTranslator?` | `RingConfigTranslator` | **Required** when `tables` includes `'device_config'`. Consumer-provided translation between firmware metric names (e.g. `'hrv'`) and the schema `data_type` integer, plus firmware monitoring windows → schema `start_time`/`end_time`/`weeks` fields. Enforced at construction via a Zod refinement (throws `z.ZodError` if missing). |
-
-### `ringConfigTranslator` (SCD-2 `device_config`)
-
-Ring configs land in the warehouse as SCD-2 rows: every automatic-monitoring
-window becomes one row keyed on `(device_id, data_type, valid_from)`, with
-`valid_to = NULL` marking the "open" (currently-effective) config. When the
-firmware reports a changed window for the same `data_type`, the sync manager:
-
-1. Pre-fetches every open `device_config` row for the device (single SELECT).
-2. Runs `mapRingConfig` with those rows as `activePriorConfigs` — the mapper
-   emits `device_config_closes[]` for any metric that already had an open
-   row, alongside the new inserts.
-3. Enqueues the closes to a persistent `PendingClosesStore` (survives crash).
-4. Applies the local UPDATE (`valid_to := now`) against
-   `memory.main.device_config`.
-5. Buffers the new open row for normal push through the flusher.
-6. On the next scheduler cycle, `R2Pusher.pushCloses(pending)` issues one
-   `UPDATE … WHERE valid_to IS NULL` per pending close against the remote
-   Iceberg zone. The `valid_to IS NULL` guard makes replays idempotent.
-
-Consumers supply `ringConfigTranslator` because the metric ↔ `data_type`
-mapping and the "how do firmware hours map to `HH:MM` strings + weekday
-bitmasks" choices are app-specific:
-
-```ts
-import { type RingConfigTranslator } from '@mongrov/analytics/sync'
-
-const ringConfigTranslator: RingConfigTranslator = {
-  metricToDataType: (metric) => {
-    switch (metric) {
-      case 'hrv': return 1
-      case 'spo2': return 2
-      case 'heart_rate': return 3
-      case 'temperature': return 4
-      default: throw new Error(`unknown metric: ${metric}`)
-    }
-  },
-  dataTypeToMetric: (dt) => {
-    switch (dt) {
-      case 1: return 'hrv'
-      case 2: return 'spo2'
-      case 3: return 'heart_rate'
-      case 4: return 'temperature'
-      default: return 'unknown'
-    }
-  },
-  windowToSchemaFields: (w) => ({
-    start_time: `${String(w.start_hour).padStart(2, '0')}:00`,
-    end_time: `${String(w.end_hour).padStart(2, '0')}:00`,
-    weeks: 0x7F, // Mon..Sun bitmask; adjust to your firmware
-  }),
-}
-```
+| `options?` | `Record<string, unknown>` | Options for the packs' post-flush jobs, by the names each job documents. |
 
 ### Prefetch policies
 
@@ -594,33 +505,10 @@ the injected `BackgroundTaskPort`. Every registered cycle:
 `sync.triggerNow()` bypasses constraints (e.g., manual "sync now" button).
 `sync.subscribe(fn)` fans out scheduler transitions (`idle | running | error`).
 
-### Mapper contract
-
-`@mongrov/analytics/sync` exposes per-metric mappers plus a firmware-export
-fan-out:
-
-- `mapHrv`, `mapHeartRate`, `mapSpo2`, `mapTemperature`, `mapActivity`,
-  `mapBattery`, `mapRingConfig`, `reconstructSleepSessions` — one per raw
-  metric family.
-- `mapFirmwareExport(fw, ctx)` — runs every applicable mapper and returns a
-  `FirmwareMappedBatch` keyed by table (matches `sync.sink.pushFirmware`).
-
-Row types (`HrvRow`, `HeartRateRow`, …, `SleepSessionRow`) are re-exported
-for typed sinks / adapters. `computeNightOf` + `parseTimestamp` cover the
-common time helpers.
-
-### Firmware fixtures
-
-Fixture exports used across mapper + firmware tests live at
-`src/sync/__tests__/__fixtures__/` (e.g. `firmware-full-day.json`).
-Consumers writing their own regression tests can import them via a relative
-path inside this workspace; they are excluded from the published `dist/`.
-
 ## AI tools (`@mongrov/analytics/tools`)
 
-Six read-only AI SDK v4 tools (`getHRV`, `getSleepSummary`,
-`getActivityTotal`, `compareTrend`, `detectAnomaly`, `getInsights`)
-sit on top of the warehouse, wired through a
+Every registered pack's read-only AI SDK v4 tools (`pack.tools`), plus the
+platform's `getInsights`, sit on top of the warehouse, wired through a
 `rate → auth → execute → budget → audit` chain. See
 [`src/tools/README.md`](./src/tools/README.md).
 

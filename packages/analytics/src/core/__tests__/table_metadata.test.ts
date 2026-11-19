@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { TABLE_NAMES } from '../schemas'
-import { isSyncable, TABLE_METADATA, timeColumnFor } from '../table_metadata'
+import { TABLE_METADATA, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
+import { isSyncable, timeColumnFor } from '../table_metadata'
 
 describe('TABLE_METADATA', () => {
   it('has an entry for every table in TABLE_NAMES', () => {

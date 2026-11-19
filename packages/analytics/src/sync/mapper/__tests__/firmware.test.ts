@@ -12,13 +12,13 @@
  *      no throws, `device_config_closes` empty.
  */
 
-import type { FirmwareExport, MapperContext } from '../types'
+import type { FirmwareExport, MapperContext } from '../../../__tests__/packs/ring/mapper/types'
 import { readFileSync } from 'node:fs'
 
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
-import { mapFirmwareExport } from '../firmware'
+import { mapFirmwareExport } from '../../../__tests__/packs/ring/mapper/firmware'
 
 const ctx: MapperContext = {
   brand: 'ziva',

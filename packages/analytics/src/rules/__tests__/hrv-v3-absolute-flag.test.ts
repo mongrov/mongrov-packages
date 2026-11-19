@@ -19,7 +19,8 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { assertRegistrable, RuleValidationError, validateRule } from '../validator'
+import { RuleValidationError } from '../schema'
+import { assertRegistrable, validateRule } from '../validator'
 
 /**
  * HRV v3's flag, as designed: alert when HRV drops below 35 ms.

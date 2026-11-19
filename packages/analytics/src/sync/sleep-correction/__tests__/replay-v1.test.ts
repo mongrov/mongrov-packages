@@ -39,27 +39,28 @@
  * step 1 of the display-parity harness (analytics README, "Sleep parity
  * harnesses").
  */
-import type { FirmwareExport } from '../../mapper/types'
-import type { SqlRunner } from '../correct'
-import type { SleepRelations } from '../sql'
+import type { FirmwareExport } from '../../../__tests__/packs/ring/mapper/types'
+import type { SqlRunner } from '../../../__tests__/packs/ring/sleep-correction/correct'
+import type { SleepRelations } from '../../../__tests__/packs/ring/sleep-correction/sql'
 
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
+import { LOCAL_SCHEMAS } from '../../../__tests__/packs/legacy-tables'
+import { mapFirmwareExport } from '../../../__tests__/packs/ring/mapper/firmware'
+import { correctNight, detectNightHrTier, globalBaselines } from '../../../__tests__/packs/ring/sleep-correction/correct'
+import { nightWindow } from '../../../__tests__/packs/ring/sleep-correction/night'
+import { nightsForEpochs } from '../../../__tests__/packs/ring/sleep-correction/orchestrate'
+import { DEFAULT_RELATIONS } from '../../../__tests__/packs/ring/sleep-correction/sql'
+import { createSleepDeriver } from '../../../__tests__/packs/ring/sleep-derive'
 import { createFakeKV } from '../../../core/__tests__/__fakes__/fake-kv'
 import { HybridDuckDB } from '../../../core/engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../../core/schemas'
+import { generateViewDdl } from '../../../core/schemas'
 import { SensorBuffer } from '../../buffer'
 import { BatchFlusher } from '../../flusher'
-import { mapFirmwareExport } from '../../mapper/firmware'
 import { OverflowStore } from '../../overflow'
-import { createSleepDeriver } from '../../sleep-derive'
-import { correctNight, detectNightHrTier, globalBaselines } from '../correct'
-import { nightWindow } from '../night'
-import { nightsForEpochs } from '../orchestrate'
-import { DEFAULT_RELATIONS } from '../sql'
 
 const CAPTURES = process.env.SLEEP_CAPTURES_DIR
 const OUT = process.env.SLEEP_REPLAY_OUT

@@ -1,8 +1,8 @@
-import type { MetricId } from '../metric_metadata'
+import type { MetricId } from '../../__tests__/packs/health/metrics'
 
 import { describe, expect, it } from 'vitest'
-import { getExposedMetricIds, isMetricExposed, METRIC_METADATA, precisionFor, supportsContinuousCurve } from '../metric_metadata'
-import { LOCAL_SCHEMAS, TABLE_NAMES } from '../schemas'
+import { getExposedMetricIds, isMetricExposed, METRIC_METADATA, precisionFor, supportsContinuousCurve } from '../../__tests__/packs/health/metrics'
+import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
 
 const METRIC_IDS = Object.keys(METRIC_METADATA) as MetricId[]
 

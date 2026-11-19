@@ -17,7 +17,7 @@ import {
   dropMalformedRows,
   DropTally,
   MAX_CLOCK_AHEAD_DAYS,
-} from '../plausibility'
+} from '../../../__tests__/packs/health/plausibility'
 
 const NOW = new Date('2026-09-21T12:00:00.000Z')
 

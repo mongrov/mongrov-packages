@@ -6,6 +6,8 @@ export default defineConfig({
     //   // @vitest-environment jsdom
     // at the top of the file.
     environment: 'node',
+    // The engine is domain-free; suites run it with the test packs.
+    setupFiles: ['src/__tests__/packs/setup.ts'],
     include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
     // Integration suite runs under vitest.integration.config.ts against
     // a docker-compose stack; unit runs must stay fast + Docker-free.

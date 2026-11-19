@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { TABLE_NAMES, VIEWED_TABLES } from '../../__tests__/packs/legacy-tables'
 import { AnalyticsError } from '../errors'
 import { definePack, getPacks, packTable, packTables, registerPack, resetPacks, viewedTables } from '../packs'
-import { TABLE_NAMES, VIEWED_TABLES } from '../schemas'
 
 const NOTE = {
   ddl: 'CREATE TABLE note (\n  ts TIMESTAMP NOT NULL,\n  brand VARCHAR NOT NULL,\n  body VARCHAR\n);',

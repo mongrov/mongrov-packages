@@ -20,13 +20,13 @@
  * quality probe reports and what a future consumer would reason from.
  */
 
-import type { QualityOptions } from '../reading-quality'
+import type { QualityOptions } from '../../__tests__/packs/health/reading-quality'
 
 import { describe, expect, it } from 'vitest'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { qualityViewDdls } from '../../__tests__/packs/health/reading-quality'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../engine'
-import { qualityViewDdls } from '../reading-quality'
-import { LOCAL_SCHEMAS } from '../schemas'
 
 const IDS = `'ziva','fam','u','ring'`
 const COLS = 'brand, family_id, user_id, device_id'

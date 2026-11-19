@@ -9,66 +9,20 @@
 
 export * from './audit'
 export * from './authorize'
-export * from './budget'
-export * from './factory'
 // Copy guardrails (Sprint 5 T-29, principle 37). Exported so app-side
 // formatters and registry `transform` functions can apply the same
 // contract to text they generate.
-export {
-  applyPreferredLanguage,
-  assertNoBanTerms,
-  BANNED_MEDICAL_VOCABULARY,
-  type BannedTerm,
-  findBanTerms,
-  FormatterCopyError,
-  PREFERRED_LANGUAGE,
-} from './formatters'
-export {
-  getActivityTotal,
-  type GetActivityTotalInput,
-  getActivityTotalInputSchema,
-} from './impls/activity'
-export {
-  detectAnomaly,
-  type DetectAnomalyInput,
-  detectAnomalyInputSchema,
-} from './impls/anomaly'
-
-export {
-  compareTrend,
-  type CompareTrendInput,
-  compareTrendInputSchema,
-} from './impls/compare'
-export {
-  getHeartRate,
-  type GetHeartRateInput,
-  getHeartRateInputSchema,
-} from './impls/heart-rate'
-export {
-  getHRV,
-  type GetHRVInput,
-  getHRVInputSchema,
-} from './impls/hrv'
+export { toolRead } from './bounded'
+export * from './budget'
+export * from './factory'
+export { deltaPct, formatBytes, popStddev } from './formatters/text'
 export {
   getInsights,
   type GetInsightsInput,
   getInsightsInputSchema,
 } from './impls/insights'
-export {
-  getSleepSummary,
-  type GetSleepSummaryInput,
-  getSleepSummaryInputSchema,
-} from './impls/sleep'
-export {
-  getStress,
-  type GetStressInput,
-  getStressInputSchema,
-} from './impls/stress'
-export {
-  getTemperature,
-  type GetTemperatureInput,
-  getTemperatureInputSchema,
-} from './impls/temperature'
+
+export { localDay, tzParam } from './local-day'
 export * from './rate-limit'
 export * from './types'
 

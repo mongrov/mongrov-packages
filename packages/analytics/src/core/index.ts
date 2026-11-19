@@ -6,11 +6,23 @@
  */
 
 // App-owned tables (principle 71): a product table is declared by the app
-// and passed as `appSchema`, never added to `TABLE_NAMES`.
+// and passed as `appSchema` (a pack of its own).
 export { appSchemaVersionKey, ensureAppSchema, validateAppSchema } from './app-schema'
 
 export type { AppMigration, AppSchema, AppTable, AppTableRetention } from './app-schema'
 
+// Bounded reads (mongrov-packages#44): the `_between` macro forms packs build on.
+export {
+  BOUNDED_FAILURE_LIMIT,
+  boundedRelation,
+  daysInterval,
+  executeBounded,
+  executeBoundedRead,
+  FORWARD_DAYS,
+  hoursInterval,
+  SPARE_DAYS,
+} from './bounded-read'
+export type { NowWindow, RelationFor } from './bounded-read'
 // Provider (Phase 5)
 export { AnalyticsProvider } from './context'
 export type { AnalyticsProviderProps } from './context'
@@ -32,40 +44,31 @@ export type {
   DeviceEventType,
   SyncTriggerValue,
 } from './device-events'
+export { HybridDuckDB } from './engine'
+export type { DuckDBAppender, DuckDBFactory, DuckDBInstance } from './engine'
 // Errors
-export { AnalyticsError, NotImplementedError } from './errors'
+export { AnalyticsError, describeError, NotImplementedError } from './errors'
 export type { AnalyticsErrorCode } from './errors'
-
 // Factory (T-02 stub → T-10 real)
 export { createAnalytics } from './factory'
 // Hooks (T-11/12/13)
 export { useAnalytics, useInsight, useTimeseries } from './hooks'
-
 export type {
   UseAnalyticsResult,
   UseInsightResult,
   UseTimeseriesResult,
 } from './hooks'
+
 // Insight dismissal (Sprint 5 §7b / T-15c).
 export { dismissInsight } from './insight'
-
 export type { DismissInsightArgs, DismissInsightDeps } from './insight'
-// Baseline metadata (Sprint 5 §7).
-export {
-  BASELINE_MIN_DAYS,
-  BASELINE_WINDOW_DAYS,
-  baselineAggregateFor,
-  getBaselineMetricIds,
-} from './metric_metadata'
 
-export type {
-  BaselineDailyAggregate,
-  BaselineWindowDays,
-} from './metric_metadata'
+export { tailId } from './logger'
 // Metrics and the relations claims read, as the registered packs declare them.
 export { collectedOnlyColumns, exposedMetricIds, metricDefinition, registeredMetricIds, samplingLabelFor } from './metrics'
 
 export type { MetricDefinition, MetricSampling } from './metrics'
+
 export { listColumns, REMOTE_NAMESPACE } from './migrations'
 
 export type { MigrationCatalogs } from './migrations'
@@ -82,6 +85,7 @@ export {
   registerPacks,
   viewedTables,
 } from './packs'
+
 export type {
   AnalyticsPack,
   BaselineDefinition,
@@ -106,75 +110,24 @@ export type {
   RuleSettings,
   SyncHookDeps,
 } from './packs'
-// Signal-quality views (T-25, sprint6 §13). Claims read `v_{vital}_clean`;
-// `v_{vital}_q` carries the per-reading flags for diagnostics and muted charts.
-export {
-  // Bounded forms of the same flags: `FROM v_hrv_clean_between(lo, hi)` in
-  // place of `FROM v_hrv_clean WHERE ts ...` (zivaone_app#121).
-  cleanMacroFor,
-  cleanViewFor,
-  isQualityTable,
-  MOTION_MACRO,
-  PLAUSIBLE_RANGES,
-  QUALITY_FLAG_COLUMNS,
-  QUALITY_TABLES,
-  qualityMacroDdls,
-  qualityMacroFor,
-  qualityViewDdls,
-  qualityViewFor,
-  READING_QUALITY_COUNTS_SQL,
-  readViewFor,
-  // The movement floor, exported so consumers classify `active` the same way
-  // the quality views do. zivaone_app kept its own copy of this threshold
-  // (`features/vitals/movement-floor.ts`) precisely because it was not on the
-  // package surface, which is two constants that have to agree by hand.
-  STILL_FLOOR,
-  STILL_STEPS_PER_HOUR,
-  STILL_WINDOW_MINUTES,
-  wearGateSql,
-} from './reading-quality'
-export type { QualityOptions, QualityTable, QualityView } from './reading-quality'
+// The platform pack's tables (insight, sync_watermark, tool_call_audit, user_baseline).
+export { PLATFORM_SCHEMAS, PLATFORM_TABLE_NAMES, PLATFORM_TABLES } from './platform-tables'
+export type { PlatformTableName } from './platform-tables'
 
 export { cleanRelation, hasQualityRelations, qualityRelation, readRelation } from './relations'
-// Effective sampling cadence (Sprint 5 T-41, principle 22). Chart data
-// providers and gap detection should resolve cadence through this rather
-// than reading metric_metadata directly.
-export {
-  createSamplingResolver,
-  fallbackSampling,
-  minimumWindowMinutes,
-  SAMPLING_CACHE_TTL_MS,
-} from './sampling'
-
-export type {
-  EffectiveSampling,
-  SamplingResolver,
-  SamplingResolverConfig,
-} from './sampling'
 export { ensureSchemas, hasLocalPrimaryKey, localDdlFor } from './schemas'
 
 // Union views (Sprint 5 §3). Registry/rule/tool SQL targets `v_{table}`,
-// never `local.{table}` or `r2.default.{table}` (principle 19).
-//
-// LOCAL_SCHEMAS / TABLE_NAMES are public so consumers can validate their own
-// SQL against the real DDL. zivaone_app's registry selected a `value` column
-// from spo2 — the column is `spo2` — and nothing caught it until DuckDB did,
-// on a device. A consumer-side test needs the schema to check against, and
-// reaching into dist/ to get it is worse than exporting it.
+// never `local.{table}` or `r2.default.{table}` (principle 19). The viewed
+// tables are the registered packs' (`viewedTables()`).
 export {
   dropViewDdl,
   generateViewDdl,
-  LOCAL_SCHEMAS,
-  TABLE_NAMES,
-  VIEWED_TABLES,
   watermarkColumnFor,
 } from './schemas'
-
-export type { ViewedTable } from './schemas'
-// Table sync metadata registry (v0.2.0 — public surface for consumers
-// who need to know a table's sync watermark column or syncability flag,
-// e.g. when composing custom pushAll/fetch loops).
-export { isSyncable, TABLE_METADATA, timeColumnFor } from './table_metadata'
+// Table sync metadata (a pack table's watermark column and syncability, or
+// an app table's from `appSchema`).
+export { isSyncable, timeColumnFor } from './table_metadata'
 export type { TableSyncMetadata } from './table_metadata'
 
 // Types
@@ -191,6 +144,7 @@ export type {
   InsightKind,
   InsightSeverity,
   KVStore,
+  QualityOptions,
   TenantScope,
   TokenContext,
   TokenResponse,

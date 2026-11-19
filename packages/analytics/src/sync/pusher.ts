@@ -19,12 +19,10 @@
 import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
 import type { AttachContext } from '../core/types'
-import type { RingConfigClose } from '../packs/ring/mapper/ring-config'
 import type { PushEmitter } from './events'
 import type { SchedulerLogger } from './scheduler'
 import type { WatermarkStore } from './watermark'
 import { timeColumnFor } from '../core/table_metadata'
-import { pushConfigCloses } from '../packs/ring/config-closes'
 import { SyncError } from './errors'
 
 export interface PushResult {
@@ -171,19 +169,6 @@ export class R2Pusher {
       }
       return this.#toFailure(table, err, 'push_failed')
     }
-  }
-
-  /**
-   * SCD-2 close directives → remote UPDATE (T-08 continuation). The ring
-   * pack's; see `pushConfigCloses`.
-   *
-   * @deprecated moves to the ring pack with package-separation S-03.
-   */
-  async pushCloses(
-    closes: readonly RingConfigClose[],
-    ctx: AttachContext,
-  ): Promise<PushResult> {
-    return pushConfigCloses((table, run) => this.pushRemote(table, ctx, run), closes, ctx)
   }
 
   async pushAll(

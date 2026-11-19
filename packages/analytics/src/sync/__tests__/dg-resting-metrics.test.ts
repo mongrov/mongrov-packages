@@ -15,8 +15,9 @@
 import { describe, expect, it } from 'vitest'
 import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
-import { buildBaselineSql } from '../baseline-compute'
+import { buildBaselineSql } from '../../__tests__/packs/health/baselines'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../../core/schemas'
 
 const B = 'ziva'
 const F = 'f'

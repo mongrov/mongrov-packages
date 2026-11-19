@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { compareTrend } from '../../__tests__/packs/health/tools/impls/compare'
 import { createFakeEngine } from '../__fakes__/engine'
-import { compareTrend } from '../impls/compare'
 
 const baseCtx = {
   requesterUserId: 'alice',

@@ -5,17 +5,18 @@
  * directly. Same answer both ways is the check that the staging views reshape
  * the warehouse into exactly what the ported SQL expects.
  */
-import type { SqlRunner } from '../correct'
+import type { SqlRunner } from '../../../__tests__/packs/ring/sleep-correction/correct'
 
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../../core/schemas'
-import { correctNight } from '../correct'
-import { nightWindow } from '../night'
-import { correctSleepNights, nightsForEpochs } from '../orchestrate'
-import { DEFAULT_RELATIONS, rel } from '../sql'
-import { stagingViewsSql } from '../staging'
+import { LOCAL_SCHEMAS } from '../../../__tests__/packs/legacy-tables'
+import { correctNight } from '../../../__tests__/packs/ring/sleep-correction/correct'
+import { nightWindow } from '../../../__tests__/packs/ring/sleep-correction/night'
+import { correctSleepNights, nightsForEpochs } from '../../../__tests__/packs/ring/sleep-correction/orchestrate'
+import { DEFAULT_RELATIONS, rel } from '../../../__tests__/packs/ring/sleep-correction/sql'
+import { stagingViewsSql } from '../../../__tests__/packs/ring/sleep-correction/staging'
+import { generateViewDdl } from '../../../core/schemas'
 
 const BRAND = 'ziva'
 const FAMILY = 'fam_1'

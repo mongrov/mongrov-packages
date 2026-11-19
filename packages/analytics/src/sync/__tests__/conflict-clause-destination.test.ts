@@ -15,8 +15,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { LOCAL_SCHEMAS, SCHEMAS } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../../core/engine'
-import { ensureSchemas, LOCAL_SCHEMAS, SCHEMAS } from '../../core/schemas'
+import { ensureSchemas } from '../../core/schemas'
 
 const ROW = `('2026-06-01 00:00:00', 'ziva', 'fam', 'user', 'dev', 50)`
 const COLS = `(ts, brand, family_id, user_id, device_id, hrv_ms)`

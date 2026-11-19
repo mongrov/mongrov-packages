@@ -10,7 +10,7 @@
  */
 import type { HybridDuckDB } from '../engine'
 import { describe, expect, it } from 'vitest'
-import { fallbackMacroDdl, qualityMacroDdls } from '../reading-quality'
+import { fallbackMacroDdl, qualityMacroDdls } from '../../__tests__/packs/health/reading-quality'
 import { createViews } from '../warehouse'
 
 const ctx = { brand: 'ziva', familyId: 'f', localCatalog: 'memory' }

@@ -9,17 +9,10 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { applyPreferredLanguage, assertNoBanTerms, BANNED_MEDICAL_VOCABULARY, findBanTerms, FormatterCopyError, PREFERRED_LANGUAGE } from '../../__tests__/packs/health/tools/formatters/copy-guidelines'
+import { formatSpO2 } from '../../__tests__/packs/health/tools/formatters/spo2'
 import { createFakeEngine } from '../__fakes__/engine'
 import { createAnalyticsTools } from '../factory'
-import {
-  applyPreferredLanguage,
-  assertNoBanTerms,
-  BANNED_MEDICAL_VOCABULARY,
-  findBanTerms,
-  FormatterCopyError,
-  PREFERRED_LANGUAGE,
-} from '../formatters'
-import { formatSpO2 } from '../formatters/spo2'
 
 describe('assertNoBanTerms', () => {
   it.each(BANNED_MEDICAL_VOCABULARY)('throws on %s', (term) => {

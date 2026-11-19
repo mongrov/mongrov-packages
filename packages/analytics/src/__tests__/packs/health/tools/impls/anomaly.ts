@@ -1,0 +1,125 @@
+import type { ToolImpl, ToolResult } from '../../../../../tools/types'
+import { z } from 'zod'
+import { daysInterval, SPARE_DAYS } from '../../../../../core/bounded-read'
+import { toolRead } from '../../../../../tools/bounded'
+import { formatBytes, popStddev } from '../../../../../tools/formatters'
+import { localDay, tzParam } from '../../../../../tools/local-day'
+import { assertNoBanTerms } from '../formatters/copy-guidelines'
+
+export const detectAnomalyInputSchema = z.object({
+  userId: z.string(),
+  metric: z.enum(['hrv_ms', 'sleep_total_minutes', 'activity_steps']),
+  lookbackDays: z.number().int().min(7).max(90),
+  stddevThreshold: z.number().min(1).max(4).default(2),
+})
+
+export type DetectAnomalyInput = z.infer<typeof detectAnomalyInputSchema>
+
+interface Row {
+  day: string
+  value: number
+}
+
+/** `view`, or its bounded macro covering the last `lookbackDays` (mongrov-packages#44). */
+type Relation = (view: string, lookbackDays: number) => string
+
+interface MetricSpec {
+  sql: (lookbackDays: number, relation: Relation) => string
+  unit: string
+  label: string
+}
+
+const METRIC_SPECS: Record<DetectAnomalyInput['metric'], MetricSpec> = {
+  hrv_ms: {
+    sql: (lookbackDays, relation) =>
+      `SELECT ${localDay()} AS day, AVG(hrv_ms)::DOUBLE AS value
+       FROM ${relation('v_hrv_clean', lookbackDays)}
+       WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+         AND hrv_ms IS NOT NULL
+         AND ts >= now() - INTERVAL (${lookbackDays}) DAY
+       GROUP BY 1 ORDER BY 1`,
+    unit: 'ms',
+    label: 'HRV',
+  },
+  sleep_total_minutes: {
+    sql: lookbackDays =>
+      `SELECT night_of::VARCHAR AS day, SUM(total_minutes)::DOUBLE AS value
+       FROM v_sleep_session
+       WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+         AND ts_start >= now() - INTERVAL (${lookbackDays}) DAY
+       GROUP BY night_of ORDER BY night_of`,
+    unit: 'min',
+    label: 'sleep total',
+  },
+  activity_steps: {
+    sql: lookbackDays =>
+      `SELECT ${localDay()} AS day, SUM(steps)::DOUBLE AS value
+       FROM v_activity
+       WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+         AND ts >= now() - INTERVAL (${lookbackDays}) DAY
+       GROUP BY 1 ORDER BY 1`,
+    unit: 'steps',
+    label: 'activity',
+  },
+}
+
+export const detectAnomaly: ToolImpl<DetectAnomalyInput> = async (
+  input,
+  ctx,
+) => {
+  const spec = METRIC_SPECS[input.metric]
+  const rows = await toolRead<Row>(
+    ctx,
+    'detectAnomaly',
+    relation => spec.sql(input.lookbackDays, (view, lookbackDays) =>
+      relation(view, { back: daysInterval(lookbackDays + SPARE_DAYS) })),
+    sql => ({
+      userId: input.userId,
+      brand: ctx.brand,
+      familyId: ctx.familyId,
+      ...tzParam(ctx, sql),
+    }),
+  )
+
+  if (rows.length === 0) {
+    return finalize(
+      `No ${spec.label} data for the last ${input.lookbackDays} days.`,
+      0,
+    )
+  }
+
+  const values = rows.map(r => r.value)
+  const mean = values.reduce((a, v) => a + v, 0) / values.length
+  const stddev = popStddev(values)
+  const gate = input.stddevThreshold * stddev
+
+  const outliers = rows.filter(r => Math.abs(r.value - mean) > gate)
+
+  const outlierText
+    = outliers.length === 0
+      ? '  No outliers detected.'
+      : outliers
+          .map(
+            r =>
+              `  ${r.day}: ${r.value.toFixed(1)}${spec.unit} `
+              + `(${(r.value - mean).toFixed(1)}${spec.unit} from mean)`,
+          )
+          .join('\n')
+
+  const text
+    = `${spec.label} anomalies (last ${input.lookbackDays}d, `
+      + `threshold ${input.stddevThreshold}σ):\n`
+      + `  baseline: mean ${mean.toFixed(1)}${spec.unit}, `
+      + `stddev ${stddev.toFixed(1)}${spec.unit}\n`
+      + `${outlierText}`
+
+  return finalize(text, outliers.length)
+}
+
+function finalize(text: string, rowCount: number): ToolResult {
+  // principle 37 — every formatter's return path is guarded, not
+  // just the SpO2 one. Tool text lands in an LLM's context, and the
+  // model repeats whatever register it finds there.
+  assertNoBanTerms(text, 'detectAnomaly')
+  return { text, rowCount, bytes: formatBytes(text) }
+}

@@ -34,9 +34,9 @@
  * keeps the #126 cost fix while changing what is measured.
  */
 import { describe, expect, it } from 'vitest'
+import { STILL_FLOOR, STILL_WINDOW_MINUTES } from '../../__tests__/packs/health/reading-quality'
+import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../../core/engine'
-import { STILL_FLOOR, STILL_WINDOW_MINUTES } from '../../core/reading-quality'
-import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../core/schemas'
 import { createViews } from '../../core/warehouse'
 import { createRealDuckDB } from '../setup/real-engine'
 

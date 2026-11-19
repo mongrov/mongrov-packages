@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { getHRV } from '../../__tests__/packs/health/tools/impls/hrv'
 import { createFakeEngine } from '../__fakes__/engine'
-import { getHRV } from '../impls/hrv'
 
 const baseCtx = {
   requesterUserId: 'alice',

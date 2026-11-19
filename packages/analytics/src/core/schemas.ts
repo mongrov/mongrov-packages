@@ -23,18 +23,6 @@ import { addIdentityKey, qualifyDdl, quoteQualifier, toLocalDdl } from './ddl'
 import { AnalyticsError } from './errors'
 import { packTable, packTables } from './packs'
 
-// Pre-pack constants (≤ 0.52), composed from the packs that ship inside the
-// package until S-03. The engine reads the registry, never these.
-export {
-  IDENTITY_COLUMNS,
-  LOCAL_ONLY_TABLES,
-  LOCAL_SCHEMAS,
-  SCHEMAS,
-  TABLE_NAMES,
-  VIEWED_TABLES,
-} from '../packs/legacy-tables'
-export type { TableName, ViewedTable } from '../packs/legacy-tables'
-
 export { addIdentityKey, qualifyDdl, quoteQualifier, toLocalDdl } from './ddl'
 export { insightIndexDdl } from './platform-pack'
 

@@ -9,7 +9,6 @@
 
 import type { AppSchema } from './app-schema'
 import type { AnalyticsPack } from './packs'
-import type { QualityOptions } from './reading-quality'
 
 // -------------------- primitives --------------------
 
@@ -119,6 +118,9 @@ export interface EventBus {
  */
 export type AnalyticsMode = 'local' | 'r2'
 
+/** Options for the packs' quality views; each pack documents its own switches. */
+export type QualityOptions = object
+
 interface CommonAnalyticsConfig {
   storage: KVStore
   logger?: AnalyticsLogger
@@ -128,10 +130,9 @@ interface CommonAnalyticsConfig {
   duckdb?: { memoryLimit?: string, threads?: string }
   eventBus?: EventBus
   /**
-   * How readings are judged clean. Applied at every attach, when the quality
-   * views are recreated, until `AnalyticsEngine.setQuality` replaces it. See
-   * `QualityOptions`. `motionFilter` is off when
-   * omitted; the wear, warm-up, range and spike gates are on when omitted.
+   * Options the packs' quality views are built with (see each pack's
+   * `QualityViewProvider`). Applied at every attach, when the quality views
+   * are recreated, until `AnalyticsEngine.setQuality` replaces it.
    */
   quality?: QualityOptions
   /**

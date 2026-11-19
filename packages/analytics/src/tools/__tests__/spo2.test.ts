@@ -4,9 +4,9 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { getSpO2, LOW_MOMENT_THRESHOLD } from '../../__tests__/packs/health/tools/impls/spo2'
 import { createFakeEngine } from '../__fakes__/engine'
 import { createAnalyticsTools } from '../factory'
-import { getSpO2, LOW_MOMENT_THRESHOLD } from '../impls/spo2'
 
 const CTX = { brand: 'ziva', familyId: 'fam1', requesterUserId: 'alice' } as never
 
@@ -102,7 +102,7 @@ describe('T-33 — registered in the tool factory', () => {
 
   it('description avoids clinical vocabulary too', async () => {
     // The description also lands in the model's context.
-    const { findBanTerms } = await import('../formatters')
+    const { findBanTerms } = await import('../../__tests__/packs/health/tools/formatters/copy-guidelines')
     const engine = createFakeEngine()
     const handle = createAnalyticsTools({ analytics: engine as never })
     for (const [name, tool] of Object.entries(handle.tools as Record<string, { description?: string }>)) {

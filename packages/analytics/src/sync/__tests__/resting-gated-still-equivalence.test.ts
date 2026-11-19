@@ -39,8 +39,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { STILL_FLOOR } from '../../core/reading-quality'
-import { buildBaselineSql } from '../baseline-compute'
+import { buildBaselineSql } from '../../__tests__/packs/health/baselines'
+import { STILL_FLOOR } from '../../__tests__/packs/health/reading-quality'
 
 const B = 'ziva'
 const F = 'fam'

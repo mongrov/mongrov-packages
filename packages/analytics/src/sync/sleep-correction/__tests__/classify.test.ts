@@ -5,11 +5,11 @@
  * data this repo does not carry. These cases pin the behaviours that matter
  * most without it, so a refactor that breaks one fails on every CI run.
  */
-import type { Phase2Row } from '../classify'
+import type { Phase2Row } from '../../../__tests__/packs/ring/sleep-correction/classify'
 
 import { describe, expect, it } from 'vitest'
 
-import { classifyBlocks, computeNightEpochs, CONF_BOUT, parseDateStr } from '../classify'
+import { classifyBlocks, computeNightEpochs, CONF_BOUT, parseDateStr } from '../../../__tests__/packs/ring/sleep-correction/classify'
 
 const DASH_RE = /-/g
 

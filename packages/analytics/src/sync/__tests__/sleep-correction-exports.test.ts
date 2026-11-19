@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  correctSleepNights,
-  nightsForEpochs,
-  SLEEP_CORRECTION_RELATIONS,
-  sleepStagingBoundsFor,
-  sleepStagingViewsSql,
-} from '../index'
+import { SLEEP_CORRECTION_RELATIONS, sleepStagingBoundsFor, sleepStagingViewsSql } from '../../__tests__/packs/ring'
+import { correctSleepNights, nightsForEpochs } from '../../__tests__/packs/ring/sleep-correction/orchestrate'
 
 // The app's native smoke runs this path on the device build (zivaone_app#460).
 describe('sync barrel: sleep-correction read path', () => {

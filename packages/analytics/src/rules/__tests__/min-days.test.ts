@@ -13,9 +13,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
+import { zivaDefaults } from '../../__tests__/packs/health/rules'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../../core/schemas'
 import { compileRule } from '../compiler'
-import { zivaDefaults } from '../defaults'
 import { RuleSchema } from '../schema'
 
 const BRAND = 'ziva'

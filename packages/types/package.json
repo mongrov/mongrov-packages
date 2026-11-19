@@ -20,25 +20,13 @@
       "require": "./dist/cjs/index.js",
       "default": "./dist/esm/index.js"
     },
-    "./analytics-queries": {
-      "types": "./dist/esm/analytics-queries.d.ts",
-      "import": "./dist/esm/analytics-queries.js",
-      "require": "./dist/cjs/analytics-queries.js",
-      "default": "./dist/esm/analytics-queries.js"
-    },
     "./device-events": {
       "types": "./dist/esm/device-events.d.ts",
       "import": "./dist/esm/device-events.js",
       "require": "./dist/cjs/device-events.js",
       "default": "./dist/esm/device-events.js"
     },
-    "./package.json": "./package.json",
-    "./kv-keys": {
-      "types": "./dist/esm/kv-keys.d.ts",
-      "import": "./dist/esm/kv-keys.js",
-      "require": "./dist/cjs/kv-keys.js",
-      "default": "./dist/esm/kv-keys.js"
-    }
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
