@@ -58,6 +58,9 @@ jobs:
       - name: Build
         run: pnpm --filter @mongrov/${{ steps.pkg.outputs.package }} run build
 
+      - name: Domain-term guard over the tarball contents
+        run: node scripts/no-domain-terms.mjs --pack packages/${{ steps.pkg.outputs.package }} --fail
+
       - name: Publish
         run: pnpm --filter @mongrov/${{ steps.pkg.outputs.package }} publish --no-git-checks --access public
         env:

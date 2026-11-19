@@ -20,8 +20,8 @@
  *
  * ## v0.2.0 additions (Sprint 5 §4)
  *
- * - **`context`** (T-17) — an INNER JOIN, not a post-filter. "SpO₂ during
- *   X" must aggregate over the samples in X only; computing over
+ * - **`context`** (T-17) — an INNER JOIN, not a post-filter. "metric M
+ *   during X" must aggregate over the samples in X only; computing over
  *   everything and labelling the result would report a number nobody asked
  *   for.
  * - **`consecutive: n`** (T-18) — run-length detection via gaps-and-islands.
@@ -164,8 +164,7 @@ export const BAND_SCALE_PARAM = 'bandScale'
  * two that agree today. The nested `timezone('UTC', …)` is load-bearing:
  * DuckDB selects the `timezone()` overload from its SECOND argument, so
  * `timezone($tz, ts)` on a naive column LABELS the value with the zone
- * instead of converting into it, leaving an evening reading on its UTC date
- * (app#73).
+ * instead of converting into it, leaving an evening reading on its UTC date.
  */
 export function localDayExpr(tsColumn: string): string {
   return `date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', ${tsColumn})))`
@@ -209,8 +208,8 @@ export function compileRule(rule: Rule): CompiledRule {
    *   baseline  `ts > NOW() - $baselineDays days`
    *
    * Nothing downstream reads outside its scope's rows: consecutive runs,
-   * day cadence, min-days and the phase band all work on the filtered
-   * samples, and the resting gate joins `rq.ts = m.ts`. So the window is the
+   * day cadence, min-days and the `phase_band` target all work on the
+   * filtered samples, and a context's quality join matches `rq.ts = m.ts`. So the window is the
    * whole lookback, plus the spare day for the session zone (bounded-read).
    */
   const fromFor = (form: 'view' | 'bounded') => (scope: Scope): string => {
@@ -302,7 +301,7 @@ interface BuildArgs {
   consecutive?: number
   /** Rule metric id — the `user_baseline.metric` key for baseline_offset. */
   metricId: string
-  /** QA #108 — distinct local days with data required in the window. */
+  /** Distinct local days with data required in the window. */
   minDays?: number
 }
 
@@ -315,7 +314,7 @@ function whereClause(ts: string, interval: string): string {
 }
 
 /*
- * Every bound threshold is CAST where it is used (app#70).
+ * Every bound threshold is CAST where it is used.
  *
  * react-native-duckdb prepares with NO values and binds afterwards, so a
  * param's type must resolve from SQL context at prepare time. A bare param
@@ -342,8 +341,8 @@ function buildForTarget(args: BuildArgs): {
   const { ts, interval, column, agg, target, compare, metricId } = args
   const where = whereClause(ts, interval)
   const from = args.from('window')
-  // QA #108 — a window aggregate over too few days of wear measures the wear,
-  // not the user. Local days, so a late-evening reading counts for its day.
+  // A window aggregate over too few days of data measures the gaps, not the
+  // user. Local days, so a late-evening reading counts for its day.
   const floor = args.minDays !== undefined
     ? `\n   AND COUNT(DISTINCT ${localDayExpr(`m.${ts}`)}) >= CAST($minDays AS BIGINT)`
     : ''
@@ -403,7 +402,7 @@ HAVING ${outside}${floor};`
     //
     // Every parameter is CAST. react-native-duckdb resolves param types from
     // SQL context at prepare time, and a bare param in a projection or an
-    // arithmetic expression has none (app#70/#72).
+    // arithmetic expression has none.
     const params: Record<string, string | number> = {
       baselineDays: target.windowDays,
       baselineMetric: metricId,
@@ -435,7 +434,7 @@ HAVING ${compareClause(operator, 'observed_value', 'threshold_value')}${floor};`
   // Baselines use a CTE for the user's historical mean over windowDays.
   // DuckDB can't parametrize inside an INTERVAL literal, but it can
   // multiply a static unit interval by a bound integer — BIGINT, because an
-  // INTEGER operand widens ambiguously and fails to bind on device (#70).
+  // INTEGER operand widens ambiguously and fails to bind on device.
   const baselineDaysBind = `(INTERVAL 1 DAY) * CAST($baselineDays AS BIGINT)`
   const baselineFrom = args.from('baseline')
   const baselineWhere
@@ -506,14 +505,13 @@ HAVING ${compareClause(compare, 'observed_value', 'threshold_value')}${floor};`
  *   1. **Direction of the zone conversion.** `ts` is naive UTC, and DuckDB
  *      picks the `timezone()` overload from its SECOND argument — so
  *      `timezone($tz, ts)` LABELS the value rather than converting it, which
- *      attributed evening readings to the next local day (app#73).
+ *      attributed evening readings to the next local day.
  *      The inner `timezone('UTC', ts)` is what makes it a conversion.
  *   2. **The partial current day is excluded.** Today is still accumulating;
  *      including it lets a quiet morning break a run that the full day would
  *      have continued, so a 3-day rule would fire or not depending on the
  *      hour it happened to run.
- *   3. **Every parameter is CAST**, for the react-native-duckdb prepare path
- *      (app#70/#72).
+ *   3. **Every parameter is CAST**, for the react-native-duckdb prepare path.
  */
 /**
  * Min readings before a day counts, as a fraction of the day's slots.
@@ -607,7 +605,7 @@ function buildDayCadence(args: BuildArgs): {
   -- SCREEN renders as missing is a contradiction the user can see — a
   -- notification about a day the app says it has no data for. A thin day is
   -- neither above nor below: it is ABSENT, which the calendar-keyed islands
-  -- below then treat as breaking the run, exactly like an unworn day.
+  -- below then treat as breaking the run, exactly like a day with no data.
   HAVING day < date_trunc('day', timezone(CAST($tz AS VARCHAR), NOW()))
      AND COUNT(*) >= ${dayFloor}
 ),
@@ -625,7 +623,7 @@ runs AS (
   --
   -- The previous key was a difference of ROW_NUMBERs over the rows present in
   -- the daily CTE, and a day with no readings produces no row — so two
-  -- breaching days either side of an unworn day were adjacent and counted as
+  -- breaching days either side of an empty day were adjacent and counted as
   -- consecutive. The rule inferred a run across silence. Measured: breaches
   -- on day-4 and day-2 with day-3 empty fired a consecutive:2 rule.
   --
@@ -646,7 +644,7 @@ GROUP BY run_key
 -- this, any qualifying run anywhere in the window fired, so a warm spell
 -- that ended a week ago re-notified every day — the throttle allows one a
 -- day — for as long as the run stayed inside the window, up to 30 days after
--- the user recovered (app#55).
+-- the user recovered.
 HAVING COUNT(*) >= CAST($consecutive AS BIGINT)
    AND MAX(day) = date_trunc('day', timezone(CAST($tz AS VARCHAR), NOW())) - INTERVAL 1 DAY
 ORDER BY observed_value ${direction === 'greater_than' ? 'DESC' : 'ASC'}
@@ -763,17 +761,17 @@ LIMIT 1;`
 }
 
 /**
- * `phase_band` × `consecutive` — N slot-adjacent readings outside the band,
- * on either side (D-H).
+ * `phase_band` × `consecutive` — N slot-adjacent readings outside the
+ * user's stored band, on either side.
  *
  * The band is resolved ONCE for the window, like `user_setting`'s threshold:
  *
- *   stored  the two rails' `p50` from `user_baseline` — the rows the screen
- *           draws. Both or neither: a user with one learned rail is still
- *           learning, and gets the population rails for both.
- *   scaled  half-width × `$bandScale` about the band's own midpoint, the
- *           app's `widenBand`, so the alert and the screen's band agree for
- *           every sensitivity.
+ *   stored  the two rails' `p50` from `user_baseline` — the rows an app's
+ *           screen can draw. Both or neither: a user with one learned rail
+ *           is still learning, and gets the default rails for both.
+ *   scaled  half-width × `$bandScale` about the band's own midpoint, so an
+ *           app that scales its displayed band the same way keeps the alert
+ *           and the screen in agreement for every sensitivity.
  *
  * Run detection is `buildConsecutive`'s, unchanged: islands keyed on the
  * cadence slot, numbered over breaching rows only.
@@ -812,14 +810,13 @@ function buildConsecutiveBand(args: {
   /*
    * `rails` is where "still learning" is decided.
    *
-   * WITH defaults: the population pair stands in until the user has their
+   * WITH defaults: the default pair stands in until the user has their
    * own, and the rule fires against it from day one.
    *
    * WITHOUT them: the CASE yields NULL, the `band` CTE yields NULL rails,
    * every `breached` comparison is NULL, and the rule emits nothing. That is
    * the honest state — the screens draw no reference they have not earned
-   * (principle 27), and this makes the alert agree with them
-   * (app#267).
+   * (principle 27), and this makes the alert agree with them.
    *
    * Both or neither is enforced by `validatePhaseBand`, so a half-set pair
    * cannot reach here and silently behave like one of the two.

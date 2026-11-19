@@ -1,11 +1,12 @@
 /**
  * @mongrov/analytics/sync — public barrel.
  *
- * Phases A–C: mapper + buffer + flusher surfaces. Pusher/fetcher/scheduler
- * ship in subsequent phases (see `.specifica/features/analytics-sync/tasks.md`).
+ * Buffer, flusher, push/fetch, scheduler, the sync manager factory and its
+ * React bindings. Rows reach the buffer through the sensor sink, either
+ * pre-mapped (`push`) or through a pack's ingest adapter (`ingest`).
  */
 
-// Buffer + overflow (Phase B).
+// Baselines, buffer, overflow.
 export {
   type BaselineRow,
   type BaselineRunContext,
@@ -22,7 +23,7 @@ export type { DropReport, DropSummary } from './drops'
 export { SyncError, type SyncErrorCode } from './errors'
 export type { BatchCompletePayload } from './events'
 
-// Event bus integration (Phase H).
+// Event bus integration.
 export {
   bindFlushEvents,
   bindPushEvents,
@@ -31,7 +32,7 @@ export {
   type PushEmitter,
   type SyncCompletePayload,
 } from './events'
-// Factory + hooks + provider (Phase I).
+// Factory + hooks + provider.
 export { createSyncManager, type CreateSyncManagerConfig } from './factory'
 export {
   type FetchParams,
@@ -42,7 +43,7 @@ export {
 } from './fetcher'
 
 export { mergeFlushResults } from './flush-results'
-// Flusher + triggers (Phase C).
+// Flusher + triggers.
 export {
   BACKOFF_SEQUENCE_MS,
   type BatchCompleteEvent,

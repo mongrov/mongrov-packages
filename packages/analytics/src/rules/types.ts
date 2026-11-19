@@ -145,7 +145,7 @@ export interface RulesEngineConfig {
    * When absent, day-cadence rules are SKIPPED with a warning rather than
    * evaluated against a guessed zone. A rule that fires on the wrong day is
    * worse than one that does not fire, and silently substituting UTC is the
-   * failure mode that cost an afternoon in app#74.
+   * failure mode this guards against.
    */
   userTimezoneProvider?: (userId: string) => Promise<string | undefined>
   logger?: RulesLogger

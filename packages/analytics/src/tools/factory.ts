@@ -94,6 +94,7 @@ export function createAnalyticsTools(
   }
 
   // Every registered pack's tools, in pack order (the platform's last).
+  // Names are unique across packs: `registerPack` rejects a collision.
   const tools = Object.fromEntries(
     packExtensions<Readonly<Record<string, PackTool>>>('tools')
       .flatMap(byName => Object.entries(byName))

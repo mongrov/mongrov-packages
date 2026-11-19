@@ -8,7 +8,9 @@
  *   - @mongrov/analytics/sync    → ingest adapters + sensor sink + R2 push/fetch
  *   - @mongrov/analytics/ui      → UI primitives (subpath reserved)
  *
- * See `.specifica/features/analytics-core/spec.md` for scope.
+ * The engine is domain-free: tables, ingest adapters, quality views,
+ * post-flush jobs, baselines, metrics, rules and tools arrive in packs
+ * (`definePack` / `registerPack`).
  */
 
 export * from './core'

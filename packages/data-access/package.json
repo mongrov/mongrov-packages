@@ -44,7 +44,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.build.json && tsc --noEmit -p tsconfig.typecheck.json && tsc --noEmit -p tsconfig.typetests-registered.json",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build && node ../../scripts/no-domain-terms.mjs --pack . --fail"
   },
   "dependencies": {
     "mitt": "^3.0.1",

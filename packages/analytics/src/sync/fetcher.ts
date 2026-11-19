@@ -38,10 +38,10 @@ import { SyncError } from './errors'
  * `ON CONFLICT DO NOTHING`, when the DESTINATION has a key to conflict on.
  *
  * Every caller here does `INSERT INTO {local} SELECT * FROM {remote}`, so the
- * constraint that can fire belongs to the local table — but this read
- * `SCHEMAS`, the REMOTE definitions. `LOCAL_SCHEMAS` adds the declared
- * identity tuple as a primary key to the sensor tables (`withIdentityKey`),
- * and those are exactly the tables `SCHEMAS` leaves keyless. So the clause was
+ * constraint that can fire belongs to the local table — but this once read
+ * the REMOTE definitions. The local DDL (`localDdlFor`) adds a pack table's
+ * declared `identity` tuple as a primary key (`withIdentityKey`), and those
+ * are exactly the tables the remote DDL leaves keyless. So the clause was
  * omitted precisely where it was needed: re-fetching a range holding an
  * already-local keyed row threw a duplicate-key error instead of
  * being idempotent. That hits overlapping fetch-on-demand ranges and any

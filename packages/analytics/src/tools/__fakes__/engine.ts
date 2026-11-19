@@ -9,8 +9,8 @@ import type { AnalyticsEngine } from '../../core/types'
  *
  * Usage:
  *   const engine = createFakeEngine()
- *   engine.queueRows('FROM hrv', [{ day: '2026-07-08', avg_hrv: 45 }])
- *   engine.queueRows('FROM sleep_session', [...])
+ *   engine.queueRows('FROM reading', [{ day: '2026-07-08', avg_value: 45 }])
+ *   engine.queueRows('FROM session', [...])
  *   // ...invoke tool...
  *   engine.calls.forEach(c => ...)
  */

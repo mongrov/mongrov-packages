@@ -60,17 +60,17 @@ describe('DeviceAdapter (fake)', () => {
     expect(events).toHaveLength(2) // unsubscribed
   })
 
-  it('honors ownership flag overrides (JCRing-style thin reflector)', () => {
-    const jcringLike = createFakeAdapter({
-      id: 'jcring',
+  it('honors ownership flag overrides (thin-reflector adapter)', () => {
+    const thinReflector = createFakeAdapter({
+      id: 'acme-band',
       ownership: { scan: true, reconnect: true, sync: false },
       capabilities: ['BatchSync', 'Measure'],
     })
 
-    expect(jcringLike.ownership.reconnect).toBe(true)
-    expect(jcringLike.ownership.sync).toBe(false)
-    expect(jcringLike.capabilities.has('LiveStream')).toBe(false)
-    expect(jcringLike.capabilities.has('Measure')).toBe(true)
+    expect(thinReflector.ownership.reconnect).toBe(true)
+    expect(thinReflector.ownership.sync).toBe(false)
+    expect(thinReflector.capabilities.has('LiveStream')).toBe(false)
+    expect(thinReflector.capabilities.has('Measure')).toBe(true)
   })
 })
 
@@ -89,7 +89,7 @@ describe('Capability satellite interfaces', () => {
       async pull(_id, _metric, _cursor, onReading) {
         const reading: DeviceReading = {
           deviceId: 'd',
-          metric: 'hr',
+          metric: 'level',
           kind: 'scalar',
           ts: 1,
           value: 60,
@@ -99,7 +99,7 @@ describe('Capability satellite interfaces', () => {
         return { newCursor: 42 }
       },
     }
-    const result = await cap.pull('d', 'hr', undefined, () => {})
+    const result = await cap.pull('d', 'level', undefined, () => {})
     expect(result.newCursor).toBe(42)
   })
 
@@ -120,7 +120,7 @@ describe('Capability satellite interfaces', () => {
       },
     }
 
-    const results = await measure.startMeasurement('d', 'ppg')
+    const results = await measure.startMeasurement('d', 'trace')
     const info = await fw.getFirmwareInfo('d')
 
     expect(results).toEqual([])

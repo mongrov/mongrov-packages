@@ -414,7 +414,7 @@ export async function createViews(
  * the union views, which must already exist.
  *
  * `createViews` runs this at attach; `AnalyticsEngine.setQuality` runs it on
- * its own when the quality options change mid-attach (app#474), since
+ * its own when the quality options change mid-attach, since
  * the union views do not depend on them. One body, so the two can never
  * build different SQL. `failCode` is the code a failed VIEW is reported
  * under: `attach_failed` at attach, `query_failed` from `setQuality`.
@@ -442,11 +442,11 @@ export async function createQualityViews(
       )
     }
   }
-  // Bounded forms of the same flags (app#121), after the views they
+  // Bounded forms of the same flags, after the views they
   // read. NOT fatal, unlike the views: attach also gates WRITES — the device
   // handoff and the sync cursors — and a read-side helper must never stop
   // synced device data being stored. That is exactly what happened when a macro
-  // failed only on the device's DuckDB build (app#191): attach went to
+  // failed only on the device's DuckDB build: attach went to
   // `error` and every write was rejected with it. Now the queries that read a
   // missing macro fail on their own, loudly, and everything else keeps working.
   //

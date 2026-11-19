@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `./kv-keys`, `./analytics-queries` and the `analytics-contracts` types
   (`KvKey`, `KvKeyEntry` and the data-plane contracts from the root). They are
-  ZivaOne's and moved to `@zivaone/health` in zivaone_app (package-separation
-  S-03, principle 73: `@mongrov/*` is domain-free).
+  one app's domain contracts and moved to that app's own domain pack
+  (`@mongrov/*` is domain-free).
 
 ### Kept
 
@@ -22,17 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `KV_KEY_REGISTRY['user:sleepDay30BannerDismissed']`: the Sleep day-30 banner's dismissed flag (`ux_state`,
-  boolean, read by no rule). Sprint6 T-61.
+- A `KV_KEY_REGISTRY` entry for a day-30 banner's dismissed flag (`ux_state`,
+  boolean, read by no rule).
 
 ## [0.15.0] - 2026-10-29
 
 ### Added
 
-- `KV_KEY_REGISTRY['user:motionFilter']` — Settings' motion-filter switch
-  (zivaone_app#474): `ux_state`, `boolean`, `defaultValue: false`
-  (zivaone_app#494). The app passes it to `@mongrov/analytics`'
-  `engine.setQuality({ motionFilter })` (0.49.0).
+- A `KV_KEY_REGISTRY` entry for a settings switch that filters readings
+  (`ux_state`, `boolean`, `defaultValue: false`). The app passes it to
+  `@mongrov/analytics`' `engine.setQuality(...)` (0.49.0).
 
 ## [0.3.0] - 2026-04-06
 

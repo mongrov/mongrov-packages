@@ -109,7 +109,11 @@ export const PLATFORM_PACK: AnalyticsPack = {
   // created every table, step 3 rebuilt `insight`, step 4 created
   // `user_baseline`. An install at 4 or later has both platform steps'
   // effects, so it starts at 2 and issues no DDL. Anything earlier replays
-  // both (each is idempotent) rather than guess which tables exist.
+  // both (each is idempotent) rather than guess which tables exist. The
+  // adopted version — 0 included — is persisted before any pack runs
+  // (`ensureMigrations`), so an attach interrupted before these steps
+  // commit retries them instead of re-adopting from a ledger another pack
+  // has since advanced.
   adoptVersion: {
     keys: (brand, tenantId) => [
       `analytics:schema_version:${brand}:${tenantId}`,

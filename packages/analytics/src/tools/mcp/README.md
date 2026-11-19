@@ -1,21 +1,19 @@
 # @mongrov/analytics/tools/mcp
 
-Model Context Protocol server that exposes the six analytics tools
-(`getHRV`, `getSleepSummary`, `getActivityTotal`, `compareTrend`,
-`detectAnomaly`, `getInsights`) to any MCP client — Claude Desktop,
-MCP Inspector, an internal Node CLI — over stdio or HTTP.
+Model Context Protocol server that exposes the analytics tools — every
+registered pack's tools plus the platform's `getInsights`, exactly the map
+`createAnalyticsTools` returns — to any MCP client (Claude Desktop, MCP
+Inspector, an internal Node CLI) over stdio or HTTP.
 
 The server wraps the same `AnalyticsToolsHandle` used by the AI SDK
 integration, so every MCP call runs the identical
 **rate → auth → execute → budget → audit** chain and writes the
 same `tool_call_audit` rows. There is no parallel wrapper.
 
-Status: shipped in `@mongrov/analytics@0.1.0-alpha.10` under the
-`./tools/mcp` subpath. Intended as a **dev-time** surface — the
-guard + `sideEffects: false` make sure prod React Native bundles
-strip it out.
+Intended as a **dev-time** surface — the guard + `sideEffects: false`
+make sure prod React Native bundles strip it out.
 
-## Gating (principle 41 — enforced)
+## Gating (enforced)
 
 MCP is dev-only. Two layers:
 
@@ -66,7 +64,7 @@ import {
 
 // Node has no bundler-injected __DEV__; this entry declares itself a
 // dev entry point. `createMcpServer` still throws unless
-// ENABLE_MCP_SERVER=1 is also set (principle 41: dev AND flag).
+// ENABLE_MCP_SERVER=1 is also set (dev AND flag).
 globalThis.__DEV__ = true
 
 if (!shouldStartMcpServer()) {
@@ -77,7 +75,7 @@ if (!shouldStartMcpServer()) {
 
 const analytics = createAnalytics(analyticsConfig)
 await analytics.attach({
-  brand: 'ziva',
+  brand: 'acme',
   tenantScope: 'family',
   tenantId: 'fam_1',
   userId: 'u_1',
@@ -89,7 +87,7 @@ const toolsHandle = createAnalyticsTools({
 })
 toolsHandle.setContext({
   requesterUserId: 'u_1',
-  brand: 'ziva',
+  brand: 'acme',
   familyId: 'fam_1',
 })
 
@@ -111,7 +109,7 @@ Add it to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-Restart Claude Desktop — the six tools appear under the tools icon.
+Restart Claude Desktop — the tools appear under the tools icon.
 
 ## Quick start (Node HTTP — Inspector / curl)
 
@@ -179,7 +177,7 @@ both the Node HTTP server and the underlying MCP transport.
 
 ### `assertMcpAllowed(): void`
 
-Enforced production guard (principle 41). Throws `McpDisabledError`
+Enforced production guard. Throws `McpDisabledError`
 unless `__DEV__ === true` **and** `process.env.ENABLE_MCP_SERVER === '1'`.
 Called internally by `createMcpServer` and `createHttpTransport`;
 exported for callers wiring custom entry points.
@@ -230,8 +228,8 @@ for callers wiring a custom MCP server layout.
 - **Live HTTP server inside a running Expo dev build.** Deferred —
   would need `react-native-tcp-socket` transport plumbing. RN today
   gets the guard + adapter and the tree-shake path.
-- **OAuth for MCP HTTP.** Bearer only. MCP is dev-only in v0.1.0;
-  production auth would come with a hardening pass.
+- **OAuth for MCP HTTP.** Bearer only. MCP is dev-only; production
+  auth would come with a hardening pass.
 - **Resources, prompts, sampling.** Only `tools/*` methods are
   wired. Everything else on the MCP wire returns capability-not-set.
 - **Published CLI (`mongrov-analytics-mcp`).** Users wire their own

@@ -407,6 +407,52 @@ describe('platform pack ledger (package-separation S-02)', () => {
     expect(store.get(PLATFORM_KEY)).toBe(2)
   })
 
+  it('persists the adopted platform version 0 before any pack runs (pre-step-4 install)', async () => {
+    const { fake, db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    store.set(KEY, 3)
+    // Fail every platform statement: the pack ledger completes, the platform's never starts.
+    fake.failExecuteMatching(/CREATE TABLE IF NOT EXISTS memory\.insight/, new Error('injected'))
+
+    await expect(ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })).rejects.toThrow(/platform/)
+
+    expect(store.get(KEY)).toBe(CURRENT_VERSION)
+    expect(store.get(PLATFORM_KEY)).toBe(0)
+  })
+
+  it('an interrupted first attach from a pre-step-4 install retries the platform steps', async () => {
+    const { fake, db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    store.set(KEY, 3)
+    fake.failExecuteMatching(/CREATE TABLE IF NOT EXISTS memory\.insight/, new Error('injected'))
+    await expect(ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })).rejects.toThrow()
+
+    // Re-attach. The ledger adopted from now reads CURRENT_VERSION (>= 4);
+    // re-adopting would map it to 2 and skip both platform steps.
+    fake.clearExecuteMatchFailure()
+    fake.calls.length = 0
+    await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
+
+    expect(store.get(PLATFORM_KEY)).toBe(2)
+    expect(fake.calls.some(c => c.sql.includes('CREATE TABLE IF NOT EXISTS memory.insight'))).toBe(true)
+    expect(fake.calls).toHaveLength(PLATFORM_ALL_COUNT)
+  })
+
+  it('an interrupted fresh install retries the platform steps', async () => {
+    const { fake, db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    fake.failExecuteMatching(/CREATE TABLE IF NOT EXISTS memory\.insight/, new Error('injected'))
+    await expect(ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })).rejects.toThrow()
+    expect(store.get(PLATFORM_KEY)).toBe(0)
+
+    fake.clearExecuteMatchFailure()
+    fake.calls.length = 0
+    await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
+
+    expect(store.get(PLATFORM_KEY)).toBe(2)
+    expect(fake.calls).toHaveLength(PLATFORM_ALL_COUNT)
+  })
+
   it('a fresh install runs the platform steps itself, after the health ledger', async () => {
     const { fake, db } = await newOpenDb()
     const { kv, store } = createFakeKV()

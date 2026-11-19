@@ -205,8 +205,8 @@ function parseInput<TInput>(
  * React Query rejects `undefined` as query data: "Query data cannot be
  * undefined", every read, for every user who has not touched that setting —
  * which is the default state. Seen on `user.notifySwitchRaw` for all four
- * notify switches (app#386) and on `user.birthYear` /
- * `user.currentTenant` before it (app#353).
+ * notify switches and on `user.birthYear` /
+ * `user.currentTenant` before it.
  *
  * Fixed here rather than in each query. Three queries had already been patched
  * one at a time with `.transform(v => v ?? null)`, which leaves the next one to

@@ -1,7 +1,7 @@
 /**
  * @mongrov/analytics/rules — structured threshold rule engine.
  *
- * See `README.md` for authoring rules, sampling minimums, brand default
+ * See `README.md` for authoring rules, sampling minimums, TOML rule
  * catalogs, and hooks. Consumers typically:
  *
  * ```ts
@@ -16,34 +16,34 @@
  * ```
  */
 
-// R3 — compiler + cache
+// Compiler + cache
 export { compileRule, emitContextJoin, MIN_DAY_READINGS_FRACTION, minDayReadings, sanitizeIdent, USER_SETTING_PARAM, viewFor } from './compiler'
 export { type CompilerCache, createCompilerCache } from './compiler-cache'
 export { contextJoin, ruleContextNames } from './contexts'
 
 export { parseCatalog, type ParseCatalogOptions } from './defaults/loader'
 
-// R8 — brand defaults
+// TOML rule catalogs
 
 export {
   createEmitter,
   type CreateEmitterConfig,
   type RulesEmitter,
 } from './emitter'
-// R9 — factory
+// Factory
 export { createRulesEngine } from './factory'
 export {
   useRuleRegistry,
   type UseRuleRegistryResult,
 } from './hooks/useRuleRegistry'
 
-// R10 — hooks
+// Hooks
 export {
   useRuleViolations,
   type UseRuleViolationsOptions,
   type UseRuleViolationsResult,
 } from './hooks/useRuleViolations'
-// R4-R6 — registry / throttle / emitter (exposed for advanced composition
+// Registry / throttle / emitter (exposed for advanced composition
 // or test doubles; typical apps go through `createRulesEngine`).
 export {
   type CreateRegistryConfig,

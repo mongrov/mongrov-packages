@@ -44,7 +44,7 @@
     "test": "jest --coverage",
     "test:watch": "jest --watch",
     "typecheck": "tsc -p tsconfig.build.json --noEmit",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build && node ../../scripts/no-domain-terms.mjs --pack . --fail"
   },
   "dependencies": {
     "@xstate/react": "^5.0.0",

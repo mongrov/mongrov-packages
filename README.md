@@ -91,6 +91,36 @@ cd packages/core
 npm publish --access public
 ```
 
+Every package's `prepublishOnly` builds it and then runs the domain-term
+guard over exactly the files `npm pack` would publish
+(`node ../../scripts/no-domain-terms.mjs --pack . --fail`). Publishing a
+pre-built tarball (`npm publish x.tgz`) runs no lifecycle scripts, so check
+it first: `node scripts/no-domain-terms.mjs --tarball x.tgz --fail`.
+`pnpm release:check` builds everything and runs the guard over every
+package's tarball contents plus the published-drift check.
+
+## Domain-term guard
+
+mongrov-packages is domain-free (techspec principle 73): no brand, vendor,
+wearable or health term in anything a package ships. `scripts/no-domain-terms.mjs`
+has two modes:
+
+- **source** (`pnpm domain-terms`, part of `pnpm lint` and the pre-push hook):
+  every file under `packages/*/` except `node_modules/` and `dist/` — code,
+  SQL, docs, CHANGELOG/UPGRADING, `package.json`, fakes, mocks and tests.
+  `src/__tests__/packs/` is exempt by design (the test packs stand in for a
+  domain pack); the test files listed in
+  `scripts/no-domain-terms.test-paths.json` are exempt temporarily, one by
+  one, and a listed file that becomes clean fails the run until it is
+  removed from the list.
+- **tarball** (`pnpm domain-terms:pack`, `--pack <dir>`, `--tarball <tgz>`):
+  exactly what `npm pack` publishes, no exemptions.
+
+Brand and vendor names match as case-insensitive substrings; domain words
+match per identifier part. `scripts/no-domain-terms.allow.json` lists the
+few generic uses (a ring buffer, a focus ring, migration steps, the AI
+sampling temperature, …), each with a reason.
+
 ## License
 
 MIT

@@ -175,7 +175,7 @@ describe('createReplicationState', () => {
     createReplicationState(config)
 
     const mockState = __getReplicationState('error-test')
-    const testError = Object.assign(new Error('Test sync error {"pushRows":[{"bpm":61}]}'), { code: 'RC_STREAM' })
+    const testError = Object.assign(new Error('Test sync error {"pushRows":[{"n":61}]}'), { code: 'RC_STREAM' })
     mockState?._emitError(testError)
 
     // Name and code only: an RxError message can embed the pushed rows.
