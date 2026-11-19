@@ -50,6 +50,9 @@ const TERMS = new Set([
 ])
 const SKIP_DIRS = new Set(['node_modules', 'dist', '__tests__', '__integration__', '__fakes__', '__mocks__', '__scratch__'])
 const EXTENSIONS = /\.(?:ts|tsx|js|mjs|toml|json)$/
+const NON_WORD_RE = /[^A-Z0-9]+/i
+const CAMEL_RE = /(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/
+const SPO2_RE = /spo2/i
 
 const args = process.argv.slice(2)
 const fail = args.includes('--fail')
@@ -84,8 +87,8 @@ function* files(dir) {
 /** Identifier parts, lowercased: `getHRVBands` → get, hrv, bands; `heart_rate` → heart, rate. */
 function words(line) {
   return line
-    .split(/[^A-Z0-9]+/i)
-    .flatMap(token => token.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/))
+    .split(NON_WORD_RE)
+    .flatMap(token => token.split(CAMEL_RE))
     .map(w => w.toLowerCase())
     .filter(Boolean)
 }
@@ -97,7 +100,7 @@ for (const root of roots) {
     lines.forEach((line, i) => {
       const found = [...new Set(words(line).filter(w => TERMS.has(w)))]
       // `SpO2` splits as sp|o2; catch it on the raw line.
-      if (/spo2/i.test(line) && !found.includes('spo2'))
+      if (SPO2_RE.test(line) && !found.includes('spo2'))
         found.push('spo2')
       if (found.length > 0)
         hits.push({ file: relative(ROOT, file), line: i + 1, terms: found, text: line.trim().slice(0, 160) })
