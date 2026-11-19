@@ -10,12 +10,19 @@
 import type { AnalyticsPack } from '../../core/packs'
 import type { QualityOptions } from './reading-quality'
 import { HEALTH_MIGRATIONS, healthLegacyVersionKeys, healthVersionKey } from './migrations'
+import { dropMalformedRows } from './plausibility'
 import { fallbackMacroDdl, qualityMacroDdls, qualityMacroNames, qualityViewDdls, qualityViewNames } from './reading-quality'
 import { HEALTH_TABLES } from './tables'
 
 export const healthPack: AnalyticsPack = {
   name: 'health',
-  tables: HEALTH_TABLES,
+  // Every table validates at ingest (spec §13 S10, T-60): malformed rows are
+  // dropped and counted; the reading tables' out-of-range values are kept
+  // for `v_*_q` to flag. Tables without a reading column pass through.
+  tables: Object.fromEntries(Object.entries(HEALTH_TABLES).map(([name, table]) => [
+    name,
+    { ...table, validate: (rows: readonly Record<string, unknown>[]) => dropMalformedRows(name, rows) },
+  ])),
   migrations: HEALTH_MIGRATIONS,
   // The package ledger every install has applied (steps 1-8), kept so an
   // existing database replays nothing.

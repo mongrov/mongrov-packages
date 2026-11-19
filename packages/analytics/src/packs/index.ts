@@ -6,5 +6,6 @@
 
 import type { AnalyticsPack } from '../core/packs'
 import { healthPack } from './health'
+import { ringPack } from './ring'
 
-export const DEFAULT_PACKS: readonly AnalyticsPack[] = [healthPack]
+export const DEFAULT_PACKS: readonly AnalyticsPack[] = [healthPack, ringPack]

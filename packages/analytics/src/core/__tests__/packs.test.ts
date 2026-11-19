@@ -14,14 +14,14 @@ afterEach(() => resetPacks())
 
 describe('pack registry', () => {
   it('knows the platform and default packs, platform last, in the pre-pack table order', () => {
-    expect(getPacks().map(p => p.name)).toEqual(['health', 'platform'])
+    expect(getPacks().map(p => p.name)).toEqual(['health', 'ring', 'platform'])
     expect([...packTables().keys()]).toEqual([...TABLE_NAMES])
     expect(viewedTables()).toEqual([...VIEWED_TABLES])
   })
 
   it('registers a pack before the platform and finds its tables', () => {
     registerPack({ name: 'notes', tables: { note: NOTE } })
-    expect(getPacks().map(p => p.name)).toEqual(['health', 'notes', 'platform'])
+    expect(getPacks().map(p => p.name)).toEqual(['health', 'ring', 'notes', 'platform'])
     expect(packTable('note')?.timeColumn).toBe('ts')
   })
 
@@ -30,7 +30,7 @@ describe('pack registry', () => {
     registerPack(a)
     registerPack(a)
     registerPack({ name: 'notes', tables: { note: { ...NOTE, syncable: true } } })
-    expect(getPacks().map(p => p.name)).toEqual(['health', 'notes', 'platform'])
+    expect(getPacks().map(p => p.name)).toEqual(['health', 'ring', 'notes', 'platform'])
     expect(packTable('note')?.syncable).toBe(true)
   })
 

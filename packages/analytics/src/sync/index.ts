@@ -17,6 +17,7 @@ export {
 } from './baseline-compute'
 export { SensorBuffer, type SensorBufferConfig, type TakenBatch } from './buffer'
 export { SyncProvider, type SyncProviderProps, useSyncManager } from './context'
+export { validateRows } from './drops'
 export { SyncError, type SyncErrorCode } from './errors'
 export type { BatchCompletePayload } from './events'
 

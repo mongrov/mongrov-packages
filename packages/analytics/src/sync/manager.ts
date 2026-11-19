@@ -6,6 +6,7 @@
  * plumbing. `SensorSink` is the ergonomic write-side surface consumers see.
  */
 
+import type { IngestContext } from '../core/packs'
 import type { AnalyticsEngine, AttachContext } from '../core/types'
 import type { FetchResult, R2Fetcher } from './fetcher'
 import type { BatchFlusher } from './flusher'
@@ -23,6 +24,12 @@ import type { FlushResult, SensorBatch } from './types'
  */
 export interface SensorSink {
   push: (batch: SensorBatch) => Promise<void>
+  /**
+   * Map one device's raw output with a registered ingest adapter (by name),
+   * validate each table's rows, and buffer them.
+   */
+  ingest: (adapter: string, raw: unknown, ctx: IngestContext) => Promise<void>
+  /** `ingest('firmware', fw, ctx)`: the ring pack's firmware adapter. */
   pushFirmware: (fw: FirmwareExport, ctx: MapperContext) => Promise<void>
   flush: () => Promise<FlushResult[]>
   pendingRowCount: (table?: string) => Promise<number>

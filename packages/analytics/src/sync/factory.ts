@@ -19,6 +19,7 @@
 
 import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
+import type { IngestContext, PackSyncHooks } from '../core/packs'
 
 import type { TableName } from '../core/schemas'
 import type { AnalyticsEngine, AttachContext, KVStore } from '../core/types'
@@ -28,7 +29,6 @@ import type { FetchResult, PrefetchPolicy } from './fetcher'
 import type { SyncEmitter } from './flusher'
 import type { SensorSink, SyncManager, SyncManagerState, SyncProgress } from './manager'
 import type {
-  DeviceConfigRow,
   FirmwareExport,
   MapperContext,
   RingConfigTranslator,
@@ -39,15 +39,15 @@ import type { SleepDeriver } from './sleep-derive'
 import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
 import { z } from 'zod'
 import { describeError } from '../core/errors'
+import { ingestAdapter, packExtensions } from '../core/packs'
 import { createBaselineComputer } from './baseline-compute'
 import { SensorBuffer } from './buffer'
+import { DROPPED_ROWS_EVENT, DropTally, validateRows } from './drops'
+import { SyncError } from './errors'
 import { bindFlushEvents, bindPushEvents } from './events'
 import { R2Fetcher } from './fetcher'
 import { BatchFlusher, MAX_CONSECUTIVE_FAILURES } from './flusher'
-import { mapFirmwareExport } from './mapper/firmware'
-import { dropMalformedRows, DROPPED_ROWS_EVENT, DropTally } from './mapper/plausibility'
 import { OverflowStore } from './overflow'
-import { PendingClosesStore } from './pending_closes'
 import { R2Pusher } from './pusher'
 import { logError, SyncScheduler } from './scheduler'
 import { createSleepDeriver, mergeFlushResults } from './sleep-derive'
@@ -451,7 +451,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // each flush reports and resets it (spec §13 S10, T-60).
   const dropTally = new DropTally()
 
-  const pendingClosesStore = new PendingClosesStore(config.storage)
+  const afterPushHooks = packExtensions<PackSyncHooks>('sync').flatMap(h => (h.afterPush ? [h.afterPush] : []))
 
   // Both fallbacks below are the right default — a consumer without an RN
   // background-task adapter should still get a SyncManager. What was wrong is
@@ -530,28 +530,17 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       pushAll: isLocal
         ? async () => []
         : async (tables, ctx) => pusher.pushAll(tables, ctx),
-      pushClosesForDeviceConfig: (isLocal || !config.tables.includes('device_config'))
+      // Packs' after-push steps (the ring's SCD-2 closes), r2 mode only:
+      // there is no remote to replay against locally.
+      afterPush: (isLocal || afterPushHooks.length === 0)
         ? undefined
         : async (ctx) => {
-          const pending = await pendingClosesStore.drain(ctx)
-          if (pending.length === 0)
-            return
-          try {
-            const result = await pusher.pushCloses(pending, ctx)
-            if (!result.ok) {
-              await pendingClosesStore.requeue(ctx, pending)
-              rulesLogger?.warn('sync.factory: pushCloses failed; requeued', {
-                count: pending.length,
-                code: result.error?.code,
-                error: result.error ? describeError(result.error) : undefined,
-              })
-            }
-          }
-          catch (err) {
-            await pendingClosesStore.requeue(ctx, pending)
-            rulesLogger?.warn('sync.factory: pushCloses threw; requeued', {
-              count: pending.length,
-              err: describeError(err),
+          for (const hook of afterPushHooks) {
+            await hook(ctx, {
+              pushRemote: (table, run) => pusher.pushRemote(table, ctx, run),
+              storage: config.storage,
+              tables: config.tables,
+              logger: rulesLogger,
             })
           }
         },
@@ -633,7 +622,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     tables: config.tables,
     engine: engineAsHybrid,
     attachCtx: config.ctx,
-    pendingClosesStore,
+    storage: config.storage,
     sleepDeriver,
     logger: config.logger,
     dropTally,
@@ -681,118 +670,71 @@ interface CreateSinkDeps {
   tables: readonly string[]
   engine: HybridDuckDB
   attachCtx: AttachContext
-  pendingClosesStore: PendingClosesStore
+  storage: KVStore
   sleepDeriver?: SleepDeriver
   logger?: SchedulerLogger
   dropTally: DropTally
 }
 
-/**
- * Pre-fetch the currently-open `device_config` rows for the given device
- * so `mapRingConfig` can decide which metrics need SCD-2 closes.
- *
- * Value shape (`DeviceConfigRow`) is not consulted by the mapper — only
- * `.has(dataType)` — but hydrating the row keeps the map future-friendly
- * for logging / diagnostics without a second query.
- */
-/**
- * SCD-2 close of one open `device_config` row, local catalog.
- *
- * Hand-written SQL with named placeholders, the same hazard as
- * `ACTIVE_PRIOR_CONFIGS_SQL` below. It read `metric = $data_type` — a
- * leftover of the 0.8.0 `data_type` -> `metric` rename — while the call
- * bound `metric`, so the statement could never execute. Harmless until the
- * app started syncing the ring's monitoring schedule (zivaone_app#190): then
- * every sync whose schedule changed threw here, before its rows were
- * buffered, and the next sync computed the same close and threw again
- * (zivaone_app#221). Every unit test mocked the engine.
- * `__tests__/close-config-sql.test.ts` (unit suite, real DuckDB) now executes it, with the
- * params `closeDeviceConfigParams` builds, against the real DDL.
- */
-export const CLOSE_DEVICE_CONFIG_SQL
-  = `UPDATE memory.main.device_config\n`
-    + `        SET valid_to = $valid_to\n`
-    + `      WHERE device_id = $device_id\n`
-    + `        AND metric = $metric\n`
-    + `        AND valid_to IS NULL`
-
-/** The params `CLOSE_DEVICE_CONFIG_SQL` binds — one builder, so the names cannot drift. */
-export function closeDeviceConfigParams(close: { valid_to: Date, device_id: string, metric: string }) {
-  return {
-    valid_to: close.valid_to.toISOString(),
-    device_id: close.device_id,
-    metric: close.metric,
-  }
-}
-
-/**
- * Open (`valid_to IS NULL`) device_config rows for one device.
- *
- * Fully-qualified `memory.main.device_config` so this resolves against the
- * local catalog regardless of the active `USE <iceberg>.default` that
- * `attach()` issues — a 2-part `main.device_config` would resolve against
- * the current (Iceberg) catalog post-attach and miss.
- *
- * Exported so a test can execute it against the real DDL. It is
- * hand-written SQL naming columns explicitly, which means a schema change
- * can silently desync it: the 0.8.0 `data_type` -> `metric` rename did
- * exactly that, and every unit test mocked the response so nothing caught
- * it. `__tests__/prior-configs-sql.integration.test.ts` now runs it against
- * a real table built from LOCAL_SCHEMAS.
- */
-export const ACTIVE_PRIOR_CONFIGS_SQL
-  = `SELECT device_id, brand, family_id, user_id, metric, interval_minutes, `
-    + `start_time, end_time, weeks, valid_from, valid_to\n`
-    + `       FROM memory.main.device_config\n`
-    + `      WHERE device_id = $device_id\n`
-    + `        AND family_id = $family_id\n`
-    + `        AND user_id = $user_id\n`
-    + `        AND valid_to IS NULL`
-
-async function fetchActivePriorConfigs(
-  engine: HybridDuckDB,
-  ctx: MapperContext,
-): Promise<Map<string, DeviceConfigRow>> {
-  // See ACTIVE_PRIOR_CONFIGS_SQL.
-  const rows = await engine.execute<Record<string, unknown>>(
-    ACTIVE_PRIOR_CONFIGS_SQL,
-    {
-      device_id: ctx.deviceId,
-      family_id: ctx.familyId,
-      user_id: ctx.userId,
-    },
-  )
-  const map = new Map<string, DeviceConfigRow>()
-  for (const r of rows) {
-    const metric = String(r.metric ?? '')
-    map.set(metric, {
-      brand: String(r.brand ?? ''),
-      family_id: String(r.family_id ?? ''),
-      user_id: String(r.user_id ?? ''),
-      device_id: String(r.device_id ?? ''),
-      metric,
-      interval_minutes: Number(r.interval_minutes),
-      start_time: r.start_time == null ? null : String(r.start_time),
-      end_time: r.end_time == null ? null : String(r.end_time),
-      weeks: r.weeks == null ? null : Number(r.weeks),
-      valid_from: new Date(String(r.valid_from ?? '')),
-      valid_to: r.valid_to == null ? null : new Date(String(r.valid_to)),
-    })
-  }
-  return map
-}
+// The ring pack's SCD-2 statements, re-exported from where they always were.
+export { ACTIVE_PRIOR_CONFIGS_SQL, CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams } from '../packs/ring/config-closes'
 
 function createSensorSink(deps: CreateSinkDeps): SensorSink {
-  const { buffer, flusher, triggers, tables, engine, attachCtx, pendingClosesStore, sleepDeriver, logger, dropTally } = deps
-  // Gated on subscription alone now — the mapper owns the translation, so
-  // there is no consumer wiring left that could be missing.
-  const handlesConfig = tables.includes('device_config')
+  const { buffer, flusher, triggers, tables, engine, attachCtx, storage, sleepDeriver, logger, dropTally } = deps
+
+  const ingest = async (adapterName: string, raw: unknown, ctx: IngestContext): Promise<void> => {
+    const adapter = ingestAdapter(adapterName)
+    if (!adapter)
+      throw new SyncError('push_failed', `no ingest adapter "${adapterName}" is registered`)
+    const mapped = await adapter.ingest(raw, ctx, {
+      execute: (sql, params) => engine.execute(sql, params),
+      tables,
+      storage,
+      attach: attachCtx,
+    })
+    for (const [table, mappedRows] of mapped) {
+      if (!mappedRows || mappedRows.length === 0)
+        continue
+      // Post-flush jobs see what the adapter produced, before validation.
+      if (table === 'sleep_raw') {
+        sleepDeriver?.noteRaw({
+          brand: ctx.brand,
+          familyId: ctx.familyId,
+          userId: ctx.userId,
+          deviceId: ctx.deviceId,
+          rows: mappedRows as Record<string, unknown>[],
+        })
+      }
+    }
+    for (const [table, mappedRows] of mapped) {
+      if (!mappedRows || mappedRows.length === 0)
+        continue
+      // Same ingest rule as `push` (spec §13 S10, T-60): only malformed
+      // rows are dropped, counted for the next flush's log line; a value
+      // outside the §13b clamps is stored and flagged by `v_*_q`. Tables
+      // with no validator pass through untouched.
+      const report = validateRows(table, mappedRows)
+      dropTally.add(table, report)
+      const rows = report.kept
+      if (rows.length === 0)
+        continue
+      await buffer.push({
+        table,
+        brand: ctx.brand,
+        familyId: ctx.familyId,
+        userId: ctx.userId,
+        deviceId: ctx.deviceId,
+        rows,
+      })
+      triggers.noteEnqueue(table, Date.now())
+    }
+  }
 
   return {
     push: async (input: SensorBatch) => {
       // The live path (spec §13 S10, T-60): malformed rows are dropped and
       // counted; out-of-range readings are stored for `_q` to flag.
-      const report = dropMalformedRows(input.table, input.rows)
+      const report = validateRows(input.table, input.rows)
       dropTally.add(input.table, report)
       if (report.kept.length === 0)
         return
@@ -802,80 +744,8 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       if (batch.table === 'sleep_raw')
         sleepDeriver?.noteRaw(batch)
     },
-    pushFirmware: async (fw: FirmwareExport, ctx: MapperContext) => {
-      // 1) Pre-fetch open configs for this device so the mapper can decide
-      //    which metrics need SCD-2 closes. Skipped when we're not
-      //    subscribed to device_config.
-      const activePriorConfigs = handlesConfig
-        ? await fetchActivePriorConfigs(engine, ctx)
-        : new Map<string, DeviceConfigRow>()
-
-      // 2) Map firmware → mapped batch. The mapper owns the
-      //    dataType → metric translation; no consumer translator needed.
-      const mapped = mapFirmwareExport(fw, ctx, { activePriorConfigs })
-      if (mapped.sleep_raw.length > 0) {
-        sleepDeriver?.noteRaw({
-          brand: ctx.brand,
-          familyId: ctx.familyId,
-          userId: ctx.userId,
-          deviceId: ctx.deviceId,
-          rows: mapped.sleep_raw as unknown as Record<string, unknown>[],
-        })
-      }
-
-      // 3) SCD-2 close handling. Enqueue-before-UPDATE keeps the local
-      //    UPDATE + remote UPDATE replay-safe under crash: both are
-      //    idempotent via the `valid_to IS NULL` guard.
-      if (handlesConfig && mapped.device_config_closes.length > 0) {
-        await pendingClosesStore.enqueue(attachCtx, mapped.device_config_closes)
-        for (const close of mapped.device_config_closes) {
-          // Fully-qualified `memory.main.device_config` — same reason as
-          // `fetchActivePriorConfigs` above: sink runs after `attach()` has
-          // called `USE <iceberg>.default`, so 2-part names miss.
-          await engine.execute(CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams(close))
-        }
-      }
-
-      // 4) Buffer the new inserts across every mapped table.
-      const asRows = <T>(rows: readonly T[]): Record<string, unknown>[] =>
-        rows as unknown as Record<string, unknown>[]
-      const mappedTables: Array<[string, Record<string, unknown>[]]> = [
-        ['hrv', asRows(mapped.hrv)],
-        ['heart_rate', asRows(mapped.heart_rate)],
-        ['spo2', asRows(mapped.spo2)],
-        ['temperature', asRows(mapped.temperature)],
-        ['activity', asRows(mapped.activity)],
-        ['activity_bucket', asRows(mapped.activity_bucket)],
-        ['sleep_session', asRows(mapped.sleep_session)],
-        ['sleep_stage', asRows(mapped.sleep_stage)],
-        ['sleep_raw', asRows(mapped.sleep_raw)],
-        ['device_event', asRows(mapped.device_event)],
-        ['device_battery', asRows(mapped.device_battery)],
-        ['device_config', asRows(mapped.device_config)],
-      ]
-      for (const [table, mappedRows] of mappedTables) {
-        if (!mappedRows || mappedRows.length === 0)
-          continue
-        // Same ingest rule as `push` (spec §13 S10, T-60): only malformed
-        // rows are dropped, counted for the next flush's log line; a value
-        // outside the §13b clamps is stored and flagged by `v_*_q`. Tables
-        // with no reading column pass through untouched.
-        const report = dropMalformedRows(table, mappedRows)
-        dropTally.add(table, report)
-        const rows = report.kept
-        if (rows.length === 0)
-          continue
-        await buffer.push({
-          table,
-          brand: ctx.brand,
-          familyId: ctx.familyId,
-          userId: ctx.userId,
-          deviceId: ctx.deviceId,
-          rows,
-        })
-        triggers.noteEnqueue(table, Date.now())
-      }
-    },
+    ingest,
+    pushFirmware: async (fw: FirmwareExport, ctx: MapperContext) => ingest('firmware', fw, ctx),
     flush: async () => {
       // A user-initiated flush is one batch too — otherwise a manual sync
       // would evaluate rules per table and reintroduce the race that

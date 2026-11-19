@@ -70,6 +70,7 @@ export {
   definePack,
   getPack,
   getPacks,
+  ingestAdapter,
   packExtensions,
   packTable,
   packTables,
@@ -80,11 +81,17 @@ export {
 
 export type {
   AnalyticsPack,
+  IngestAdapter,
+  IngestContext,
+  IngestDeps,
+  IngestRows,
   PackMigration,
+  PackSyncHooks,
   PackTable,
   PackTableRetention,
   PackViewDdl,
   QualityViewProvider,
+  SyncHookDeps,
 } from './packs'
 // Signal-quality views (T-25, sprint6 §13). Claims read `v_{vital}_clean`;
 // `v_{vital}_q` carries the per-reading flags for diagnostics and muted charts.
