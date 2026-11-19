@@ -154,6 +154,16 @@ const [SPO2_MIN, SPO2_MAX] = PLAUSIBLE_RANGES.spo2
 const [BPM_MIN, BPM_MAX] = PLAUSIBLE_RANGES.bpm
 const [HRV_MIN, HRV_MAX] = PLAUSIBLE_RANGES.hrv_ms
 
+/**
+ * The temperatures that count as wear evidence: every one up to the clamp's
+ * ceiling. Below 30 °C is the ambient (off-wrist) evidence the gate exists
+ * for, so the floor is NOT applied. Above the ceiling a value is neither skin
+ * nor room (filler, a 10x decode): it must not decide wear either way. Until
+ * S10 (spec §13 amendment 2026-11-12, T-60) the ingest dropped such values,
+ * so no reading met one here; now they are stored and flagged.
+ */
+const WEAR_TEMPS = `(SELECT * FROM v_temperature WHERE temp_c <= ${TEMP_MAX})`
+
 const DEVICE_WINDOW = 'PARTITION BY user_id, brand, family_id, device_id ORDER BY ts'
 
 /**
@@ -167,7 +177,7 @@ SELECT user_id, brand, family_id, device_id, ts,
        temp_c >= ${WEAR_TEMP_MIN_C} AS on_wrist,
        COALESCE(temp_c >= ${WEAR_TEMP_MIN_C}
          AND LAG(temp_c) OVER (${DEVICE_WINDOW}) < ${WEAR_TEMP_MIN_C}, FALSE) AS onset
-FROM v_temperature;`
+FROM ${WEAR_TEMPS};`
 }
 
 /** Latest wear evidence at or before each reading, same device. */
@@ -822,8 +832,9 @@ _wear AS (
          t.temp_c >= ${WEAR_TEMP_MIN_C} AS on_wrist,
          COALESCE(t.temp_c >= ${WEAR_TEMP_MIN_C} AND p.temp_c < ${WEAR_TEMP_MIN_C}, FALSE) AS onset
   FROM (SELECT * FROM v_temperature
-        WHERE ts >= ${LO} - INTERVAL ${WEAR_EVIDENCE_MINUTES} MINUTE AND ts < ${HI}) t
-  ASOF LEFT JOIN v_temperature p
+        WHERE ts >= ${LO} - INTERVAL ${WEAR_EVIDENCE_MINUTES} MINUTE AND ts < ${HI}
+          AND temp_c <= ${TEMP_MAX}) t
+  ASOF LEFT JOIN ${WEAR_TEMPS} p
     ON p.user_id = t.user_id AND p.brand = t.brand AND p.family_id = t.family_id
    AND p.device_id = t.device_id AND t.ts > p.ts
 ),

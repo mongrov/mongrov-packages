@@ -17,6 +17,7 @@ import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { mapFirmwareExport } from '../../sync/mapper/firmware'
 import { dropMalformedRows, DropTally } from '../../sync/mapper/plausibility'
 import { HybridDuckDB } from '../engine'
+import { qualityMacroFor } from '../reading-quality'
 import { LOCAL_SCHEMAS, TABLE_NAMES } from '../schemas'
 import { createViews } from '../warehouse'
 
@@ -119,5 +120,44 @@ describe('t-60: out-of-range readings are stored and flagged, not dropped', () =
       total: 1,
       dropped: { heart_rate: { before_epoch: 1 } },
     }))
+  })
+})
+
+describe('t-60: a temperature above the clamp is not wear evidence', () => {
+  // Off the wrist at 24 °C, then a 50 °C value (stored and flagged since S10:
+  // neither skin nor room), then an SpO2 with no heart rate near it. Wear must
+  // still read off-wrist, and the next real skin reading is the warm-up onset.
+  const W = 'user_t60_wear'
+  const at = (hhmm: string) => `TIMESTAMP '2026-08-21 ${hhmm}:00'`
+  const ids = `'${BRAND}', '${FAMILY}', '${W}', 'ring_t60'`
+
+  beforeAll(async () => {
+    await db.execute(`INSERT INTO memory.temperature (ts, brand, family_id, user_id, device_id, temp_c) VALUES
+      (${at('07:00')}, ${ids}, 24), (${at('07:05')}, ${ids}, 50), (${at('07:20')}, ${ids}, 36)`)
+    await db.execute(`INSERT INTO memory.spo2 (ts, brand, family_id, user_id, device_id, spo2) VALUES
+      (${at('07:10')}, ${ids}, 97)`)
+    await createViews(db, { brand: BRAND, familyId: FAMILY, localCatalog: 'memory', quality: {} })
+  })
+
+  async function flags(rel: string, table: 'spo2' | 'temperature') {
+    return db.execute<{ worn: boolean, warm_up: boolean }>(
+      `SELECT worn, warm_up FROM ${rel} WHERE user_id = $u ORDER BY ts`,
+      { u: W },
+    ).then(rows => rows.map(r => ({ worn: r.worn, warm_up: r.warm_up, table })))
+  }
+
+  it('the SpO2 after the 50 °C value reads off-wrist (view and bounded macro agree)', async () => {
+    const view = await flags('v_spo2_q', 'spo2')
+    const macro = await flags(`${qualityMacroFor('spo2')}(TIMESTAMP '2000-01-01', TIMESTAMP '2100-01-01')`, 'spo2')
+    expect(view.map(r => r.worn)).toEqual([false])
+    expect(macro).toEqual(view)
+  })
+
+  it('the 36 °C after it is the warm-up onset: its predecessor is the 24, not the 50', async () => {
+    const view = await flags('v_temperature_q', 'temperature')
+    const macro = await flags(`${qualityMacroFor('temperature')}(TIMESTAMP '2000-01-01', TIMESTAMP '2100-01-01')`, 'temperature')
+    // 24 off-wrist; 50 takes the 24's evidence; 36 is the onset.
+    expect(view.map(r => r.warm_up)).toEqual([false, false, true])
+    expect(macro).toEqual(view)
   })
 })

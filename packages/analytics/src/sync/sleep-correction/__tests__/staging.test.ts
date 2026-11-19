@@ -14,6 +14,7 @@ import { generateViewDdl, LOCAL_SCHEMAS } from '../../../core/schemas'
 import { correctNight } from '../correct'
 import { nightWindow } from '../night'
 import { correctSleepNights, nightsForEpochs } from '../orchestrate'
+import { DEFAULT_RELATIONS, rel } from '../sql'
 import { stagingViewsSql } from '../staging'
 
 const BRAND = 'ziva'
@@ -66,6 +67,22 @@ describe('staging views over the warehouse', () => {
     expect(res.rows[0].date).toBe('2026.06.17 23:00:00')
     expect(res.rows[res.rows.length - 1].date).toBe('2026.06.18 06:00:00')
     expect(new Set(res.rows.map(r => r.block_type))).toEqual(new Set(['primary']))
+  }, 60_000)
+})
+
+describe('the heart-rate relation holds only clamped readings (S10, T-60)', () => {
+  // Out-of-range values are stored and flagged since S10; the v3.1 port was
+  // proved on data whose ingest dropped them, so they must not feed it now.
+  it('an HR 250 and an HR 20 never reach the correction', async () => {
+    const db = await warehouse()
+    await db.execute(`INSERT INTO memory.heart_rate (ts, brand, family_id, user_id, device_id, bpm) VALUES
+      ('2026-06-18 02:02:00', '${BRAND}', '${FAMILY}', 'u1', 'ring_1', 250),
+      ('2026-06-18 02:03:00', '${BRAND}', '${FAMILY}', 'u1', 'ring_1', 20)`)
+    const rows = await db.execute<{ hr: number }>(
+      `SELECT "singleHR" AS hr FROM ${rel(DEFAULT_RELATIONS.heartrate)} WHERE date BETWEEN ${at('2026-06-18T02:00:00')} AND ${at('2026-06-18T02:05:00')} ORDER BY date`,
+    )
+    await db.close?.()
+    expect(rows.map(r => Number(r.hr))).toEqual([60, 60])
   }, 60_000)
 })
 
