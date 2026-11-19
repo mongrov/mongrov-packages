@@ -106,7 +106,7 @@ export interface DuckdbQueryConfig<TInput, TOutput>
    * nothing resolves it: Metro cannot require an arbitrary runtime path,
    * and no build step generates the wiring. Queries declaring a string
    * therefore reach `parseOutput` with raw rows — which is why every
-   * ZivaOne `spo2.*` query with a declared derived output could never
+   * app's `reading.*` query with a declared derived output could never
    * satisfy its own schema. Strings stay accepted so existing registries
    * keep compiling; migrate them to functions.
    */

@@ -35,7 +35,7 @@ function redactValue(value: unknown): unknown {
  * Core's default `LoggerConfig.redact`: masks the value of any secret-looking
  * key and anything shaped like an email in the message and string values.
  *
- * Runs on the sanitized entry, before any transport sees it, so the ring
+ * Runs on the sanitized entry, before any transport sees it, so the in-memory
  * buffer, the file, the webhook and Sentry all get the same redacted line.
  * Packages pass raw `err.message` strings (server responses echo logins), so
  * this is the one place that can catch them all.

@@ -71,7 +71,7 @@ export interface CurrentReactionItem {
 
 const DEFAULT_QUICK_REACTIONS = [
   '\u{1F44D}', // thumbs up
-  '\u{2764}\u{FE0F}', // red heart
+  '\u{2764}\u{FE0F}', // U+2764 + VS16
   '\u{1F602}', // face with tears of joy
   '\u{1F62E}', // face with open mouth
   '\u{1F622}', // crying face

@@ -8,7 +8,7 @@
  *   - `overflow_dropped` — drop-newest policy discarded a batch
  *   - `token_expired` — 401 from R2 after token refresh
  *   - `constraint_not_met` — scheduler skipped a cycle (battery / network)
- *   - `mapper_failed` — firmware mapper raised
+ *   - `mapper_failed` — an ingest adapter raised
  */
 
 export type SyncErrorCode

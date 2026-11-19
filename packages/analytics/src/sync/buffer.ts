@@ -1,9 +1,9 @@
 /**
  * Sensor buffer (T-10 + T-12).
  *
- * In-memory ring per table with byte-budget accounting and pluggable overflow
+ * In-memory queue per table with byte-budget accounting and pluggable overflow
  * policies. All ops are synchronous except `push` (which may await overflow
- * writes when the ring exceeds its byte budget).
+ * writes when the queue exceeds its byte budget).
  *
  * Byte accounting: we estimate a row's contribution as
  * `JSON.stringify(rows).length` at push time. This is a rough proxy for the
@@ -12,7 +12,7 @@
  * fires.
  *
  * Overflow policies (T-12):
- *   - `drop-oldest`: when the ring is full, spill the oldest ring entries to
+ *   - `drop-oldest`: when the queue is full, spill the oldest queued entries to
  *     `OverflowStore` until the incoming push fits in memory. Overflow is
  *     durable (MMKV via KVStore) so nothing is actually dropped.
  *   - `drop-newest`: reject the incoming push and increment a dropped
@@ -62,7 +62,7 @@ export class SensorBuffer {
   readonly #onDrop: SensorBufferConfig['onDrop']
   readonly #now: () => number
 
-  #rings = new Map<string, BufferEntry[]>()
+  #queues = new Map<string, BufferEntry[]>()
   #inMemoryBytes = new Map<string, number>()
   #blockWaiters: Map<string, Array<() => void>> = new Map()
 
@@ -93,38 +93,38 @@ export class SensorBuffer {
    */
   async drain(table: string): Promise<BufferEntry[]> {
     const overflow = await this.#overflow.drain(table)
-    const ring = this.#rings.get(table) ?? []
-    this.#rings.set(table, [])
+    const queue = this.#queues.get(table) ?? []
+    this.#queues.set(table, [])
     this.#inMemoryBytes.set(table, 0)
     // Wake any block-policy waiters now that room is available.
     this.#wakeBlockers(table)
-    return [...overflow, ...ring]
+    return [...overflow, ...queue]
   }
 
   /**
-   * Take a table's buffered rows for a flush, two-phase (zivaone_app#54).
+   * Take a table's buffered rows for a flush, two-phase (app#54).
    *
    * Unlike `drain`, durable (overflow) rows are LEASED, not deleted: they stay
    * in the KVStore until `commit()`, which the flusher calls only after the
    * write succeeds. A kill in between leaves them on disk for the next
    * process. `release()` returns a failed batch: durable rows simply become
-   * available again, and the in-memory rows go back into the ring.
+   * available again, and the in-memory rows go back into the queue.
    *
    * In-memory rows are taken outright — they were never durable, and
    * nothing a flusher does can make a kill spare them.
    */
   async take(table: string): Promise<TakenBatch> {
-    const ring = this.#rings.get(table) ?? []
-    this.#rings.set(table, [])
+    const queue = this.#queues.get(table) ?? []
+    this.#queues.set(table, [])
     this.#inMemoryBytes.set(table, 0)
     this.#wakeBlockers(table)
     const { entries: durable, seqs } = await this.#overflow.lease(table)
     return {
-      entries: [...durable, ...ring],
+      entries: [...durable, ...queue],
       commit: () => this.#overflow.ack(table, seqs),
       release: async () => {
         await this.#overflow.release(table, seqs)
-        for (const entry of ring) await this.#pushEntry(table, entry)
+        for (const entry of queue) await this.#pushEntry(table, entry)
       },
     }
   }
@@ -136,7 +136,7 @@ export class SensorBuffer {
     let inMemoryBytes = 0
     let overflow = 0
     const tables = new Set<string>([
-      ...this.#rings.keys(),
+      ...this.#queues.keys(),
       ...this.#inMemoryBytes.keys(),
     ])
     for (const t of tables) {
@@ -150,14 +150,14 @@ export class SensorBuffer {
 
   async clear(table?: string): Promise<void> {
     if (table) {
-      this.#rings.delete(table)
+      this.#queues.delete(table)
       this.#inMemoryBytes.set(table, 0)
       await this.#overflow.clear(table)
       this.#wakeBlockers(table)
       return
     }
-    for (const t of this.#rings.keys()) await this.#overflow.clear(t)
-    this.#rings.clear()
+    for (const t of this.#queues.keys()) await this.#overflow.clear(t)
+    this.#queues.clear()
     this.#inMemoryBytes.clear()
     for (const t of this.#blockWaiters.keys()) this.#wakeBlockers(t)
   }
@@ -173,23 +173,23 @@ export class SensorBuffer {
 
     switch (this.#policy) {
       case 'drop-oldest': {
-        // Spill oldest ring entries to overflow until the incoming push fits.
-        const ring = this.#rings.get(table) ?? []
+        // Spill oldest queued entries to overflow until the incoming push fits.
+        const queue = this.#queues.get(table) ?? []
         while (
-          ring.length > 0
+          queue.length > 0
           && (this.#inMemoryBytes.get(table) ?? 0) + entry.byteSize
           > this.#maxBytes
         ) {
-          const oldest = ring.shift()!
+          const oldest = queue.shift()!
           this.#inMemoryBytes.set(
             table,
             (this.#inMemoryBytes.get(table) ?? 0) - oldest.byteSize,
           )
           await this.#overflow.push(table, oldest)
         }
-        this.#rings.set(table, ring)
+        this.#queues.set(table, queue)
         // If the incoming entry itself exceeds the budget, park it in
-        // overflow directly rather than blowing the ring.
+        // overflow directly rather than overflowing the queue.
         if (entry.byteSize > this.#maxBytes) {
           await this.#overflow.push(table, entry)
         }
@@ -215,9 +215,9 @@ export class SensorBuffer {
   }
 
   #appendInMemory(table: string, entry: BufferEntry): void {
-    const ring = this.#rings.get(table) ?? []
-    ring.push(entry)
-    this.#rings.set(table, ring)
+    const queue = this.#queues.get(table) ?? []
+    queue.push(entry)
+    this.#queues.set(table, queue)
     this.#inMemoryBytes.set(
       table,
       (this.#inMemoryBytes.get(table) ?? 0) + entry.byteSize,
@@ -225,8 +225,8 @@ export class SensorBuffer {
   }
 
   async #sizeOne(table: string): Promise<BufferSize> {
-    const ring = this.#rings.get(table) ?? []
-    const inMemoryRows = ring.reduce((a, e) => a + e.rows.length, 0)
+    const queue = this.#queues.get(table) ?? []
+    const inMemoryRows = queue.reduce((a, e) => a + e.rows.length, 0)
     const overflowCount = await this.#overflow.count(table)
     return {
       inMemory: inMemoryRows,

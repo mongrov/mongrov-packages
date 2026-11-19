@@ -218,7 +218,7 @@ export interface Logger {
   exportLogs: (filter?: LogFilter) => string
   /**
    * Every line the file transport has kept (all retained days, oldest first,
-   * one JSON entry per line). Survives restarts and crashes, unlike the ring
+   * one JSON entry per line). Survives restarts and crashes, unlike the in-memory
    * buffer. Rejects when the file transport is not configured.
    */
   exportFileLogs: () => Promise<string>

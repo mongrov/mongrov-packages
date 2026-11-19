@@ -43,7 +43,7 @@ export interface CompiledRule {
   metric: string
   sql: string
   /**
-   * The same query reading the vital through its bounded `_between` macros
+   * The same query reading the metric through its bounded `_between` macros
    * instead of the full-history views (mongrov-packages#44): identical rows,
    * a fraction of the cost. Present when the rule reads a quality table. The
    * evaluator runs it only when `analytics.boundedReads` is true, and `sql`
@@ -145,7 +145,7 @@ export interface RulesEngineConfig {
    * When absent, day-cadence rules are SKIPPED with a warning rather than
    * evaluated against a guessed zone. A rule that fires on the wrong day is
    * worse than one that does not fire, and silently substituting UTC is the
-   * failure mode that cost an afternoon in zivaone_app#74.
+   * failure mode that cost an afternoon in app#74.
    */
   userTimezoneProvider?: (userId: string) => Promise<string | undefined>
   logger?: RulesLogger

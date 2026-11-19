@@ -13,7 +13,7 @@ import { useAppMutation, useAppQuery } from '../hooks'
 
 const _registry = {
   queries: {
-    'spo2.day': defineQuery({
+    'reading.day': defineQuery({
       engine: 'duckdb',
       input: z.object({ userId: z.string(), offset: z.number() }),
       output: z.object({ dayAvg: z.number().nullable() }),
@@ -44,7 +44,7 @@ declare module '../types' {
 
 export function useInferred(): void {
   // Output derived from the entry the name selects — no annotation.
-  const day = useAppQuery('spo2.day', { userId: 'u', offset: 0 })
+  const day = useAppQuery('reading.day', { userId: 'u', offset: 0 })
   const avg: number | null | undefined = day.data?.dayAvg
   void avg
 
@@ -56,11 +56,11 @@ export function useInferred(): void {
   // @ts-expect-error the output is a number, not `{ value: number }`
   void level.data?.value
 
-  // @ts-expect-error `offset` is required by spo2.day's input schema
-  useAppQuery('spo2.day', { userId: 'u' })
+  // @ts-expect-error `offset` is required by reading.day's input schema
+  useAppQuery('reading.day', { userId: 'u' })
 
   // @ts-expect-error not a registered query name
-  useAppQuery('spo2.week', { userId: 'u' })
+  useAppQuery('reading.week', { userId: 'u' })
 
   const dismiss = useAppMutation('insight.dismiss')
   dismiss.mutate({ insightId: 'i1' })

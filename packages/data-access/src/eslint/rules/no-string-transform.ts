@@ -10,10 +10,10 @@
  * This has now been found three times by hand:
  *
  *   - `device.lastSyncedAt` shipped registered and unsatisfiable, its
- *     `sensorScene` never produced (zivaone_app finding #7).
+ *     `sensorScene` never produced (app finding #7).
  *   - The sprint6 spec's `queries.ts` carries 17 path-string transforms and
  *     zero function ones — every entry in it has the same defect.
- *   - `hrv.day` was about to be registered the same way.
+ *   - a second day query was about to be registered the same way.
  *
  * A comment naming a module that does not exist yet is not a transform. If
  * the derivation is unwritten, the honest options are to leave the entry out

@@ -110,7 +110,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
    * resolver does. Sync's fallback is defensible — a baseline in the device
    * zone beats no baseline. A rule is different: firing "three days running"
    * against days that started at the wrong hour is a wrong alert, and a
-   * wrong alert about someone's health is worse than a missing one.
+   * wrong alert about someone is worse than a missing one.
    */
   async function resolveTimezone(userId: string): Promise<string | undefined> {
     if (!userTimezoneProvider)

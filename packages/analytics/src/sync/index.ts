@@ -84,10 +84,6 @@ export {
   SyncScheduler,
   type SyncSchedulerConfig,
 } from './scheduler'
-// The sleep-correction read path, for the app's native SQL smoke
-// (principle 68, zivaone_app#460): sleep-derive runs it inside the batch
-// cycle, where nothing else exercises it on a device build. A caller passes
-// its own `SleepRelations` so its staging views never replace sleep-derive's.
 export {
   DEFAULT_MAX_AGE_MS,
   DEFAULT_MAX_ROWS,

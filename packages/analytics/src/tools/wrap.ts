@@ -72,7 +72,7 @@ export interface MakeToolConfig<Input> {
  * internals. Handed a zod-4 schema it emits `type: "None"`, and OpenAI
  * rejects the whole request:
  *
- *   AI_APICallError: Invalid schema for function 'getSpO2': schema must be a
+ *   AI_APICallError: Invalid schema for function 'getReading': schema must be a
  *   JSON Schema of 'type: "object"', got 'type: "None"'.
  *
  * Because tools are sent on every request, one bad schema breaks all chat —

@@ -750,7 +750,7 @@ export type QueryOutputOf<T> = T extends QueryDefinition<infer _I, infer O> ? O 
  *
  * `useAppQuery` is generic over `<TInput, TOutput>` that the CALLER supplies,
  * so it believes whatever the call site asserts. That is not a hypothetical
- * problem: zivaone_app annotated `user.spo2SafeLevel` as `{ value: number }`
+ * problem: an app annotated `user.safeLevel` as `{ value: number }`
  * when the query returns a bare `number`, read `.data?.value`, got `undefined`
  * forever, and silently fell back to a default of 90. It compiled, it never
  * threw, and no test caught it — the shape was asserted, not checked.

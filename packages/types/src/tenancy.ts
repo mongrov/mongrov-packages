@@ -6,7 +6,7 @@
  * Identity model (principles 10–13):
  *   - One binary serves multiple brands; brand is part of every identity.
  *   - `(brand, userId)` is the composite identity. The same email may hold an
- *     account on ZivaOne and on Viva; they are different accounts with
+ *     account on two brands; they are different accounts with
  *     different sessions, and nothing joins across them device-side.
  *   - v1 invariant: one family per user (principle 12).
  *   - A user removed from a family keeps their data under their `userId`;
@@ -14,7 +14,7 @@
  */
 
 /**
- * A brand tenant — ZivaOne, Viva, YogaRing (consumer, family-scoped) or
+ * A brand tenant — a consumer brand (family-scoped) or
  * LuminX (enterprise, org-scoped).
  *
  * `tenantScope` selects the warehouse partitioning strategy: `'family'`
@@ -53,7 +53,7 @@ export interface Family {
  * An authenticated user, scoped to one brand.
  *
  * `timezone` is load-bearing rather than cosmetic: `analytics/sync`'s mapper
- * needs an IANA zone to attribute sleep sessions to the correct local
+ * needs an IANA zone to attribute sessions to the correct local
  * "night" via the 6pm–6pm rule (principle 24), and baseline compute needs it
  * to group readings by local day. Captured at sign-up, falling back to the
  * device timezone when the profile has none.
@@ -72,7 +72,7 @@ export interface User {
 }
 
 /**
- * A paired hardware device as the analytics plane models it — ring, band, or
+ * A paired hardware device as the analytics plane models it — band, tag, or
  * asset tracker.
  *
  * Named `AnalyticsDevice` rather than `Device` because `./device.ts` already
@@ -81,7 +81,7 @@ export interface User {
  * this one is the durable tenancy record that sensor rows carry a foreign
  * key to; that one is the live connection handle.
  *
- * `id = hash(brand + hardware_id)` (principle 26) — the same physical ring
+ * `id = hash(brand + hardware_id)` (principle 26) — the same physical device
  * paired to two brand accounts yields two distinct ids, so cross-brand
  * correlation is impossible device-side even by accident.
  */
@@ -91,7 +91,7 @@ export interface AnalyticsDevice {
   userId: string
   familyId: string
   brand: string
-  /** Hardware class, e.g. `'ring' | 'band' | 'tracker'`. Open string set. */
+  /** Hardware class, e.g. `'band' | 'tag' | 'tracker'`. Open string set. */
   type: string
   model?: string
   firmwareVersion?: string

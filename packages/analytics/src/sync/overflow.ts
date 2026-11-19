@@ -1,7 +1,7 @@
 /**
  * Overflow store (T-11).
  *
- * Persistent tail of the sensor buffer. When the in-memory ring exceeds its
+ * Persistent tail of the sensor buffer. When the in-memory queue exceeds its
  * byte budget, chunks spill to the KVStore keyed by
  *   `sync:overflow:{table}:{seq}`
  *

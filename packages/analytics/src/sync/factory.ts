@@ -122,9 +122,9 @@ export interface CreateSyncManagerConfig {
    * When true (default), rules evaluate once per batch on `batch:complete`
    * rather than per table on each `{table}:insert` (Sprint 5 item (a)).
    *
-   * This is the fix for a real race: a `context: 'asleep'` rule JOINs
-   * `v_sleep_session`, and firing it the moment `spo2` flushes lets it
-   * evaluate against a night whose sleep rows are still buffered. Set
+   * This is the fix for a real race: a context rule JOINs
+   * another table's view, and firing it the moment its own table flushes
+   * lets it evaluate against rows still buffered for the other. Set
    * false only for a consumer that wants lower evaluation latency and
    * ships no context-JOIN or consecutive rules.
    */
@@ -141,8 +141,7 @@ export interface CreateSyncManagerConfig {
   computeBaselines?: boolean
   /**
    * Options for the packs' post-flush jobs, by the names each job documents
-   * (e.g. the ring pack's `correctSleep: false` turns its sleep correction
-   * off).
+   * (e.g. `{ <job option>: false }` turns a pack's job off).
    */
   options?: Readonly<Record<string, unknown>>
   logger?: SchedulerLogger
@@ -169,7 +168,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   })
 
   const overflow = new OverflowStore(config.storage)
-  // `drop-newest` discards whole pushes once the ring is full, and nothing
+  // `drop-newest` discards whole pushes once the buffer is full, and nothing
   // was listening. One line on the first drop, then every 50th, so a stuck
   // buffer shows up without flooding the export.
   let droppedPushes = 0
@@ -266,8 +265,8 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     }
     if (event.type === 'batch-complete' && strictBatchOrdering) {
       // Every table in the batch has landed, so a `context: 'asleep'` rule
-      // can now JOIN v_sleep_session and see the whole night.
-      // Only tables that inserted NEW rows (zivaone_app#460 P17): a re-sync of
+      // can now JOIN the other tables it reads and see them whole.
+      // Only tables that inserted NEW rows (app#460 P17): a re-sync of
       // rows already held flushes every table and changes nothing a rule can
       // see, and each rule reads the full-history quality views.
       evaluateRules(
@@ -335,7 +334,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     logger: config.logger,
   })
 
-  // Packs' post-flush jobs (e.g. the ring's sleep correction), built for
+  // Packs' post-flush jobs (e.g. deriving tables from raw ones), built for
   // this manager; a job that does not apply to the subscribed tables opts
   // out by returning nothing.
   const jobs: PostFlushRunner[] = packExtensions<readonly PostFlushJob[]>('postFlush')
@@ -442,7 +441,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
 
   // Both fallbacks below are the right default — a consumer without an RN
   // background-task adapter should still get a SyncManager. What was wrong is
-  // that they were silent (zivaone_app#74).
+  // that they were silent (app#74).
   //
   // `noopBackgroundTask()` stores the handler and never calls it, so
   // `scheduler.start()` registers a cycle that can never fire and still logs
@@ -465,7 +464,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // it never consults them (#80): a missing port is not a warning there, and
   // a supplied one is not used. The scheduler checks the gate before the
   // whole cycle, so a port saying "no" would otherwise skip the local flush,
-  // the sleep derivation, baselines and rules — none of which leave the
+  // the post-flush jobs, baselines and rules — none of which leave the
   // device. The warning is real in r2 mode: without a port, scheduled
   // cycles push and fetch on any network.
   const constraints = isLocal ? undefined : config.constraints
@@ -495,7 +494,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
           )
           // After the raw tables land, before endBatch: corrected nights
           // are written into this batch so rules see them (never throws).
-          // Their flush counts in the summary (zivaone_app#452).
+          // Their flush counts in the summary (app#452).
           const results = mergeFlushResults(flushed, await postFlush.run(batchId, 'scheduled'))
           // Reported, not thrown: a failed table keeps its rows buffered for
           // the next cycle, and the rest of the cycle (push, fetch,
@@ -517,7 +516,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       pushAll: isLocal
         ? async () => []
         : async (tables, ctx) => pusher.pushAll(tables, ctx),
-      // Packs' after-push steps (the ring's SCD-2 closes), r2 mode only:
+      // Packs' after-push steps (e.g. replaying SCD-2 closes), r2 mode only:
       // there is no remote to replay against locally.
       afterPush: (isLocal || afterPushHooks.length === 0)
         ? undefined
@@ -746,7 +745,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
         }
         // Post-flush jobs flush their derived rows after the loop drained
         // those tables empty — fold them in, or the caller reads 0 for them
-        // (zivaone_app#452).
+        // (app#452).
         results = mergeFlushResults(results, await postFlush.run(batchId, 'manual'))
       }
       finally {

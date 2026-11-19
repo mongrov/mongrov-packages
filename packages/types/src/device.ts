@@ -5,7 +5,7 @@
 //
 // IP boundary: shapes are the empty container. `value` is OPAQUE (JsonValue); `metric`/`kind`/`unit`
 // describe structure, never product meaning. The metric vocabulary and per-metric value schemas live
-// in the app (ziva-metrics.ts, luminx-metrics.ts), never here and never as README examples.
+// in the app (its own metric modules), never here and never as README examples.
 // All additions are additive and backwards compatible.
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ export interface Device {
   /** Which adapter handles this device (e.g. 'jcring', 'gatt-generic'). */
   adapterId: string
   name?: string
-  /** Open string set the adapter supports, e.g. 'ring' | 'band' | 'tracker'. */
+  /** Open string set the adapter supports, e.g. 'band' | 'tracker' | 'tag'. */
   kind?: string
   state: ConnectionState
   rssi?: number
@@ -105,7 +105,7 @@ export interface Device {
   owned?: boolean
 }
 
-/** Snapshot of device health/identity. firmwareVersion from vendor GetDeviceVersion(). */
+/** Snapshot of device status/identity. firmwareVersion from vendor GetDeviceVersion(). */
 export interface DeviceStatus {
   deviceId: string
   batteryPct?: number
@@ -125,11 +125,11 @@ export type DeviceCapability = 'LiveStream' | 'BatchSync' | 'Measure' | 'Firmwar
  * Generic STRUCTURE class of a reading's payload — NOT its meaning. db routes storage on this,
  * ux picks a renderer on this; neither inspects `value`. The package can read `kind`; it can never
  * read what `metric` means.
- *   scalar — one number          (hr, spo2, temperature, battery)
+ *   scalar — one number          (a reading, a level, a battery)
  *   vector — numeric array        (imu / accelerometer sample)
  *   geo    — { lat, lng, … }      (tracker location)
  *   sample — waveform / series    (ppg trace)
- *   blob   — opaque structured     (sleep stages, activity summary)
+ *   blob   — opaque structured     (a session, a summary)
  */
 export type ReadingKind = 'scalar' | 'vector' | 'geo' | 'sample' | 'blob'
 
@@ -144,7 +144,7 @@ export type ReadingKind = 'scalar' | 'vector' | 'geo' | 'sample' | 'blob'
  */
 export interface DeviceReading {
   deviceId: string
-  /** Open vocabulary: 'hr' | 'spo2' | 'hrv' | 'temperature' | 'sleep' | 'activity' | 'location' | … */
+  /** Open vocabulary: 'location' | 'speed' | 'battery' | … */
   metric: string
   /** Generic structure class — db/ux route on this, never on `metric`. */
   kind: ReadingKind
@@ -152,7 +152,7 @@ export interface DeviceReading {
   ts: number
   /** OPAQUE payload — the package never inspects it. App owns the per-metric schema. */
   value: JsonValue
-  /** Generic unit, optional: 'bpm' | 'celsius' | '%' | 'm' | … */
+  /** Generic unit, optional: 'celsius' | '%' | 'm' | 'm/s' | … */
   unit?: string
   /** Optional vendor sequence number — alternative identity when ts collides. */
   seq?: number

@@ -11,11 +11,11 @@ const DDL_TAIL_RE = /\n\);$/
 /**
  * Quote a (possibly dotted) SQL qualifier for use in DDL/DML.
  *
- * Catalog names come from the database filename, so `zivaone-analytics.duckdb`
- * yields the catalog `zivaone-analytics` — and a bare hyphen is a syntax
+ * Catalog names come from the database filename, so `my-app-analytics.duckdb`
+ * yields the catalog `my-app-analytics` — and a bare hyphen is a syntax
  * error in an identifier position:
  *
- *   CREATE TABLE IF NOT EXISTS zivaone-analytics.insight (...)
+ *   CREATE TABLE IF NOT EXISTS my-app-analytics.insight (...)
  *                                      ^ Parser Error: syntax error at or near "-"
  *
  * Each dot-separated part is quoted independently, because callers pass both

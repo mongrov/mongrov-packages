@@ -44,7 +44,7 @@ const WINDOW_MINUTES: Record<Window, number> = {
  * Allow-list of windows compatible with `metric.sampling_minutes`.
  * A window is compatible iff its duration ≥ (2 × sampling cadence),
  * i.e. the query is guaranteed to see at least two samples worst-case.
- * `per_session` metrics (sleep_score, sleep_total_minutes) require ≥ 3d.
+ * `per_session` metrics (one value per session) require ≥ 3d.
  */
 export function allowedWindowsFor(metric: string): Window[] {
   const explicit = rulePacks().find(p => p.windows?.[metric])?.windows?.[metric]
@@ -104,7 +104,7 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
 /**
  * T-21 — `consecutive x effective_sampling_minutes` must fit the window.
  *
- * A rule asking for 3 consecutive HRV samples (60-min cadence) inside a 1h
+ * A rule asking for 3 consecutive samples (60-min cadence) inside a 1h
  * window is unsatisfiable: the window holds at most one sample, so the
  * rule can never fire and the author gets silence instead of an error.
  *
@@ -174,8 +174,8 @@ function validateCadence(rule: Rule): void {
 
   // The window is how far back COMPLETED days are read, and today is
   // excluded, so it must hold the longest run the rule can ask for plus
-  // today. ziva.temp-flag-level shipped with a 24h window and a 2-night run:
-  // valid by every other check, and unable ever to fire (zivaone_app#55).
+  // today. A shipped flag rule with a 24h window and a 2-night run:
+  // valid by every other check, and unable ever to fire (app#55).
   // A consecutiveKey can raise the count at eval time, so its registered
   // range's upper bound is the run that must fit.
   const longest = rule.consecutiveKey === undefined
@@ -243,7 +243,7 @@ function validateConsecutive(rule: Rule): void {
  * KVStore namespace registry.
  *
  * Without this check a typo is invisible in the worst possible way: a rule
- * pointing at `user:spo2SaveLevel` compiles, validates, evaluates, and
+ * pointing at `user:safeLevle` (a typo for `user:safeLevel`) compiles, validates, evaluates, and
  * silently uses its `defaultValue` forever. The user drags their safe
  * level, sees it save, and the alert never changes behaviour — with no
  * error raised anywhere. Failing at register() turns a silent
@@ -292,7 +292,7 @@ function validatePhaseBand(rule: Rule): void {
   /*
    * The population rails are OPTIONAL, and omitting them is what makes a rule
    * silent until the user has a band of their own — the same discipline every
-   * screen follows (principle 27, zivaone_app#267).
+   * screen follows (principle 27, app#267).
    *
    * Both or neither: a rule with one rail would compare against a half-open
    * range nobody wrote down. Checked here rather than in the schema because a

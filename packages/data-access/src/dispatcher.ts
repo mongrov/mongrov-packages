@@ -43,7 +43,7 @@ import { mergeTenantParams } from './tenant'
  * date range.
  */
 export interface FetchOnDemandRequest {
-  /** Registry name of the executing query (e.g. "spo2.month"). */
+  /** Registry name of the executing query (e.g. "reading.month"). */
   query: string
   /** The caller's raw input — carries days / offset / dateRange fields. */
   input: unknown
@@ -205,8 +205,8 @@ function parseInput<TInput>(
  * React Query rejects `undefined` as query data: "Query data cannot be
  * undefined", every read, for every user who has not touched that setting —
  * which is the default state. Seen on `user.notifySwitchRaw` for all four
- * notify switches (zivaone_app#386) and on `user.birthYear` /
- * `user.currentTenant` before it (zivaone_app#353).
+ * notify switches (app#386) and on `user.birthYear` /
+ * `user.currentTenant` before it (app#353).
  *
  * Fixed here rather than in each query. Three queries had already been patched
  * one at a time with `.transform(v => v ?? null)`, which leaves the next one to

@@ -1,0 +1,36 @@
+[
+  {
+    "path": "packages/analytics/src/sync/flusher.ts",
+    "term": "sleep",
+    "match": "^\\s*sleep\\?: \\(ms: number\\)|config\\.sleep \\?\\?",
+    "reason": "BatchFlusherConfig.sleep is the injectable backoff delay (public API), not sleep tracking."
+  },
+  {
+    "path": "packages/device/src/",
+    "term": "firmware",
+    "reason": "Device firmware (FirmwareCapability, getFirmwareInfo) is generic device vocabulary, not a wearable or health concept."
+  },
+  {
+    "path": "packages/types/src/device",
+    "term": "firmware",
+    "reason": "Generic device types and lifecycle events (firmwareVersion, 'Firmware' capability, firmware_updated)."
+  },
+  {
+    "path": "packages/types/src/tenancy.ts",
+    "term": "firmware",
+    "match": "firmwareVersion",
+    "reason": "A paired device's firmware version, generic device identity."
+  },
+  {
+    "path": "packages/theme/src/",
+    "term": "ring",
+    "match": "\\bring: ",
+    "reason": "The focus-ring colour token."
+  },
+  {
+    "path": "packages/ui/src/",
+    "term": "ring",
+    "match": "ring-",
+    "reason": "Tailwind focus-ring classes (focus:ring-2, focus-visible:ring-\u2026)."
+  }
+]

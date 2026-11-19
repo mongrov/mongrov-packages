@@ -247,7 +247,7 @@ export interface AnalyticsEngine {
   setRetention: (days: number) => Promise<void>
   /**
    * Replace the quality options the clean views are built with, and rebuild
-   * them now if attached (zivaone_app#474: the motion-filter switch in
+   * them now if attached (app#474: the motion-filter switch in
    * Settings).
    *
    * Why at once rather than at the next attach: alerts follow what is shown

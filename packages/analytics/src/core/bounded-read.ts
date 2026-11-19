@@ -22,7 +22,7 @@
  * ## The argument shape is the app's
  *
  * `timezone('UTC', now()) -/+ (INTERVAL 1 <unit>) * <BIGINT expr>` — exactly
- * what zivaone_app's `bounded()` helper already sends through the device's
+ * what the app's `bounded()` helper already sends through the device's
  * DuckDB build (principle 68). A bound parameter appears only as
  * `CAST($p AS BIGINT)`, never inside a scalar subquery: a subquery cannot
  * fold to a constant, so no slice filter would prune (the app measured 300x
@@ -31,7 +31,7 @@
  * ## Where exactness ends
  *
  * A reader with no upper time filter would, through the view, also see a
- * reading dated more than `FORWARD_DAYS` in the future. Only a ring clock a
+ * reading dated more than `FORWARD_DAYS` in the future. Only a device clock a
  * month fast produces one; the app's `bounded()` draws the same line.
  */
 
@@ -92,7 +92,7 @@ const VIEW_FORM: RelationFor = view => view
  *      `boundedReads` off for the rest of the attach after a few failures —
  *      a shape that fails once will fail every pass.
  *   3. One throwaway `SELECT 1` absorbs the aborted transaction a failed
- *      prepare can leave on the react-native-duckdb build (zivaone_app#195),
+ *      prepare can leave on the react-native-duckdb build (app#195),
  *      so the retry is not the statement that pays for it. On a healthy
  *      connection it simply succeeds.
  *   4. The view form runs, and ITS failure is the caller's, as before.
