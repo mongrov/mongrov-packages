@@ -76,6 +76,8 @@ const LOOKBACK_DAYS = 120
 /** `parity.test.ts` end-to-end score this path must at least match. */
 const PARITY_FLOOR = 89
 const TOL_MIN = 2
+/** The tenant every replay writes under; meta.json carries it to the display-parity step. */
+const TENANT = { brand: 'ziva', familyId: 'fam', userId: 'u' } as const
 
 interface RefNight {
   key: string
@@ -372,7 +374,7 @@ interface Replay {
  * the two must agree with a single sync wherever the scalars agree.
  */
 async function replayCapture(dump: Record<string, unknown>, deviceId: string, timeZone: string, splitAt?: number): Promise<Replay> {
-  const tenant = { brand: 'ziva', familyId: 'fam', userId: 'u', deviceId }
+  const tenant = { ...TENANT, deviceId }
   const ctx = { ...tenant, userTimezone: timeZone }
 
   const db = new HybridDuckDB(() => createRealDuckDB([]))
