@@ -72,3 +72,31 @@ describe('SensorSink.ingest', () => {
     expect(await mgr.sink.pendingRowCount('reading')).toBe(0)
   })
 })
+
+describe('post-flush jobs', () => {
+  it('see the rows buffered for each table and run inside every flush, before it closes', async () => {
+    const noted: string[] = []
+    const runs: string[] = []
+    registerPack({
+      name: 'gadget',
+      tables: { reading: READING },
+      postFlush: [{
+        name: 'count',
+        create: deps => deps.tables.includes('reading')
+          ? {
+              noteRows: (table, batch) => noted.push(`${table}:${batch.rows.length}`),
+              run: async (_batchId, reason) => {
+                runs.push(reason)
+                return []
+              },
+            }
+          : undefined,
+      }],
+    })
+    const mgr = manager()
+    await mgr.sink.push({ table: 'reading', ...who, rows: [{ ts: '2026-01-01T00:00:00Z', brand: 'b', value: 1 }] })
+    await mgr.sink.flush()
+    expect(noted).toEqual(['reading:1'])
+    expect(runs).toEqual(['manual'])
+  })
+})

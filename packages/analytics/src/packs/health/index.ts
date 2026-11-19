@@ -9,6 +9,7 @@
 
 import type { AnalyticsPack } from '../../core/packs'
 import type { QualityOptions } from './reading-quality'
+import { healthBaselines } from './baselines'
 import { HEALTH_MIGRATIONS, healthLegacyVersionKeys, healthVersionKey } from './migrations'
 import { dropMalformedRows } from './plausibility'
 import { fallbackMacroDdl, qualityMacroDdls, qualityMacroNames, qualityViewDdls, qualityViewNames } from './reading-quality'
@@ -28,6 +29,8 @@ export const healthPack: AnalyticsPack = {
   // existing database replays nothing.
   versionKey: healthVersionKey,
   legacyVersionKeys: healthLegacyVersionKeys,
+  // Day-first baselines per metric and window, plus HR's phase-band rails.
+  baselines: healthBaselines,
   // `v_{table}_q` (per-reading flags) and `v_{table}_clean` (what claims
   // read), plus their bounded `_between` macros (T-25, zivaone_app#121).
   quality: {

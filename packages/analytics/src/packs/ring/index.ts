@@ -11,9 +11,11 @@
 
 import type { AnalyticsPack } from '../../core/packs'
 import { firmwareIngestAdapter, ringSyncHooks } from './ingest'
+import { sleepCorrectionJob } from './sleep-job'
 
 export const ringPack: AnalyticsPack = {
   name: 'ring',
   ingest: { firmware: firmwareIngestAdapter },
   sync: ringSyncHooks,
+  postFlush: [sleepCorrectionJob],
 }

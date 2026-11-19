@@ -19,7 +19,7 @@
 
 import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
-import type { IngestContext, PackSyncHooks } from '../core/packs'
+import type { IngestContext, NotedRows, PackSyncHooks, PostFlushJob, PostFlushRunner } from '../core/packs'
 
 import type { TableName } from '../core/schemas'
 import type { AnalyticsEngine, AttachContext, KVStore } from '../core/types'
@@ -35,22 +35,21 @@ import type {
 } from './mapper/types'
 import type { PushResult } from './pusher'
 import type { BackgroundTaskPort, ConstraintPort, SchedulerLogger, SchedulerState } from './scheduler'
-import type { SleepDeriver } from './sleep-derive'
 import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
 import { z } from 'zod'
 import { describeError } from '../core/errors'
 import { ingestAdapter, packExtensions } from '../core/packs'
-import { createBaselineComputer } from './baseline-compute'
+import { createBaselineRunner } from './baselines'
 import { SensorBuffer } from './buffer'
 import { DROPPED_ROWS_EVENT, DropTally, validateRows } from './drops'
 import { SyncError } from './errors'
 import { bindFlushEvents, bindPushEvents } from './events'
 import { R2Fetcher } from './fetcher'
+import { mergeFlushResults } from './flush-results'
 import { BatchFlusher, MAX_CONSECUTIVE_FAILURES } from './flusher'
 import { OverflowStore } from './overflow'
 import { R2Pusher } from './pusher'
 import { logError, SyncScheduler } from './scheduler'
-import { createSleepDeriver, mergeFlushResults } from './sleep-derive'
 
 import { FlushTriggers } from './triggers'
 import { WatermarkStore } from './watermark'
@@ -327,7 +326,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     }
   }
 
-  const baselineComputer = createBaselineComputer({
+  const baselineRunner = createBaselineRunner({
     analytics: config.analytics,
     eventBus: config.eventBus as never,
     logger: config.logger,
@@ -351,29 +350,32 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     logger: config.logger,
   })
 
-  // Sleep sessions and stages are derived from sleep_raw by the correction
-  // pipeline, inside each batch cycle (sleep-correction §3). Needs all three
-  // tables subscribed; `correctSleep: false` opts out.
-  // Step 5.6 reads the firmware's 10-minute step buckets, as v3.1 did
-  // (staging.ts). Without `activity_bucket` subscribed the bucket table never
-  // fills, which would read as "no movement" — so fall back to the 1-minute
-  // rows, and say so once, rather than correct sleep on silent zero steps.
-  const stepBuckets = config.tables.includes('activity_bucket')
-  const sleepDeriver = config.correctSleep !== false
-    && ['sleep_raw', 'sleep_session', 'sleep_stage'].every(t => config.tables.includes(t))
-    ? createSleepDeriver({
+  // Packs' post-flush jobs (e.g. the ring's sleep correction), built for
+  // this manager; a job that does not apply to the subscribed tables opts
+  // out by returning nothing.
+  const jobs: PostFlushRunner[] = packExtensions<readonly PostFlushJob[]>('postFlush')
+    .flat()
+    .flatMap((job) => {
+      const runner = job.create({
         engine: config.analytics as unknown as HybridDuckDB,
         buffer,
         flusher,
+        tables: config.tables,
         resolveTimezone,
         logger: config.logger,
-        activitySteps: stepBuckets ? 'bucket' : 'minute',
+        options: config as unknown as Record<string, unknown>,
       })
-    : undefined
-  if (sleepDeriver && !stepBuckets) {
-    config.logger?.warn('sync.factory: activity_bucket not subscribed; sleep correction reads 1-minute steps, not the v3.1 10-minute buckets', {
-      tables: config.tables.length,
+      return runner ? [runner] : []
     })
+  const postFlush: PostFlushPort = {
+    noteRows: (table, batch) => {
+      for (const job of jobs) job.noteRows?.(table, batch)
+    },
+    run: async (batchId, reason) => {
+      let results: FlushResult[] = []
+      for (const job of jobs) results = mergeFlushResults(results, await job.run(batchId, reason))
+      return results
+    },
   }
 
   const watermark = new WatermarkStore({ kv: config.storage })
@@ -509,7 +511,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
           // After the raw tables land, before endBatch: corrected nights
           // are written into this batch so rules see them (never throws).
           // Their flush counts in the summary (zivaone_app#452).
-          const results = mergeFlushResults(flushed, await sleepDeriver?.derive(batchId, 'scheduled') ?? [])
+          const results = mergeFlushResults(flushed, await postFlush.run(batchId, 'scheduled'))
           // Reported, not thrown: a failed table keeps its rows buffered for
           // the next cycle, and the rest of the cycle (push, fetch,
           // baselines) should still run. The scheduler logs the summary.
@@ -569,7 +571,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
           const userIds = members.length > 0 ? members : [config.ctx.userId]
           for (const userId of userIds) {
             const tz = await resolveTimezone(userId)
-            await baselineComputer.computeAll({
+            await baselineRunner.computeAll({
               brand: config.ctx.brand,
               familyId: config.ctx.tenantId,
               userId,
@@ -623,7 +625,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
     engine: engineAsHybrid,
     attachCtx: config.ctx,
     storage: config.storage,
-    sleepDeriver,
+    postFlush,
     logger: config.logger,
     dropTally,
   })
@@ -663,6 +665,12 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
 
 // ---------- helpers ----------
 
+/** Every post-flush job of this manager, as one. */
+interface PostFlushPort {
+  noteRows: (table: string, batch: NotedRows) => void
+  run: (batchId: string, reason: 'manual' | 'scheduled') => Promise<FlushResult[]>
+}
+
 interface CreateSinkDeps {
   buffer: SensorBuffer
   flusher: BatchFlusher
@@ -671,7 +679,7 @@ interface CreateSinkDeps {
   engine: HybridDuckDB
   attachCtx: AttachContext
   storage: KVStore
-  sleepDeriver?: SleepDeriver
+  postFlush: PostFlushPort
   logger?: SchedulerLogger
   dropTally: DropTally
 }
@@ -680,7 +688,7 @@ interface CreateSinkDeps {
 export { ACTIVE_PRIOR_CONFIGS_SQL, CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams } from '../packs/ring/config-closes'
 
 function createSensorSink(deps: CreateSinkDeps): SensorSink {
-  const { buffer, flusher, triggers, tables, engine, attachCtx, storage, sleepDeriver, logger, dropTally } = deps
+  const { buffer, flusher, triggers, tables, engine, attachCtx, storage, postFlush, logger, dropTally } = deps
 
   const ingest = async (adapterName: string, raw: unknown, ctx: IngestContext): Promise<void> => {
     const adapter = ingestAdapter(adapterName)
@@ -696,15 +704,13 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       if (!mappedRows || mappedRows.length === 0)
         continue
       // Post-flush jobs see what the adapter produced, before validation.
-      if (table === 'sleep_raw') {
-        sleepDeriver?.noteRaw({
-          brand: ctx.brand,
-          familyId: ctx.familyId,
-          userId: ctx.userId,
-          deviceId: ctx.deviceId,
-          rows: mappedRows as Record<string, unknown>[],
-        })
-      }
+      postFlush.noteRows(table, {
+        brand: ctx.brand,
+        familyId: ctx.familyId,
+        userId: ctx.userId,
+        deviceId: ctx.deviceId,
+        rows: mappedRows,
+      })
     }
     for (const [table, mappedRows] of mapped) {
       if (!mappedRows || mappedRows.length === 0)
@@ -741,8 +747,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       const batch = report.dropped === 0 && report.nulled === 0 ? input : { ...input, rows: report.kept }
       await buffer.push(batch)
       triggers.noteEnqueue(batch.table, Date.now())
-      if (batch.table === 'sleep_raw')
-        sleepDeriver?.noteRaw(batch)
+      postFlush.noteRows(batch.table, batch)
     },
     ingest,
     pushFirmware: async (fw: FirmwareExport, ctx: MapperContext) => ingest('firmware', fw, ctx),
@@ -758,10 +763,10 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
           results.push(await flusher.flush(table, 'manual', batchId))
           triggers.noteDrain(table)
         }
-        // The derived sleep rows are flushed by the deriver, after the loop
-        // drained `sleep_session` / `sleep_stage` empty — fold them in, or
-        // the caller reads 0 for both (zivaone_app#452).
-        results = mergeFlushResults(results, await sleepDeriver?.derive(batchId, 'manual') ?? [])
+        // Post-flush jobs flush their derived rows after the loop drained
+        // those tables empty — fold them in, or the caller reads 0 for them
+        // (zivaone_app#452).
+        results = mergeFlushResults(results, await postFlush.run(batchId, 'manual'))
       }
       finally {
         flusher.endBatch(batchId)

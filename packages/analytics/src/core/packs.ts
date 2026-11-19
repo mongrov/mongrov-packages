@@ -16,7 +16,11 @@
  * the platform pack. Tables, retention, views and migrations all follow it.
  */
 
+import type { SensorBuffer } from '../sync/buffer'
 import type { DropReport } from '../sync/drops'
+import type { BatchFlusher, FlushReason } from '../sync/flusher'
+import type { SchedulerLogger } from '../sync/scheduler'
+import type { FlushResult } from '../sync/types'
 import type { HybridDuckDB } from './engine'
 import type { MigrationCatalogs } from './migrations'
 import type { AttachContext, KVStore } from './types'
@@ -165,6 +169,83 @@ export interface PackSyncHooks {
   afterPush?: (ctx: AttachContext, deps: SyncHookDeps) => Promise<void>
 }
 
+// -------------------- post-flush jobs --------------------
+
+/** Rows one ingest call or `SensorSink.push` buffered for a table. */
+export interface NotedRows {
+  brand: string
+  familyId: string
+  userId: string
+  deviceId: string
+  rows: ReadonlyArray<Record<string, unknown>>
+}
+
+/** What a post-flush job is built with, once per sync manager. */
+export interface PostFlushDeps {
+  /** The attached engine (local catalog reads and writes). */
+  engine: HybridDuckDB
+  /** Buffer rows for this batch; flush them with `flusher.flush(table, reason, batchId)`. */
+  buffer: SensorBuffer
+  flusher: BatchFlusher
+  /** Tables the sync manager flushes. */
+  tables: readonly string[]
+  /** A user's IANA zone (`userTimezoneProvider`, else the device's). */
+  resolveTimezone: (userId: string) => Promise<string>
+  logger?: SchedulerLogger
+  /** The `createSyncManager` config, for a job's own options. */
+  options: Readonly<Record<string, unknown>>
+}
+
+/** One sync manager's instance of a job. */
+export interface PostFlushRunner {
+  /** Rows were buffered for `table` (before validation, for ingest adapters). */
+  noteRows?: (table: string, batch: NotedRows) => void
+  /**
+   * Runs in every batch after its tables flushed and before
+   * `batch:complete`, in pack order; may buffer and flush rows of its own
+   * into `batchId`. Resolves with those flush results; must not throw.
+   */
+  run: (batchId: string, reason: FlushReason) => Promise<FlushResult[]>
+}
+
+/** Work that follows each flush (`pack.postFlush`), e.g. deriving tables from raw ones. */
+export interface PostFlushJob {
+  name: string
+  /** Build the job for one sync manager, or `undefined` when it does not apply. */
+  create: (deps: PostFlushDeps) => PostFlushRunner | undefined
+}
+
+// -------------------- baselines --------------------
+
+/**
+ * One baseline the engine computes per user and window and stores in the
+ * platform's `user_baseline` table. The query binds `$userId`, `$brand`,
+ * `$familyId`, `$tz` and `$windowDays`, and returns quantile columns
+ * (`p05 p10 p50 p90 p95 mean stddev sample_count`).
+ */
+export interface BaselineDefinition {
+  /** `user_baseline.metric` for a `one` definition; a label for `many`. */
+  key: string
+  /**
+   * `one`: a single row for `key`, written when `sample_count >= minDays`.
+   * `many`: rows each carrying their own `metric`, all written.
+   */
+  rows: 'one' | 'many'
+  minDays?: number
+  /** `many` only: rows a full result has; the rest count as skipped. */
+  expected?: number
+  /** The query; with `bounded`, its bounded-read form, or `undefined` when it has none. */
+  sql: (windowDays: number, bounded: boolean) => string | undefined
+}
+
+/** A pack's baselines (`pack.baselines`). */
+export interface BaselineProvider {
+  /** Windows (days) each definition is computed over. */
+  windows: readonly number[]
+  /** The definitions, given the `createBaselineComputer` / sync config options. */
+  definitions: (options: Readonly<Record<string, unknown>>) => BaselineDefinition[]
+}
+
 // -------------------- the pack --------------------
 
 export interface AnalyticsPack {
@@ -199,6 +280,9 @@ export interface AnalyticsPack {
   /** Ingest adapters by name (`SensorSink.ingest(name, raw, ctx)`). */
   ingest?: Readonly<Record<string, IngestAdapter<any, any>>>
   sync?: PackSyncHooks
+  /** Jobs run after each flush, inside the batch. */
+  postFlush?: readonly PostFlushJob[]
+  baselines?: BaselineProvider
   /** Free-form extensions read by other subsystems (ingest, post-flush, rules, tools). */
   [extension: string]: unknown
 }

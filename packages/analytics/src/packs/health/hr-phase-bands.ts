@@ -1,0 +1,153 @@
+/**
+ * Heart rate's three phase bands, stored (D-H, zivaone_app T-26).
+ *
+ * Six `user_baseline` rows: `hr_{asleep,awake,active}_{lo,hi}`. The HR screen
+ * has read these since D-H (`hr.phaseBands` prefers them), and the
+ * `ziva.hr-out-of-band` rule compares against the asleep pair — but nothing
+ * wrote them, so the screen fell back to computing bands inline and the rule
+ * had nothing to read. One definition, computed here, is what lets the band
+ * the user sees and the band the alert uses be the same band.
+ *
+ * ## The definition — the app's `hr.phaseBands` fallback, day-first
+ *
+ * 1. Every CLEAN heart-rate reading (T-25) over COMPLETE local days of the
+ *    window is classified by phase, with the shared definitions:
+ *      asleep  inside a sleep session
+ *      active  >= STILL_FLOOR steps within +/-15 minutes (the §7g floor)
+ *      awake   otherwise
+ * 2. Per local day and phase, the day's edges: p10 and p90 of that phase's
+ *    readings. A phase with fewer than PHASE_MIN_READINGS on a day does not
+ *    contribute that day.
+ * 3. Across days, the usual quantile pass — so a rail's `p50` is a TYPICAL
+ *    day's edge, not the most extreme one in the window, and `sample_count`
+ *    counts days. A rail needs BASELINE_MIN_DAYS days (principle 27) or it is
+ *    not written: "learning" is the honest state, not a thin band.
+ *
+ * Kept out of `METRIC_METADATA` deliberately. These are not metrics a rule or
+ * a tool can name; they are one metric's reference ranges, and six entries in
+ * the metric enum would put `hr_active_hi` in every rule author's dropdown.
+ */
+
+import { boundedRelation, daysInterval, FORWARD_DAYS, SPARE_DAYS } from '../../core/bounded-read'
+import { BASELINE_MIN_DAYS } from '../../core/metric_metadata'
+import { readViewFor, STILL_FLOOR, STILL_WINDOW_MINUTES } from './reading-quality'
+
+export const HR_PHASES = ['asleep', 'awake', 'active'] as const
+export type HrPhase = (typeof HR_PHASES)[number]
+
+/** The six `user_baseline.metric` keys, in phase order, lo before hi. */
+export const HR_PHASE_BAND_METRICS = HR_PHASES.flatMap(p => [`hr_${p}_lo`, `hr_${p}_hi`] as const)
+export type HrPhaseBandMetric = (typeof HR_PHASE_BAND_METRICS)[number]
+
+/** A phase-day needs this many readings to have edges (the app's floor). */
+export const PHASE_MIN_READINGS = 6
+
+/**
+ * One row per rail that has enough days: `metric` plus the usual quantile
+ * columns over that rail's daily values. Binds `$userId $brand $familyId $tz
+ * $windowDays`; every parameter is CAST for the react-native-duckdb prepare
+ * path (zivaone_app#70/#72).
+ *
+ * ## `bounded` (mongrov-packages#44)
+ *
+ * Bounded, the readings come from `v_heart_rate_clean_between` and the step
+ * totals from `v_motion_between`, not the full-history views: identical rows,
+ * a fraction of the cost. What each bound has to cover:
+ *
+ *   readings  `h.ts > now() - (windowDays + 1) days`, the scan predicate
+ *             below; the lookback adds the spare day (bounded-read).
+ *   motion    each reading's two lookups, `[h.ts - 15m, h.ts + 15m)`. A
+ *             difference of two `cum_steps_device` values is the same from a
+ *             slice as from the whole history as long as the slice starts at
+ *             or before the earlier lookup's window and ends at or after the
+ *             later one (see `v_motion_between`). Same `lo` as the readings, a day
+ *             ahead of their earliest window; `hi` one day past theirs.
+ *
+ * Future-dated readings never reach a rail (`day < localToday`), so the
+ * forward bound cannot change a result here.
+ *
+ * The motion macro is read once, in a CTE, and the CTE is what the ASOF joins
+ * see: no table macro sits inside a join condition (principle 68).
+ *
+ * The VIEW form is the default, as everywhere else a reader cannot know the
+ * engine's capability: the views always exist. `baseline-compute` asks for
+ * `bounded: true` when `analytics.boundedReads` is, and falls back to the
+ * view form if that statement throws (`executeBounded`).
+ */
+export function buildHrPhaseBandsSql(opts: { bounded?: boolean } = {}): string {
+  const bounded = opts.bounded ?? false
+  const back = daysInterval(`(CAST($windowDays AS BIGINT) + ${1 + SPARE_DAYS})`)
+  const view = bounded
+    ? boundedRelation(readViewFor('heart_rate'), { back })
+    : readViewFor('heart_rate')
+  // The view form is the pre-#44 query, unchanged.
+  const motionCte = bounded
+    ? `motion AS (
+      SELECT * FROM ${boundedRelation('v_motion', { back, ahead: `INTERVAL ${FORWARD_DAYS + 1} DAY` })}
+    ),
+    `
+    : ''
+  const motion = bounded ? 'motion' : 'v_motion'
+  const windowBind = `(INTERVAL 1 DAY) * CAST($windowDays AS BIGINT)`
+  // One extra day of scan for the zone offset; the HAVING decides the days.
+  const scanBind = `(INTERVAL 1 DAY) * (CAST($windowDays AS BIGINT) + 1)`
+  const localToday = `date_trunc('day', timezone(CAST($tz AS VARCHAR), now()))`
+  const v = 'CAST(value AS DOUBLE)'
+  return `
+    WITH ${motionCte}classified AS (
+      SELECT
+        date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', h.ts))) AS day,
+        h.bpm,
+        CASE
+          WHEN EXISTS (
+            SELECT 1 FROM v_sleep_session ss
+            WHERE ss.user_id = h.user_id AND ss.brand = h.brand AND ss.family_id = h.family_id
+              AND h.ts >= ss.ts_start AND h.ts < ss.ts_end
+          ) THEN 'asleep'
+          -- Steps in [ts - 15, ts + 15) from v_motion running totals, by two
+          -- ASOF lookups rather than a scan per reading. The reading's own
+          -- ring only, as the still gate (zivaone_app#366).
+          WHEN COALESCE(mn.cum_steps_device, 0) - COALESCE(mp.cum_steps_device, 0) >= ${STILL_FLOOR} THEN 'active'
+          ELSE 'awake'
+        END AS phase
+      FROM ${view} h
+      ASOF LEFT JOIN ${motion} mp
+        ON mp.user_id = h.user_id AND mp.brand = h.brand AND mp.family_id = h.family_id
+       AND mp.device_id = h.device_id
+       AND h.ts - INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mp.ts
+      ASOF LEFT JOIN ${motion} mn
+        ON mn.user_id = h.user_id AND mn.brand = h.brand AND mn.family_id = h.family_id
+       AND mn.device_id = h.device_id
+       AND h.ts + INTERVAL ${STILL_WINDOW_MINUTES} MINUTE > mn.ts
+      WHERE h.user_id = $userId AND h.brand = $brand AND h.family_id = $familyId
+        AND h.ts > now() - ${scanBind}
+    ),
+    phase_days AS (
+      SELECT day, phase,
+             quantile_cont(bpm, 0.10) AS lo,
+             quantile_cont(bpm, 0.90) AS hi
+      FROM classified
+      GROUP BY day, phase
+      HAVING count(*) >= ${PHASE_MIN_READINGS}
+         AND day >= ${localToday} - ${windowBind} AND day < ${localToday}
+    ),
+    rails AS (
+      SELECT 'hr_' || phase || '_lo' AS metric, lo AS value FROM phase_days
+      UNION ALL
+      SELECT 'hr_' || phase || '_hi' AS metric, hi AS value FROM phase_days
+    )
+    SELECT metric,
+           quantile_cont(${v}, 0.05) AS p05,
+           quantile_cont(${v}, 0.10) AS p10,
+           quantile_cont(${v}, 0.50) AS p50,
+           quantile_cont(${v}, 0.90) AS p90,
+           quantile_cont(${v}, 0.95) AS p95,
+           avg(${v}) AS mean,
+           stddev_samp(${v}) AS stddev,
+           count(*) AS sample_count
+    FROM rails
+    GROUP BY metric
+    HAVING count(*) >= ${BASELINE_MIN_DAYS}
+    ORDER BY metric
+  `.trim()
+}

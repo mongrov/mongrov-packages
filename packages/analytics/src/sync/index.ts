@@ -15,6 +15,15 @@ export {
   buildBaselineSql,
   createBaselineComputer,
 } from './baseline-compute'
+export {
+  type BaselineRow,
+  type BaselineRunContext,
+  type BaselineRunner,
+  type BaselineRunnerConfig,
+  type BaselineRunResult,
+  type BaselineUpdate,
+  createBaselineRunner,
+} from './baselines'
 export { SensorBuffer, type SensorBufferConfig, type TakenBatch } from './buffer'
 export { SyncProvider, type SyncProviderProps, useSyncManager } from './context'
 export { validateRows } from './drops'
@@ -40,6 +49,7 @@ export {
   type R2FetcherConfig,
 } from './fetcher'
 
+export { mergeFlushResults } from './flush-results'
 // Flusher + triggers (Phase C).
 export {
   BACKOFF_SEQUENCE_MS,
