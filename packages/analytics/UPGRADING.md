@@ -1,5 +1,74 @@
 # Upgrading
 
+## 0.52.x → 0.60.0 — the engine is domain-free; health and ring arrive as packs (principle 73)
+
+**Breaking for imports; no change in behaviour, schema or stored data.** The
+health tables, quality views, metrics, baselines, rule contexts and catalogs,
+AI tools, firmware mapper and sleep correction left the package. They live in
+zivaone_app as `@zivaone/health` and `@zivaone/ring` and reach the engine
+through its plug-in points (S-02, 0.53 never shipped on its own):
+
+| Plug-in | Pack field | What the engine does with it |
+|---|---|---|
+| Tables | `tables` (`PackTable`: DDL, time column, sync, retention, identity, view) | creates, migrates, sweeps, unions (`v_<table>`), keys the flusher and fetcher |
+| Migrations | `migrations`, `versionKey`, `adoptVersion` | runs them per pack, each with its own KV ledger |
+| Quality views | `quality` (`QualityViewProvider`) | builds them on attach and `setQuality`, with the bounded macros and their fallbacks |
+| Ingest | `ingest` (`IngestAdapter`), `tables[t].validate` | `sink.ingest(name, raw, ctx)`: map, validate, count drops, buffer |
+| Post-flush jobs | `postFlush` (`PostFlushJob`) | runs them inside every batch, before `batch:complete` |
+| Sync hooks | `sync.afterPush` | runs after each r2 push, with `pushRemote` |
+| Baselines | `baselines` (`BaselineProvider`) | computes them each cycle into `user_baseline` |
+| Metrics, rules | `metrics`, `rules` (`RulePack`) | rule schema, compiler, validator and evaluator read them |
+| Tools | `tools`, `copyGuard` | `createAnalyticsTools` wraps them |
+
+`definePack` checks a pack; `createAnalytics({ packs })` or `registerPack`
+registers it. The platform pack (`insight`, `sync_watermark`,
+`tool_call_audit`, `user_baseline`) is always present.
+
+**Existing databases.** Table and column names are unchanged. The health pack
+keeps the package's migration ledger (`analytics:schema_version:*`, steps 1–8),
+and the platform pack adopts its two steps from it, so a database migrated by
+0.52 attaches with no DDL at all (verified on real DuckDB: zero statements,
+identical catalog).
+
+**What the app changes:**
+
+- `createAnalytics({ ..., packs: [healthPack, ringPack] })`. Importing
+  `@zivaone/health` / `@zivaone/ring` also registers them, so rule catalogs
+  parse at load time.
+- Imports move:
+
+  | Was | Now |
+  |---|---|
+  | `TABLE_NAMES`, `LOCAL_SCHEMAS`, `VIEWED_TABLES`, `TABLE_METADATA`, `PLAUSIBLE_RANGES`, `STILL_*`, `READING_QUALITY_COUNTS_SQL`, `wearGateSql`, `qualityViewDdls`, `qualityMacroDdls`, `BASELINE_*`, `getBaselineMetricIds`, `QualityOptions` (typed) from `@mongrov/analytics` | `@zivaone/health` |
+  | `defaults` (rule catalogs) from `@mongrov/analytics/rules` | `@zivaone/health` |
+  | `buildBaselineSql`, `baselineHasBoundedForm`, `buildHrPhaseBandsSql`, `createBaselineComputer`, `dropMalformedRows` from `@mongrov/analytics/sync` | `@zivaone/health` |
+  | `mapFirmwareExport`, `map*`, `Firmware*`, `MapperContext`, `correctSleepNights`, `nightsForEpochs`, `sleepStaging*`, `PendingClosesStore` from `@mongrov/analytics/sync` | `@zivaone/ring` |
+  | health tools and copy guidelines from `@mongrov/analytics/tools` | `@zivaone/health` |
+  | `@mongrov/types/kv-keys` | `@zivaone/health` |
+
+- `SensorSink.pushFirmware(fw, ctx)` is `sink.ingest('firmware', fw, ctx)`;
+  `@zivaone/ring`'s `withFirmwareSink(sync)` gives the sink a `pushFirmware`
+  again for code that hands it whole exports.
+- `R2Pusher.pushCloses` is the ring pack's `pushConfigCloses`, over the new
+  generic `R2Pusher.pushRemote(table, ctx, run)`.
+- `createSyncManager`: `correctSleep` moves under `options` (`options: {
+  correctSleep: false }`); `ringConfigTranslator` (ignored since Sprint 5) is
+  gone.
+- `AnalyticsConfig.quality` / `setQuality` take the packs' options (`object`);
+  the health pack's `QualityOptions` types them.
+- `Rule.metric` and `Rule.context` are `string`; they are checked when a rule
+  is parsed, against the registered packs.
+
+**Added, generic:** `definePack`, `registerPack(s)`, `getPacks`, `packTable(s)`,
+`viewedTables`, `ingestAdapter`, `metricDefinition`, `exposedMetricIds`,
+`readRelation` and friends, `ensureSchemas`, `listColumns`, `localDdlFor`,
+`hasLocalPrimaryKey`, `addIdentityKey`, `quoteQualifier`, `toLocalDdl`,
+`qualifyDdl`, `REMOTE_NAMESPACE`, `PLATFORM_*`, the bounded-read helpers
+(`boundedRelation`, `executeBounded`, …), `HybridDuckDB`, `describeError`,
+`tailId`, `createBaselineRunner`, `mergeFlushResults`, `validateRows`,
+`DropTally`, `logError`, `minDayReadings`, `parseCatalog`, `contextJoin`,
+`toolRead`, `localDay`, `tzParam`.
+
 ## 0.51.x → 0.52.0 — a night ends at 18:00 on its morning (D6, v1 window)
 
 **Behaviour change in derived sleep; no API or schema change. Nights already

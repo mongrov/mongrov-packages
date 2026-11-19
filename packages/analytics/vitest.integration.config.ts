@@ -19,6 +19,8 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'node',
+    // The engine is domain-free; suites run it with the test packs.
+    setupFiles: ['src/__tests__/packs/setup.ts'],
     include: ['src/**/__tests__/**/*.integration.test.{ts,tsx}'],
     globalSetup: ['./src/__integration__/setup/global-setup.ts'],
     // ATTACH + first Iceberg commit are slow on cold extension load.

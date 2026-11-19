@@ -24,9 +24,10 @@ import { describe, expect, it } from 'vitest'
 
 import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { BASELINE_MIN_DAYS } from '../../core/metric_metadata'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
-import { buildBaselineSql } from '../baseline-compute'
+import { buildBaselineSql } from '../../__tests__/packs/health/baselines'
+import { BASELINE_MIN_DAYS } from '../../__tests__/packs/health/metrics'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../../core/schemas'
 
 const BRAND = 'ziva'
 const FAMILY = 'fam_1'
@@ -129,7 +130,7 @@ async function computeBaseline(db: DB, windowDays: 7 | 30 | 90): Promise<Baselin
 
 describe('temp_c baseline (T-01)', () => {
   it('is in the computed set, with the avg daily aggregate', async () => {
-    const { getBaselineMetricIds, baselineAggregateFor } = await import('../../core/metric_metadata')
+    const { getBaselineMetricIds, baselineAggregateFor } = await import('../../__tests__/packs/health/metrics')
     expect(getBaselineMetricIds()).toContain('temp_c')
     expect(baselineAggregateFor('temp_c')).toBe('avg')
   })

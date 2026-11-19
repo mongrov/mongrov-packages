@@ -22,12 +22,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import {
-  generateViewDdl,
-  LOCAL_SCHEMAS,
-  TABLE_NAMES,
-  VIEWED_TABLES,
-} from '../schemas'
+import { LOCAL_SCHEMAS, TABLE_NAMES, VIEWED_TABLES } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../schemas'
 
 const BRAND = 'ziva'
 const FAMILY = 'fam_1'

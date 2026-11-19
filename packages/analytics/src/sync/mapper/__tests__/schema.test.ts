@@ -15,17 +15,17 @@
  *      authored for (empty / DST fall-back / midnight crossing).
  */
 
-import type { ClassifiedRow } from '../../sleep-correction/classify'
-import type { FirmwareExport, MapperContext } from '../types'
+import type { FirmwareExport, MapperContext } from '../../../__tests__/packs/ring/mapper/types'
+import type { ClassifiedRow } from '../../../__tests__/packs/ring/sleep-correction/classify'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
-import { nightsForEpochs } from '../../sleep-correction/orchestrate'
-import { mapFirmwareExport } from '../firmware'
-import { FIRMWARE_EXPORT_KEY_PATHS, firmwareExportSchema } from '../schema'
-import { sessionsFromCorrected } from '../sleep'
+import { mapFirmwareExport } from '../../../__tests__/packs/ring/mapper/firmware'
+import { FIRMWARE_EXPORT_KEY_PATHS, firmwareExportSchema } from '../../../__tests__/packs/ring/mapper/schema'
+import { sessionsFromCorrected } from '../../../__tests__/packs/ring/mapper/sleep'
+import { nightsForEpochs } from '../../../__tests__/packs/ring/sleep-correction/orchestrate'
 
 const DASH_RE = /-/g
 

@@ -11,12 +11,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { computeNightOf } from '../../__tests__/packs/ring/mapper/time'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { HybridDuckDB } from '../../core/engine'
-import { LOCAL_SCHEMAS } from '../../core/schemas'
 import { SensorBuffer } from '../buffer'
 import { BatchFlusher } from '../flusher'
-import { computeNightOf } from '../mapper/time'
 import { OverflowStore } from '../overflow'
 
 const TENANT = { brand: 'ziva', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }

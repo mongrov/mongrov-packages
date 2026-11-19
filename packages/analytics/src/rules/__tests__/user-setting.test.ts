@@ -9,11 +9,11 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { zivaDefaults } from '../../__tests__/packs/health/rules'
 import { createFakeEngine } from '../__fakes__/fakeEngine'
 import { createFakeStorage } from '../__fakes__/fakeStorage'
-import { USER_SETTING_PARAM } from '../compiler'
 
-import { zivaDefaults } from '../defaults'
+import { USER_SETTING_PARAM } from '../compiler'
 import { createRulesEngine } from '../factory'
 
 const CTX = { brand: 'ziva', familyId: 'fam1' }

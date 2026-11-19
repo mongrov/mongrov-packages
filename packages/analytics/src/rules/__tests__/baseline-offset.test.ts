@@ -11,7 +11,8 @@ import { describe, expect, it } from 'vitest'
 
 import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../../core/schemas'
 import { BASELINE_OFFSET_PARAM, compileRule } from '../compiler'
 import { RuleSchema } from '../schema'
 

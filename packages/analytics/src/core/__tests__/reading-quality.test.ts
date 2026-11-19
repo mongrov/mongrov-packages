@@ -1,3 +1,5 @@
+import type { MetricId } from '../../__tests__/packs/health/metrics'
+import type { QualityTable } from '../../__tests__/packs/health/reading-quality'
 /**
  * T-25 (sprint6 spec §13) — signal-quality gates, executed.
  *
@@ -17,28 +19,26 @@
  * The last block rebuilds them with the default (off) and checks the other
  * half of the contract: a moving reading is shown AND alerts on.
  */
-import type { FirmwareExport, MapperContext } from '../../sync/mapper/types'
-import type { MetricId } from '../metric_metadata'
-import type { QualityTable } from '../reading-quality'
+import type { FirmwareExport, MapperContext } from '../../__tests__/packs/ring/mapper/types'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { compileRule } from '../../rules/compiler'
-import { RuleSchema } from '../../rules/schema'
-import { buildBaselineSql } from '../../sync/baseline-compute'
-import { mapFirmwareExport } from '../../sync/mapper/firmware'
-import { HybridDuckDB } from '../engine'
-import { getBaselineMetricIds, METRIC_METADATA } from '../metric_metadata'
+import { buildBaselineSql } from '../../__tests__/packs/health/baselines'
+import { getBaselineMetricIds, METRIC_METADATA } from '../../__tests__/packs/health/metrics'
 import {
   cleanViewFor,
   isQualityTable,
   QUALITY_TABLES,
   qualityViewFor,
   READING_QUALITY_COUNTS_SQL,
-} from '../reading-quality'
-import { LOCAL_SCHEMAS, TABLE_NAMES } from '../schemas'
+} from '../../__tests__/packs/health/reading-quality'
+import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
+import { mapFirmwareExport } from '../../__tests__/packs/ring/mapper/firmware'
+import { compileRule } from '../../rules/compiler'
+import { RuleSchema } from '../../rules/schema'
+import { HybridDuckDB } from '../engine'
 import { createViews } from '../warehouse'
 
 const BRAND = 'ziva'

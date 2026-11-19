@@ -14,15 +14,9 @@
  */
 import { describe, expect, it } from 'vitest'
 
+import { LOCAL_SCHEMAS, TABLE_NAMES, VIEWED_TABLES } from '../../__tests__/packs/legacy-tables'
 import { buildDeleteSql } from '../retention'
-import {
-  generateViewDdl,
-  insightIndexDdl,
-  LOCAL_SCHEMAS,
-  qualifyDdl,
-  TABLE_NAMES,
-  VIEWED_TABLES,
-} from '../schemas'
+import { generateViewDdl, insightIndexDdl, qualifyDdl } from '../schemas'
 
 const HOSTILE = 'zivaone-analytics'
 

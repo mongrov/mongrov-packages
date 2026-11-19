@@ -13,7 +13,7 @@ import {
   fallbackSampling,
   minimumWindowMinutes,
   SAMPLING_CACHE_TTL_MS,
-} from '../sampling'
+} from '../../__tests__/packs/health/sampling'
 
 /** Engine stub returning a scripted device_config row. */
 function engineWith(intervalMinutes: number | null | undefined) {

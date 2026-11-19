@@ -9,14 +9,10 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { qualityViewDdls } from '../../__tests__/packs/health/reading-quality'
+import { VIEWED_TABLES } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../engine'
-import { qualityViewDdls } from '../reading-quality'
-import {
-  dropViewDdl,
-  generateViewDdl,
-  VIEWED_TABLES,
-  watermarkColumnFor,
-} from '../schemas'
+import { dropViewDdl, generateViewDdl, watermarkColumnFor } from '../schemas'
 import { createViews, dropViews } from '../warehouse'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'

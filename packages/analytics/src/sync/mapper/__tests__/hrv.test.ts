@@ -7,10 +7,10 @@
  *   3. Real zero on hrv/stress stays as 0 (not sentinel).
  */
 
-import type { FirmwareHRVRow, MapperContext } from '../types'
+import type { FirmwareHRVRow, MapperContext } from '../../../__tests__/packs/ring/mapper/types'
 
 import { describe, expect, it } from 'vitest'
-import { mapHrv } from '../hrv'
+import { mapHrv } from '../../../__tests__/packs/ring/mapper/hrv'
 
 const ctx: MapperContext = {
   brand: 'ziva',

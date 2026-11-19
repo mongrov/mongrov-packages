@@ -26,7 +26,6 @@ import type { ToolImpl } from '../tools/types'
 import type { HybridDuckDB } from './engine'
 import type { MigrationCatalogs } from './migrations'
 import type { AttachContext, KVStore } from './types'
-import { DEFAULT_PACKS } from '../packs'
 import { AnalyticsError } from './errors'
 import { PLATFORM_PACK } from './platform-pack'
 
@@ -406,14 +405,26 @@ export function definePack<P extends AnalyticsPack>(pack: P): P {
 // -------------------- registry --------------------
 
 let defaultsLoaded = false
+let defaultPacks: readonly AnalyticsPack[] = []
 const registered: AnalyticsPack[] = []
 let cache: ReturnType<typeof index> | undefined
+
+/**
+ * @internal Packs registered before the first lookup, and again after
+ * `resetPacks` — for test suites that exercise the engine with a pack.
+ */
+export function setDefaultPacks(packs: readonly AnalyticsPack[]): void {
+  defaultPacks = packs
+  defaultsLoaded = false
+  registered.length = 0
+  cache = undefined
+}
 
 function loadDefaults(): void {
   if (defaultsLoaded)
     return
   defaultsLoaded = true
-  for (const pack of DEFAULT_PACKS) {
+  for (const pack of defaultPacks) {
     if (!registered.some(p => p.name === pack.name))
       registered.push(pack)
   }

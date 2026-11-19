@@ -19,7 +19,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { IDENTITY_COLUMNS, LOCAL_SCHEMAS } from '../../core/schemas'
+import { IDENTITY_COLUMNS, LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
 
 const BRAND = 'ziva'
 const FAMILY = 'fam_1'

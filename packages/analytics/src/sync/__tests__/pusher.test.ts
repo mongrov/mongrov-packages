@@ -9,10 +9,11 @@
  *   5. `pushAll` returns per-table results even when one fails.
  */
 
-import type { AttachContext } from '../../core/types'
+import type { RingConfigClose } from '../../__tests__/packs/ring/mapper/ring-config'
 
-import type { RingConfigClose } from '../mapper/ring-config'
+import type { AttachContext } from '../../core/types'
 import { describe, expect, it, vi } from 'vitest'
+import { pushConfigCloses } from '../../__tests__/packs/ring/config-closes'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { R2Pusher } from '../pusher'
 import { WatermarkStore } from '../watermark'
@@ -112,7 +113,12 @@ describe('R2Pusher time column resolution', () => {
   })
 })
 
-describe('R2Pusher.pushCloses', () => {
+/** The ring pack's SCD-2 closes, through the pusher's generic `pushRemote`. */
+function pushCloses(pusher: R2Pusher, closes: RingConfigClose[], c: typeof ctx) {
+  return pushConfigCloses((table, run) => pusher.pushRemote(table, c, run), closes, c)
+}
+
+describe('R2Pusher.pushRemote (the ring pack\'s SCD-2 closes)', () => {
   const NOW = new Date('2026-06-17T12:00:00Z')
   const closes: RingConfigClose[] = [
     { device_id: 'ring_1', metric: 'heart_rate', valid_to: NOW },
@@ -124,7 +130,7 @@ describe('R2Pusher.pushCloses', () => {
     fake.mockNext([])
     fake.mockNext([])
 
-    const result = await pusher.pushCloses(closes, ctx)
+    const result = await pushCloses(pusher, closes, ctx)
     expect(result).toEqual({ table: 'device_config', rowsPushed: 2, ok: true })
     expect(fake.calls).toHaveLength(2)
     for (const call of fake.calls) {
@@ -139,7 +145,7 @@ describe('R2Pusher.pushCloses', () => {
 
   it('empty closes returns ok without issuing SQL', async () => {
     const { pusher, fake } = newPusher()
-    const result = await pusher.pushCloses([], ctx)
+    const result = await pushCloses(pusher, [], ctx)
     expect(result).toEqual({ table: 'device_config', rowsPushed: 0, ok: true })
     expect(fake.calls).toHaveLength(0)
   })
@@ -151,7 +157,7 @@ describe('R2Pusher.pushCloses', () => {
     fake.mockNext([])
     fake.mockNext([])
 
-    const result = await pusher.pushCloses(closes, ctx)
+    const result = await pushCloses(pusher, closes, ctx)
     expect(refreshToken).toHaveBeenCalledTimes(1)
     expect(result.ok).toBe(true)
     expect(result.rowsPushed).toBe(2)
@@ -160,7 +166,7 @@ describe('R2Pusher.pushCloses', () => {
   it('non-401 error surfaces push_failed', async () => {
     const { pusher, fake } = newPusher()
     fake.throwNext(new Error('connection reset'))
-    const result = await pusher.pushCloses(closes, ctx)
+    const result = await pushCloses(pusher, closes, ctx)
     expect(result.ok).toBe(false)
     expect(result.error?.code).toBe('push_failed')
   })

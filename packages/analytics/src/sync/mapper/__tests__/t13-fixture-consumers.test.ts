@@ -13,14 +13,15 @@
  * separately.
  */
 
-import type { FirmwareExport, MapperContext } from '../types'
+import type { FirmwareExport, MapperContext } from '../../../__tests__/packs/ring/mapper/types'
 import { readFileSync } from 'node:fs'
 
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../../core/schemas'
-import { mapFirmwareExport } from '../firmware'
+import { LOCAL_SCHEMAS } from '../../../__tests__/packs/legacy-tables'
+import { mapFirmwareExport } from '../../../__tests__/packs/ring/mapper/firmware'
+import { generateViewDdl } from '../../../core/schemas'
 
 const BRAND = 'ziva'
 const FAMILY = 'fam_test'

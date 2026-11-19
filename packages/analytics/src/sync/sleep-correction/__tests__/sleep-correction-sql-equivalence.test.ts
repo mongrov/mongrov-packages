@@ -14,19 +14,20 @@
  * Runs on a synthetic fixture that always runs in CI, and on the real
  * captures the v3.1 parity suite uses when SLEEP_CAPTURES_DIR is set.
  */
-import type { SqlRunner } from '../correct'
+import type { SqlRunner } from '../../../__tests__/packs/ring/sleep-correction/correct'
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../../core/schemas'
-import { computeNightEpochs } from '../classify'
-import { nightWindow } from '../night'
-import { correctSleepNights, stagingBoundsFor } from '../orchestrate'
-import { detectHrTierSql, globalBaselinesSql } from '../sql'
-import { stagingViewsSql } from '../staging'
+import { LOCAL_SCHEMAS } from '../../../__tests__/packs/legacy-tables'
+import { computeNightEpochs } from '../../../__tests__/packs/ring/sleep-correction/classify'
+import { nightWindow } from '../../../__tests__/packs/ring/sleep-correction/night'
+import { correctSleepNights, stagingBoundsFor } from '../../../__tests__/packs/ring/sleep-correction/orchestrate'
+import { detectHrTierSql, globalBaselinesSql } from '../../../__tests__/packs/ring/sleep-correction/sql'
+import { stagingViewsSql } from '../../../__tests__/packs/ring/sleep-correction/staging'
+import { generateViewDdl } from '../../../core/schemas'
 
 const CAPTURES = process.env.SLEEP_CAPTURES_DIR
 

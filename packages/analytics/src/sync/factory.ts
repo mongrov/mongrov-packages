@@ -21,18 +21,12 @@ import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
 import type { IngestContext, NotedRows, PackSyncHooks, PostFlushJob, PostFlushRunner } from '../core/packs'
 
-import type { TableName } from '../core/schemas'
 import type { AnalyticsEngine, AttachContext, KVStore } from '../core/types'
 import type { RulesEngine } from '../rules/types'
 import type { EventBus } from './events'
 import type { FetchResult, PrefetchPolicy } from './fetcher'
 import type { SyncEmitter } from './flusher'
 import type { SensorSink, SyncManager, SyncManagerState, SyncProgress } from './manager'
-import type {
-  FirmwareExport,
-  MapperContext,
-  RingConfigTranslator,
-} from './mapper/types'
 import type { PushResult } from './pusher'
 import type { BackgroundTaskPort, ConstraintPort, SchedulerLogger, SchedulerState } from './scheduler'
 import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
@@ -146,12 +140,11 @@ export interface CreateSyncManagerConfig {
   /** Disable the per-cycle baseline recompute (Sprint 5 T-15). */
   computeBaselines?: boolean
   /**
-   * Derive sleep_session / sleep_stage from sleep_raw with the correction
-   * pipeline inside each batch cycle (sleep-correction §3). Default true;
-   * active only when sleep_raw, sleep_session and sleep_stage are all in
-   * `tables`.
+   * Options for the packs' post-flush jobs, by the names each job documents
+   * (e.g. the ring pack's `correctSleep: false` turns its sleep correction
+   * off).
    */
-  correctSleep?: boolean
+  options?: Readonly<Record<string, unknown>>
   logger?: SchedulerLogger
   /**
    * The app's own tables (principle 71) — the same object given to
@@ -159,14 +152,6 @@ export interface CreateSyncManagerConfig {
    * pusher and fetcher bound it on its declared `timeColumn`.
    */
   appSchema?: AppSchema
-  /**
-   * @deprecated Ignored since Sprint 5 T-09/T-10. The mapper reads the
-   * vendor `AutomaticMonitoring_J2301A` struct directly and owns the
-   * `dataType` → metric translation, so no consumer-supplied bridge is
-   * needed. Accepted for one release so existing call sites keep
-   * compiling.
-   */
-  ringConfigTranslator?: RingConfigTranslator
 }
 
 /**
@@ -219,7 +204,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   const strictBatchOrdering = config.strictBatchOrdering ?? true
 
   const evaluateRules = (
-    affectedTables: TableName[],
+    affectedTables: string[],
     affectedUserIds: string[],
     label: string,
   ): void => {
@@ -273,7 +258,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       progress.lastFlushAt = Date.now()
       if (!strictBatchOrdering && event.payload.rowsInserted > 0) {
         evaluateRules(
-          [event.payload.table as TableName],
+          [event.payload.table],
           event.payload.affectedUserIds,
           `table:${event.payload.table}`,
         )
@@ -286,7 +271,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       // rows already held flushes every table and changes nothing a rule can
       // see, and each rule reads the full-history quality views.
       evaluateRules(
-        event.payload.insertedTables as TableName[],
+        event.payload.insertedTables as string[],
         event.payload.affectedUserIds,
         `batch:${event.payload.batchId}`,
       )
@@ -363,7 +348,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         tables: config.tables,
         resolveTimezone,
         logger: config.logger,
-        options: config as unknown as Record<string, unknown>,
+        options: config.options ?? {},
       })
       return runner ? [runner] : []
     })
@@ -449,7 +434,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // no push/fetch SQL actually runs. Rules still fire on-batch via the
   // flusher; scheduled rules also fire via `onCycleComplete`.
   const isLocal = config.analytics.mode === 'local'
-  // Rows dropped at ingest (sink.push / pushFirmware) since the last flush;
+  // Rows dropped at ingest (sink.push / sink.ingest) since the last flush;
   // each flush reports and resets it (spec §13 S10, T-60).
   const dropTally = new DropTally()
 
@@ -684,9 +669,6 @@ interface CreateSinkDeps {
   dropTally: DropTally
 }
 
-// The ring pack's SCD-2 statements, re-exported from where they always were.
-export { ACTIVE_PRIOR_CONFIGS_SQL, CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams } from '../packs/ring/config-closes'
-
 function createSensorSink(deps: CreateSinkDeps): SensorSink {
   const { buffer, flusher, triggers, tables, engine, attachCtx, storage, postFlush, logger, dropTally } = deps
 
@@ -750,7 +732,6 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
       postFlush.noteRows(batch.table, batch)
     },
     ingest,
-    pushFirmware: async (fw: FirmwareExport, ctx: MapperContext) => ingest('firmware', fw, ctx),
     flush: async () => {
       // A user-initiated flush is one batch too — otherwise a manual sync
       // would evaluate rules per table and reintroduce the race that

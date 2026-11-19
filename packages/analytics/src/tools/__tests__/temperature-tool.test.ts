@@ -13,9 +13,10 @@ import { describe, expect, it } from 'vitest'
 
 import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
-import { BANNED_MEDICAL_VOCABULARY, findBanTerms } from '../formatters'
-import { getTemperature } from '../impls/temperature'
+import { BANNED_MEDICAL_VOCABULARY, findBanTerms } from '../../__tests__/packs/health/tools/formatters/copy-guidelines'
+import { getTemperature } from '../../__tests__/packs/health/tools/impls/temperature'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../../core/schemas'
 
 const BRAND = 'ziva'
 const FAMILY = 'fam_1'

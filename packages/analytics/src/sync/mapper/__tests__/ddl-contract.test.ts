@@ -21,17 +21,17 @@
  * renaming a field on a mapped row — fails here rather than on-device.
  */
 
-import type { TableName } from '../../../core/schemas'
-import type { ClassifiedRow } from '../../sleep-correction/classify'
-import type { FirmwareExport, MapperContext, RingConfigTranslator } from '../types'
+import type { TableName } from '../../../__tests__/packs/legacy-tables'
+import type { FirmwareExport, MapperContext, RingConfigTranslator } from '../../../__tests__/packs/ring/mapper/types'
+import type { ClassifiedRow } from '../../../__tests__/packs/ring/sleep-correction/classify'
 
 import { readFileSync } from 'node:fs'
 
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { LOCAL_SCHEMAS } from '../../../core/schemas'
-import { mapFirmwareExport } from '../firmware'
-import { sessionsFromCorrected } from '../sleep'
+import { LOCAL_SCHEMAS } from '../../../__tests__/packs/legacy-tables'
+import { mapFirmwareExport } from '../../../__tests__/packs/ring/mapper/firmware'
+import { sessionsFromCorrected } from '../../../__tests__/packs/ring/mapper/sleep'
 
 // -------------------- DDL introspection --------------------
 

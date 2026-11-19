@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { computeNightOf, parseTimestamp } from '../time'
+import { computeNightOf, parseTimestamp } from '../../../__tests__/packs/ring/mapper/time'
 
 describe('parseTimestamp', () => {
   it('parses "YYYY.MM.DD HH:MM:SS" as UTC wall clock', () => {

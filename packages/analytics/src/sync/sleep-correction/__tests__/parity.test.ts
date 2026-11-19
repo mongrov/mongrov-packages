@@ -19,15 +19,15 @@
  * SLEEP_CAPTURES_DIR to ziva_app `packages/ux/helpers/testFiles` to run.
  * SLEEP_PARITY_OUT=<file> writes the per-night comparison.
  */
-import type { SqlRunner } from '../correct'
+import type { SqlRunner } from '../../../__tests__/packs/ring/sleep-correction/correct'
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../../__integration__/setup/real-engine'
-import { computeNightEpochs } from '../classify'
-import { correctNight, detectHrTier, globalBaselines } from '../correct'
+import { computeNightEpochs } from '../../../__tests__/packs/ring/sleep-correction/classify'
+import { correctNight, detectHrTier, globalBaselines } from '../../../__tests__/packs/ring/sleep-correction/correct'
 
 const CAPTURES = process.env.SLEEP_CAPTURES_DIR
 const OUT = process.env.SLEEP_PARITY_OUT

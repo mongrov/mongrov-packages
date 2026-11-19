@@ -8,9 +8,9 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { BASELINE_MIN_DAYS, getBaselineMetricIds } from '../../core/metric_metadata'
-import { buildBaselineSql, createBaselineComputer } from '../baseline-compute'
-import { HR_PHASE_BAND_METRICS } from '../hr-phase-bands'
+import { buildBaselineSql, createBaselineComputer } from '../../__tests__/packs/health/baselines'
+import { HR_PHASE_BAND_METRICS } from '../../__tests__/packs/health/hr-phase-bands'
+import { BASELINE_MIN_DAYS, getBaselineMetricIds } from '../../__tests__/packs/health/metrics'
 
 const CTX = {
   brand: 'ziva',

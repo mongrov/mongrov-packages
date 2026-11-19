@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../engine'
 import {
   AUDIT_RETENTION_DAYS,
@@ -9,7 +10,7 @@ import {
   resolveEffectiveRetention,
   runRetentionSweep,
 } from '../retention'
-import { ensureSchemas, LOCAL_SCHEMAS } from '../schemas'
+import { ensureSchemas } from '../schemas'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
 

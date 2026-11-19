@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { detectAnomaly } from '../../__tests__/packs/health/tools/impls/anomaly'
 import { createFakeEngine } from '../__fakes__/engine'
-import { detectAnomaly } from '../impls/anomaly'
 
 const baseCtx = {
   requesterUserId: 'alice',

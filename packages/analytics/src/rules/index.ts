@@ -17,19 +17,13 @@
  */
 
 // R3 — compiler + cache
-export {
-  type Baseline,
-  type BaselineReader,
-  type BaselineReaderConfig,
-  createBaselineReader,
-} from './baseline-reader'
-export { compileRule, emitContextJoin, sanitizeIdent, USER_SETTING_PARAM, viewFor } from './compiler'
+export { compileRule, emitContextJoin, MIN_DAY_READINGS_FRACTION, minDayReadings, sanitizeIdent, USER_SETTING_PARAM, viewFor } from './compiler'
 export { type CompilerCache, createCompilerCache } from './compiler-cache'
-
 export { contextJoin, ruleContextNames } from './contexts'
 
+export { parseCatalog, type ParseCatalogOptions } from './defaults/loader'
+
 // R8 — brand defaults
-export * as defaults from './defaults'
 
 export {
   createEmitter,

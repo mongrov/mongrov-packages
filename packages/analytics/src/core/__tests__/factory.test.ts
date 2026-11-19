@@ -1,10 +1,10 @@
 import type { AnalyticsConfig, AnalyticsEngine, AnalyticsLogger, AnalyticsState, AttachContext, TokenResponse } from '../types'
 
 import { describe, expect, it, vi } from 'vitest'
+import { LOCAL_ONLY_TABLES, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
 import { AnalyticsError } from '../errors'
 import { createAnalytics } from '../factory'
 import { LAST_ATTACH_TTL_MS } from '../persistence'
-import { LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
 import { createFakeKV } from './__fakes__/fake-kv'

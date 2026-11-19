@@ -11,7 +11,7 @@
  * Harness, fixture and method: `setup/bounded-readers.ts`.
  */
 import { describe, expect, it } from 'vitest'
-import { fallbackMacroDdl, qualityMacroDdls } from '../../core/reading-quality'
+import { fallbackMacroDdl, qualityMacroDdls } from '../../__tests__/packs/health/reading-quality'
 import { BOUNDED_RULES, CLOCK_MINUTES, clockAt, comparePhaseBands, compareRules, compareTools, open, tally } from '../setup/bounded-readers'
 
 describe('bounded readers: off-nominal sessions (mongrov-packages#44)', () => {

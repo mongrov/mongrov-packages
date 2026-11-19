@@ -1,15 +1,13 @@
 import type { Migration } from '../migrations'
 
 import { describe, expect, it } from 'vitest'
+import { CURRENT_VERSION, IDENTITY_COLUMNS, LOCAL_ONLY_TABLES, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../engine'
 import {
-  CURRENT_VERSION,
   ensureMigrations,
-
   schemaVersionKey,
 } from '../migrations'
 import { PLATFORM_TABLE_NAMES } from '../platform-tables'
-import { IDENTITY_COLUMNS, LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
 import { createFakeKV } from './__fakes__/fake-kv'
@@ -373,7 +371,7 @@ describe('migration 3 — insight v2 against a live local DuckDB', () => {
 describe('MIGRATIONS shape', () => {
   it('CURRENT_VERSION equals MIGRATIONS length', async () => {
     // Import here to avoid a top-level cycle in the assertions above.
-    const { MIGRATIONS } = await import('../migrations')
+    const { MIGRATIONS } = await import('../../__tests__/packs/legacy-tables')
     expect(CURRENT_VERSION).toBe(MIGRATIONS.length)
     for (let i = 0; i < MIGRATIONS.length; i++) {
       const m = MIGRATIONS[i] as Migration

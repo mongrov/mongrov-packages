@@ -16,9 +16,9 @@ import type { AnalyticsEngine, AttachContext } from '../../core/types'
 
 import type { EventBus } from '../events'
 import { describe, expect, it, vi } from 'vitest'
+import { DROPPED_ROWS_EVENT } from '../../__tests__/packs/health/plausibility'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { createSyncManager } from '../factory'
-import { DROPPED_ROWS_EVENT } from '../mapper/plausibility'
 import { createFakeEngine } from './__fakes__/fake-engine'
 
 const ctx: AttachContext = {
@@ -532,7 +532,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     fake.mockExecuteNext([]) // SELECT returns no prior configs
     const mgr = makeMgr(fake)
 
-    await mgr.sink.pushFirmware({
+    await mgr.sink.ingest('firmware', {
       ...emptyFirmware,
       ring: { automaticMonitoringData: [
         window(4, 5, 22, 8),
@@ -569,7 +569,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     fake.mockExecuteNext([]) // UPDATE returns nothing.
     const mgr = makeMgr(fake)
 
-    await mgr.sink.pushFirmware({
+    await mgr.sink.ingest('firmware', {
       ...emptyFirmware,
       ring: { automaticMonitoringData: [
         window(4, 5, 22, 8),
@@ -610,7 +610,7 @@ describe('device_config sink (SCD-2 close semantics)', () => {
     const mgr = makeMgr(fake)
 
     // pushFirmware enqueues + local-UPDATEs.
-    await mgr.sink.pushFirmware({
+    await mgr.sink.ingest('firmware', {
       ...emptyFirmware,
       ring: { automaticMonitoringData: [
         window(4, 5, 22, 8),
@@ -692,7 +692,7 @@ describe('ingest stores out-of-range readings, drops only malformed rows (S10, T
     const logger = makeLogger()
     const mgr = makeMgr(fake, logger)
 
-    await mgr.sink.pushFirmware(firmware, mapperCtx)
+    await mgr.sink.ingest('firmware', firmware, mapperCtx)
     expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(3)
     expect(await mgr.sink.pendingRowCount('spo2')).toBe(2)
 
@@ -715,7 +715,7 @@ describe('ingest stores out-of-range readings, drops only malformed rows (S10, T
     const logger = makeLogger()
     const mgr = makeMgr(fake, logger)
 
-    await mgr.sink.pushFirmware(firmware, mapperCtx)
+    await mgr.sink.ingest('firmware', firmware, mapperCtx)
     // Nothing is logged per pushed chunk any more.
     expect(dropLines(logger)).toHaveLength(0)
 
@@ -741,7 +741,7 @@ describe('ingest stores out-of-range readings, drops only malformed rows (S10, T
     const logger = makeLogger()
     const mgr = makeMgr(fake, logger)
 
-    await mgr.sink.pushFirmware(firmware, mapperCtx)
+    await mgr.sink.ingest('firmware', firmware, mapperCtx)
     await mgr.triggerNow()
     expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({ trigger: 'scheduled', total: 3 }))
   })
@@ -786,7 +786,7 @@ describe('ingest stores out-of-range readings, drops only malformed rows (S10, T
       logger,
     })
 
-    await mgr.sink.pushFirmware({
+    await mgr.sink.ingest('firmware', {
       ...firmware,
       heartrate: [],
       spo2: [],
@@ -823,7 +823,7 @@ describe('ingest stores out-of-range readings, drops only malformed rows (S10, T
       columnOrder: { hrv: ['device_id', 'ts', 'hrv_ms', 'stress'] as const },
       logger,
     })
-    await mgr.sink.pushFirmware({
+    await mgr.sink.ingest('firmware', {
       ...firmware,
       heartrate: [],
       spo2: [],
@@ -839,7 +839,7 @@ describe('ingest stores out-of-range readings, drops only malformed rows (S10, T
     const logger = makeLogger()
     const mgr = makeMgr(fake, logger)
 
-    await mgr.sink.pushFirmware({
+    await mgr.sink.ingest('firmware', {
       ...firmware,
       heartrate: [{ timestamp: '2026.10.28 08:00:00', singleHR: 62 }],
       spo2: [{ timestamp: '2026.10.28 08:00:00', automaticSpo2Data: 97 }],

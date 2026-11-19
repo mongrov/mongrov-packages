@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { getSleepSummary } from '../../__tests__/packs/health/tools/impls/sleep'
 import { createFakeEngine } from '../__fakes__/engine'
-import { getSleepSummary } from '../impls/sleep'
 
 const baseCtx = {
   requesterUserId: 'alice',

@@ -7,15 +7,6 @@
 
 // Buffer + overflow (Phase B).
 export {
-  type BaselineComputeConfig,
-  type BaselineComputeContext,
-  type BaselineComputer,
-  type BaselineComputeResult,
-  baselineHasBoundedForm,
-  buildBaselineSql,
-  createBaselineComputer,
-} from './baseline-compute'
-export {
   type BaselineRow,
   type BaselineRunContext,
   type BaselineRunner,
@@ -26,7 +17,8 @@ export {
 } from './baselines'
 export { SensorBuffer, type SensorBufferConfig, type TakenBatch } from './buffer'
 export { SyncProvider, type SyncProviderProps, useSyncManager } from './context'
-export { validateRows } from './drops'
+export { DROPPED_ROWS_EVENT, DropTally, validateRows } from './drops'
+export type { DropReport, DropSummary } from './drops'
 export { SyncError, type SyncErrorCode } from './errors'
 export type { BatchCompletePayload } from './events'
 
@@ -64,14 +56,6 @@ export {
   type SyncEmitter,
 } from './flusher'
 export { useSensorSink, useSyncProgress, useSyncState } from './hooks'
-export {
-  buildHrPhaseBandsSql,
-  HR_PHASE_BAND_METRICS,
-  HR_PHASES,
-  type HrPhase,
-  type HrPhaseBandMetric,
-  PHASE_MIN_READINGS,
-} from './hr-phase-bands'
 export type {
   SensorSink,
   SyncManager,
@@ -79,74 +63,9 @@ export type {
   SyncProgress,
 } from './manager'
 // Mappers (Phase A).
-export { mapActivity, type MapActivityResult } from './mapper/activity'
 
-export { BATTERY_EVENT, mapBattery } from './mapper/battery'
-export {
-  type FirmwareMappedBatch,
-  mapFirmwareExport,
-  type MapFirmwareOptions,
-} from './mapper/firmware'
-export { mapHeartRate } from './mapper/heart-rate'
-export { mapHrv } from './mapper/hrv'
-
-export {
-  dropImplausibleRows,
-  dropMalformedRows,
-  DROPPED_ROWS_EVENT,
-  DropTally,
-  EARLIEST_PLAUSIBLE_ISO,
-  IMPLAUSIBLE_ROWS_EVENT,
-  MAX_CLOCK_AHEAD_DAYS,
-} from './mapper/plausibility'
-
-export type { DropReason, DropReport, DropSummary } from './mapper/plausibility'
-
-export {
-  mapRingConfig,
-  type MapRingConfigResult,
-  type RingConfigClose,
-} from './mapper/ring-config'
-export {
-  FIRMWARE_QUALITY_TO_STAGE,
-  mapSleepRaw,
-  sessionsFromCorrected,
-  type SessionsFromCorrectedResult,
-  SLEEP_STAGE_CODES,
-} from './mapper/sleep'
-export { mapSpo2 } from './mapper/spo2'
-export { mapTemperature } from './mapper/temperature'
-export { computeNightOf, parseTimestamp } from './mapper/time'
-export type {
-  ActivityBucketRow,
-  ActivityRow,
-  DeviceBatteryRow,
-  DeviceConfigRow,
-  DeviceEventRow,
-  FirmwareActivityRow,
-  FirmwareBatteryRow,
-  FirmwareExport,
-  FirmwareHRRow,
-  FirmwareHRVRow,
-  FirmwareMonitoringWindow,
-  FirmwareRingConfig,
-  FirmwareSleepRawRow,
-  FirmwareSpO2Row,
-  FirmwareTempRow,
-  HeartRateRow,
-  HrvRow,
-  MappedBatch,
-  MapperContext,
-  RingConfigTranslator,
-  SleepRawRow,
-  SleepSessionRow,
-  SleepStageRow,
-  Spo2Row,
-  TemperatureRow,
-} from './mapper/types'
 export { OverflowStore } from './overflow'
 // SCD-2 pending closes (Phase G+).
-export { PendingClosesStore } from './pending_closes'
 export {
   type PushResult,
   R2Pusher,
@@ -157,6 +76,7 @@ export {
   type BackgroundTaskPort,
   type ConstraintPort,
   type CycleResult,
+  logError,
   type SchedulerConstraints,
   type SchedulerLogger,
   type SchedulerState,
@@ -168,19 +88,6 @@ export {
 // (principle 68, zivaone_app#460): sleep-derive runs it inside the batch
 // cycle, where nothing else exercises it on a device build. A caller passes
 // its own `SleepRelations` so its staging views never replace sleep-derive's.
-export {
-  type CorrectSleepInput,
-  correctSleepNights,
-  type CorrectSleepResult,
-  nightsForEpochs,
-  DEFAULT_RELATIONS as SLEEP_CORRECTION_RELATIONS,
-  type NightOutcome as SleepCorrectionNightOutcome,
-  type SleepRelations,
-  type StagingBounds as SleepStagingBounds,
-  stagingBoundsFor as sleepStagingBoundsFor,
-  type StagingScope as SleepStagingScope,
-  stagingViewsSql as sleepStagingViewsSql,
-} from './sleep-correction'
 export {
   DEFAULT_MAX_AGE_MS,
   DEFAULT_MAX_ROWS,

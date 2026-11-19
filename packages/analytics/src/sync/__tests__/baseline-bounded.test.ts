@@ -4,7 +4,7 @@
  * return the same row: `bounded-readers-baselines.test.ts`.
  */
 import { describe, expect, it } from 'vitest'
-import { baselineHasBoundedForm, buildBaselineSql, createBaselineComputer } from '../baseline-compute'
+import { baselineHasBoundedForm, buildBaselineSql, createBaselineComputer } from '../../__tests__/packs/health/baselines'
 
 const CTX = { brand: 'ziva', familyId: 'fam1', userId: 'alice', userTimezone: 'UTC' }
 const ROW = { p05: 50, p10: 51, p50: 55, p90: 60, p95: 61, mean: 55, stddev: 2, sample_count: 25 }

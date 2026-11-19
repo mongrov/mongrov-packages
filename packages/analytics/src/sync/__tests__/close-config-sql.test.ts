@@ -10,8 +10,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { LOCAL_SCHEMAS } from '../../core/schemas'
-import { CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams } from '../factory'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams } from '../../__tests__/packs/ring/config-closes'
 
 async function boot() {
   const db = await createRealDuckDB(['icu'])

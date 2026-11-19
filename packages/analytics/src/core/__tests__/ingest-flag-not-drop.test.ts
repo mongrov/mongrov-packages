@@ -10,15 +10,15 @@
  *   - `_clean` skips them with `rangeFilter` on and shows them with it off
  *   - a row dated 1970 is dropped and counted
  */
-import type { FirmwareExport, MapperContext } from '../../sync/mapper/types'
+import type { FirmwareExport, MapperContext } from '../../__tests__/packs/ring/mapper/types'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { mapFirmwareExport } from '../../sync/mapper/firmware'
-import { dropMalformedRows, DropTally } from '../../sync/mapper/plausibility'
+import { dropMalformedRows, DropTally } from '../../__tests__/packs/health/plausibility'
+import { qualityMacroFor } from '../../__tests__/packs/health/reading-quality'
+import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
+import { mapFirmwareExport } from '../../__tests__/packs/ring/mapper/firmware'
 import { HybridDuckDB } from '../engine'
-import { qualityMacroFor } from '../reading-quality'
-import { LOCAL_SCHEMAS, TABLE_NAMES } from '../schemas'
 import { createViews } from '../warehouse'
 
 const BRAND = 'ziva'

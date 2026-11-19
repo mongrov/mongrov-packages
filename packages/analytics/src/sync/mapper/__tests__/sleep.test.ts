@@ -11,8 +11,8 @@
  *      settle_min on the first session only; ids per principle 25.
  */
 
-import type { ClassifiedRow } from '../../sleep-correction/classify'
-import type { FirmwareSleepRawRow, MapperContext } from '../types'
+import type { FirmwareSleepRawRow, MapperContext } from '../../../__tests__/packs/ring/mapper/types'
+import type { ClassifiedRow } from '../../../__tests__/packs/ring/sleep-correction/classify'
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -21,7 +21,7 @@ import {
   mapSleepRaw,
   sessionsFromCorrected,
   SLEEP_STAGE_CODES,
-} from '../sleep'
+} from '../../../__tests__/packs/ring/mapper/sleep'
 
 const ctx: MapperContext = {
   brand: 'ziva',

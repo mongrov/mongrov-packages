@@ -19,8 +19,9 @@
  */
 import { DuckDBInstance, DuckDBTypeId } from '@duckdb/node-api'
 import { describe, expect, it } from 'vitest'
-import { qualityMacroDdls, qualityViewDdls } from '../../core/reading-quality'
-import { generateViewDdl, LOCAL_SCHEMAS, TABLE_NAMES, VIEWED_TABLES } from '../../core/schemas'
+import { qualityMacroDdls, qualityViewDdls } from '../../__tests__/packs/health/reading-quality'
+import { LOCAL_SCHEMAS, TABLE_NAMES, VIEWED_TABLES } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../../core/schemas'
 
 const MACRO_HEAD = /^CREATE OR REPLACE MACRO \S+\(lo, hi\) AS TABLE\s*/
 

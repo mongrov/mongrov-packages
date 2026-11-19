@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
+import { SCHEMAS, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../engine'
-import {
-  ensureSchemas,
-  qualifyDdl,
-  SCHEMAS,
-  TABLE_NAMES,
-} from '../schemas'
+import { ensureSchemas, qualifyDdl } from '../schemas'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
 
@@ -37,7 +33,7 @@ describe('SCHEMAS', () => {
     // parens; a naive `\([^)]*\)` match left a dangling `, user_id);`
     // that made every partitioned LOCAL_SCHEMAS entry a parser error on
     // real DuckDB (fake engines swallowed it silently until 0.6.0).
-    const { LOCAL_SCHEMAS } = await import('../schemas')
+    const { LOCAL_SCHEMAS } = await import('../../__tests__/packs/legacy-tables')
     for (const table of TABLE_NAMES) {
       const ddl = LOCAL_SCHEMAS[table]
       expect(ddl).not.toContain('PARTITIONED')

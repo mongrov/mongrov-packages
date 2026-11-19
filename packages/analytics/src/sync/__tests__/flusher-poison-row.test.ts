@@ -17,9 +17,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { HybridDuckDB } from '../../core/engine'
-import { LOCAL_SCHEMAS } from '../../core/schemas'
 import { SensorBuffer } from '../buffer'
 import { BatchFlusher, MAX_CONSECUTIVE_FAILURES } from '../flusher'
 import { OverflowStore } from '../overflow'

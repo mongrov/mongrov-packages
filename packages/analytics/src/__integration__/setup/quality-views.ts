@@ -8,8 +8,9 @@
  * `worn`) as empty local tables with local-mode union views, then the quality
  * views and their bounded macros on top. Idempotent — existing tables are kept, views are replaced.
  */
-import { qualityMacroDdls, qualityViewDdls } from '../../core/reading-quality'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
+import { qualityMacroDdls, qualityViewDdls } from '../../__tests__/packs/health/reading-quality'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../../core/schemas'
 
 const QUALITY_INPUTS = ['heart_rate', 'hrv', 'spo2', 'temperature', 'activity'] as const
 

@@ -11,9 +11,10 @@
 import { describe, expect, it } from 'vitest'
 import { createQualityViews } from '../../__integration__/setup/quality-views'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { BASELINE_MIN_DAYS } from '../../core/metric_metadata'
-import { generateViewDdl, LOCAL_SCHEMAS } from '../../core/schemas'
-import { buildHrPhaseBandsSql, HR_PHASE_BAND_METRICS } from '../hr-phase-bands'
+import { buildHrPhaseBandsSql, HR_PHASE_BAND_METRICS } from '../../__tests__/packs/health/hr-phase-bands'
+import { BASELINE_MIN_DAYS } from '../../__tests__/packs/health/metrics'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
+import { generateViewDdl } from '../../core/schemas'
 
 const B = 'ziva'
 const F = 'f'

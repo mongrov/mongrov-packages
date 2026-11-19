@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { getExposedMetricIds } from '../../core/metric_metadata'
+import { getExposedMetricIds } from '../../__tests__/packs/health/metrics'
 import { compileRule } from '../compiler'
 import { createCompilerCache } from '../compiler-cache'
 import {

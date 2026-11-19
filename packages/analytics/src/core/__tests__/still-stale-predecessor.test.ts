@@ -18,9 +18,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
+import { qualityMacroDdls, qualityViewDdls } from '../../__tests__/packs/health/reading-quality'
+import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../engine'
-import { qualityMacroDdls, qualityViewDdls } from '../reading-quality'
-import { LOCAL_SCHEMAS } from '../schemas'
 
 const COLS = 'brand, family_id, user_id, device_id'
 const ids = (ring: string) => `'ziva','fam','u','${ring}'`
