@@ -26,13 +26,12 @@
  */
 
 import type { HybridDuckDB } from '../core/engine'
-import type { TableName } from '../core/schemas'
 import type { SensorBuffer } from './buffer'
 
 import type { BufferEntry, FlushResult } from './types'
 import { nanoid } from 'nanoid'
 import PQueue from 'p-queue'
-import { LOCAL_SCHEMAS } from '../core/schemas'
+import { hasLocalPrimaryKey } from '../core/schemas'
 import { SyncError } from './errors'
 
 export type FlushReason
@@ -174,11 +173,11 @@ interface TableRuntimeState {
 
 /**
  * Whether the local table carries a PRIMARY KEY — its own (`sleep_session`,
- * `device_config`) or one injected from IDENTITY_COLUMNS. Keyed tables must
+ * `device_config`) or its pack-declared identity. Keyed tables must
  * go through the staging + ON CONFLICT path; see `#write`.
  */
 function isKeyed(table: string): boolean {
-  return LOCAL_SCHEMAS[table as TableName]?.includes('PRIMARY KEY') ?? false
+  return hasLocalPrimaryKey(table)
 }
 
 /**

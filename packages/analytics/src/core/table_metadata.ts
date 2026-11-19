@@ -18,45 +18,38 @@
 
 import type { AppSchema } from './app-schema'
 import type { TableName } from './schemas'
+import { HEALTH_TABLES } from '../packs/health/tables'
+import { packTable } from './packs'
+import { PLATFORM_TABLES } from './platform-tables'
 
 export interface TableSyncMetadata {
   timeColumn: string
   syncable: boolean
 }
 
-export const TABLE_METADATA: Readonly<Record<TableName, TableSyncMetadata>> = Object.freeze({
-  hrv: { timeColumn: 'ts', syncable: true },
-  heart_rate: { timeColumn: 'ts', syncable: true },
-  spo2: { timeColumn: 'ts', syncable: true },
-  temperature: { timeColumn: 'ts', syncable: true },
-  activity: { timeColumn: 'ts', syncable: true },
-  activity_bucket: { timeColumn: 'ts', syncable: true },
-  sleep_session: { timeColumn: 'ts_start', syncable: true },
-  sleep_stage: { timeColumn: 'ts', syncable: true },
-  sleep_raw: { timeColumn: 'ts', syncable: true },
-  device_event: { timeColumn: 'ts', syncable: true },
-  device_battery: { timeColumn: 'ts', syncable: true },
-  device_config: { timeColumn: 'valid_from', syncable: true },
-  insight: { timeColumn: 'ts', syncable: true },
-  sync_watermark: { timeColumn: 'updated_at', syncable: false },
-  // Derived, local-only, and UPSERTed in place — never pushed, and its
-  // `computed_at` is a recompute stamp rather than a sync cursor.
-  user_baseline: { timeColumn: 'computed_at', syncable: false },
-  tool_call_audit: { timeColumn: 'ts', syncable: false },
-})
+/**
+ * The pre-pack registry (≤ 0.52), for existing callers. The engine reads the
+ * pack registry (`packTable`), which also knows tables registered later.
+ */
+export const TABLE_METADATA: Readonly<Record<TableName, TableSyncMetadata>> = Object.freeze(
+  Object.fromEntries(
+    Object.entries({ ...HEALTH_TABLES, ...PLATFORM_TABLES })
+      .map(([name, t]) => [name, { timeColumn: t.timeColumn, syncable: t.syncable }]),
+  ) as Record<TableName, TableSyncMetadata>,
+)
 
 function metadataFor(table: string, appSchema?: AppSchema): TableSyncMetadata | undefined {
-  return (TABLE_METADATA as Record<string, TableSyncMetadata>)[table] ?? appSchema?.tables[table]
+  return packTable(table) ?? appSchema?.tables[table]
 }
 
 /**
- * Resolve the sync watermark column for a table — a package table, or one the
+ * Resolve the sync watermark column for a table — a pack table, or one the
  * app declared in `appSchema`.
  *
  * Falls back to `'ts'` for unknown table names so downstream callers stay
  * compatible if the schema catalog and this registry drift.
  */
-export function timeColumnFor(table: TableName | string, appSchema?: AppSchema): string {
+export function timeColumnFor(table: string, appSchema?: AppSchema): string {
   return metadataFor(table, appSchema)?.timeColumn ?? 'ts'
 }
 
@@ -65,6 +58,6 @@ export function timeColumnFor(table: TableName | string, appSchema?: AppSchema):
  * tables that carry no cross-device state (`sync_watermark`,
  * `tool_call_audit`).
  */
-export function isSyncable(table: TableName | string, appSchema?: AppSchema): boolean {
+export function isSyncable(table: string, appSchema?: AppSchema): boolean {
   return metadataFor(table, appSchema)?.syncable ?? false
 }

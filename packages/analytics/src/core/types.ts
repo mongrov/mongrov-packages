@@ -8,6 +8,7 @@
  */
 
 import type { AppSchema } from './app-schema'
+import type { AnalyticsPack } from './packs'
 import type { QualityOptions } from './reading-quality'
 
 // -------------------- primitives --------------------
@@ -140,6 +141,14 @@ interface CommonAnalyticsConfig {
    * Validated when the engine is created; see `AppSchema`.
    */
   appSchema?: AppSchema
+  /**
+   * Domain packs (principle 73): tables, migrations, retention, views,
+   * ingest adapters, post-flush jobs, baselines, metrics, rule contexts and
+   * tools. Registered (`registerPacks`) when the engine is created, in
+   * order; the platform pack is always present. Packs registered elsewhere
+   * with `registerPack` count too. See `definePack`.
+   */
+  packs?: readonly AnalyticsPack[]
 }
 
 /**

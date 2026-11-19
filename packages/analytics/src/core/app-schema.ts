@@ -29,10 +29,12 @@
 
 import type { HybridDuckDB } from './engine'
 import type { MigrationCatalogs, MigrationContext } from './migrations'
+import type { AnalyticsPack } from './packs'
 import type { KVStore } from './types'
+import { qualifyDdl, quoteQualifier, toLocalDdl } from './ddl'
 import { AnalyticsError } from './errors'
-import { REMOTE_NAMESPACE } from './migrations'
-import { qualifyDdl, quoteQualifier, TABLE_NAMES, toLocalDdl } from './schemas'
+import { REMOTE_NAMESPACE, runPackMigrations } from './migrations'
+import { packTables } from './packs'
 
 export interface AppTableRetention {
   /** Timestamp column the retention DELETE compares. */
@@ -93,7 +95,7 @@ export function validateAppSchema(schema: AppSchema): void {
   if (!NAMESPACE_RE.test(schema.namespace))
     fail(`namespace "${schema.namespace}" must match ${NAMESPACE_RE}`)
 
-  const packageTables = new Set<string>(TABLE_NAMES)
+  const packageTables = new Set<string>(packTables().keys())
   for (const [name, table] of Object.entries(schema.tables)) {
     if (!IDENT_RE.test(name))
       fail(`table name "${name}" must match ${IDENT_RE}`)
@@ -147,24 +149,21 @@ export async function ensureAppSchema(
     }
   }
 
-  const migrations = schema.migrations ?? []
-  const key = appSchemaVersionKey(schema.namespace, ctx.brand, ctx.tenantId)
-  const stored = await kv.get<number>(key)
-  const from = typeof stored === 'number' ? stored : 0
-  for (const migration of migrations) {
-    if (migration.version <= from)
-      continue
-    try {
-      await migration.up(db, catalogs)
-    }
-    catch (cause) {
-      throw new AnalyticsError(
-        'migration_failed',
-        `app migration ${schema.namespace} step-${migration.version} (${migration.name}) failed`,
-        cause,
-      )
-    }
-    await kv.set(key, migration.version)
+  const { from, to } = await runPackMigrations(db, kv, ctx, catalogs, appSchemaPack(schema))
+  return { from, to }
+}
+
+/**
+ * The app's schema as a pack (principle 71): its tables, its migrations and
+ * its own version ledger. Not registered globally — it belongs to the one
+ * engine it was configured on — but run by the same migration runner and
+ * read by the same table lookups as every other pack.
+ */
+export function appSchemaPack(schema: AppSchema): AnalyticsPack {
+  return {
+    name: schema.namespace,
+    tables: schema.tables,
+    migrations: schema.migrations,
+    versionKey: (brand, tenantId) => appSchemaVersionKey(schema.namespace, brand, tenantId),
   }
-  return { from, to: Math.max(from, migrations.length) }
 }

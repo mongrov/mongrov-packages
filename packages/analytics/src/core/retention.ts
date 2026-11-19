@@ -32,9 +32,9 @@
 
 import type { AppSchema } from './app-schema'
 import type { HybridDuckDB } from './engine'
-import type { TableName } from './schemas'
 import type { AnalyticsMode } from './types'
 import { AnalyticsError } from './errors'
+import { packTables } from './packs'
 import { quoteQualifier } from './schemas'
 import { isSyncable } from './table_metadata'
 
@@ -81,32 +81,8 @@ export function resolveEffectiveRetention(input: EffectiveRetentionInput): numbe
 interface TableRetention {
   tsColumn: string
   kind: 'sensor' | 'insight' | 'audit'
+  tenantColumns?: readonly string[]
 }
-
-const TABLE_RETENTION: Readonly<Record<TableName, TableRetention | null>> = Object.freeze({
-  hrv: { tsColumn: 'ts', kind: 'sensor' },
-  heart_rate: { tsColumn: 'ts', kind: 'sensor' },
-  spo2: { tsColumn: 'ts', kind: 'sensor' },
-  temperature: { tsColumn: 'ts', kind: 'sensor' },
-  activity: { tsColumn: 'ts', kind: 'sensor' },
-  activity_bucket: { tsColumn: 'ts', kind: 'sensor' },
-  // `sleep_session` retains by session close, not start — a session that ends
-  // outside the retention window has fully aged out.
-  sleep_session: { tsColumn: 'ts_end', kind: 'sensor' },
-  sleep_stage: { tsColumn: 'ts', kind: 'sensor' },
-  sleep_raw: { tsColumn: 'ts', kind: 'sensor' },
-  device_event: { tsColumn: 'ts', kind: 'sensor' },
-  device_battery: { tsColumn: 'ts', kind: 'sensor' },
-  device_config: null,
-  insight: { tsColumn: 'ts', kind: 'insight' },
-  sync_watermark: null,
-  tool_call_audit: { tsColumn: 'ts', kind: 'audit' },
-  // Never swept: one row per (user, metric, window) that the baseline
-  // job UPSERTs in place. There is no growth to reclaim, and deleting
-  // by `computed_at` would drop live baselines for any metric whose
-  // recompute is stale.
-  user_baseline: null,
-})
 
 // -------------------- constants --------------------
 
@@ -203,8 +179,8 @@ export async function runRetentionSweep(
   const skipped: string[] = []
   const appTables = Object.entries(input.appSchema?.tables ?? {})
     .map(([table, t]) => [table, t.retention] as const)
-  const targets = [
-    ...(Object.entries(TABLE_RETENTION) as Array<[string, TableRetention | null]>),
+  const targets: Array<readonly [string, TableRetention | null]> = [
+    ...Array.from(packTables(), ([table, t]) => [table, t.retention] as const),
     ...appTables,
   ]
   for (const [table, cfg] of targets) {
@@ -213,7 +189,7 @@ export async function runRetentionSweep(
 
     const days = daysForKind(cfg.kind, input.effectiveDays)
     const guarded = mode !== 'local' && isSyncable(table, input.appSchema)
-    const tenantColumns = tenantColumnsFor(table)
+    const tenantColumns = cfg.tenantColumns ?? DEFAULT_TENANT_COLUMNS
     // Bound on EVERY sweep, guarded or not: the scope is not an optimisation,
     // it is what keeps the delete inside this tenant.
     let params: Record<string, unknown> = tenantParamsFor(tenantColumns, input.tenant)
@@ -270,25 +246,18 @@ const TENANT_PARAM_FOR: Readonly<Record<string, string>> = Object.freeze({
 })
 
 /**
- * The tenant columns present on a swept table.
- *
- * Every swept table carries `brand` and `family_id`. `tool_call_audit` is the
- * one without `user_id` — it records calls at family scope, under
- * `requester_user_id` — so scoping it by `user_id` would not compile into
- * valid SQL at all.
+ * Every retention DELETE is scoped to the attaching tenant; a table declares
+ * narrower `tenantColumns` when it has no user column (an audit log keyed by
+ * requester).
  */
-function tenantColumnsFor(table: string): readonly string[] {
-  return table === 'tool_call_audit'
-    ? ['brand', 'family_id']
-    : ['brand', 'family_id', 'user_id']
-}
+const DEFAULT_TENANT_COLUMNS: readonly string[] = ['brand', 'family_id', 'user_id']
 
 /**
  * Params for exactly the scope columns a table has — no more.
  *
  * DuckDB rejects a named parameter the statement never references, so binding
  * `$userId` for `tool_call_audit` fails the sweep on that table. The params
- * therefore follow `tenantColumnsFor`, not a fixed shape.
+ * therefore follow the table's declared `tenantColumns`, not a fixed shape.
  */
 function tenantParamsFor(columns: readonly string[], tenant: RetentionTenant): Record<string, unknown> {
   const value: Readonly<Record<string, string>> = {
@@ -307,7 +276,7 @@ interface DeleteSqlInput {
   /** Bound by `$pushWatermark` (ISO string param, cast to TIMESTAMP). */
   watermarkBound?: boolean
   /**
-   * Tenant columns to scope the delete by, from `tenantColumnsFor`. Required:
+   * Tenant columns to scope the delete by (the table's `tenantColumns`). Required:
    * an unscoped retention DELETE deletes other tenants' rows using THIS
    * tenant's watermark, and the app shares one persistent `memory.duckdb`
    * across accounts, so their rows genuinely coexist.
