@@ -37,6 +37,30 @@
  *   valid_to = now()` before the INSERT lands. Metrics present in the prior
  *   map but absent from the new snapshot are left open — the ring is silent
  *   on them, not disabling them.
+ *
+ * An unchanged schedule is a READ, not a new version (principle 66):
+ *   the handshake reads the schedule on every sync, and every read used to
+ *   close the open row and insert an identical one, so `device_config` grew
+ *   by one row per metric per sync, forever (it is never swept), and pushing
+ *   the same export twice went 3 -> 6 rows. When the metric's single open row
+ *   already holds exactly the schedule just read, the mapper now emits a
+ *   `read` instead: the sink moves that row's `valid_from` to the read time,
+ *   and nothing is closed or inserted.
+ *
+ *   Why move `valid_from` rather than do nothing: Auto Monitoring retires a
+ *   pending change once a read of the ring LATER than the write has landed,
+ *   whatever it says (`overrideRetired`, zivaone_app#508/#662), and it learns
+ *   the read time from the answering row's `valid_from`. Doing nothing would
+ *   leave a write the ring dropped "pending" forever. The history the screens
+ *   read is unaffected: the previous version's `valid_to` still marks when
+ *   this schedule began, and `device.metricCadence` answers a day between the
+ *   two with the nearest later row, which is this one. V1 kept only the
+ *   latest read (`RingContextProvider` state), which is what the open row is.
+ *
+ *   Anything else (no open row, more than one open row — older installs, or
+ *   two exports buffered before one flush — more than one window for the
+ *   metric, or a different schedule) takes the close + insert path, which
+ *   converges to one open row.
  */
 
 import type {
@@ -145,15 +169,42 @@ export interface RingConfigClose {
   valid_to: Date
 }
 
+/**
+ * The ring re-reported the schedule its open row already holds: no new
+ * version, only the read time moves (see the module doc).
+ */
+export interface RingConfigRead {
+  device_id: string
+  /** Our metric id — matches `device_config.metric`. */
+  metric: string
+  /** The open row's `valid_from` as read; the UPDATE matches it exactly. */
+  prior_valid_from: Date
+  /** When this read was taken; becomes the row's `valid_from`. */
+  read_at: Date
+}
+
 export interface MapRingConfigResult {
   inserts: DeviceConfigRow[]
   closes: RingConfigClose[]
+  reads: RingConfigRead[]
 }
 
 export interface MapRingConfigOptions {
   now?: Date
-  /** Prior open configs for this device, keyed by metric id. */
-  activePriorConfigs?: ReadonlyMap<string, DeviceConfigRow>
+  /**
+   * Prior open configs for this device, keyed by metric id. An array when a
+   * metric has more than one open row (`fetchActivePriorConfigs` keeps them
+   * all, so a duplicate is converged rather than hidden).
+   */
+  activePriorConfigs?: ReadonlyMap<string, DeviceConfigRow | readonly DeviceConfigRow[]>
+}
+
+/** The columns that make a schedule: what a re-read must match to be "unchanged". */
+function sameSchedule(a: DeviceConfigRow, b: DeviceConfigRow): boolean {
+  return Number(a.interval_minutes) === Number(b.interval_minutes)
+    && (a.start_time ?? null) === (b.start_time ?? null)
+    && (a.end_time ?? null) === (b.end_time ?? null)
+    && (a.weeks == null ? null : Number(a.weeks)) === (b.weeks == null ? null : Number(b.weeks))
 }
 
 export function mapRingConfig(
@@ -163,20 +214,44 @@ export function mapRingConfig(
 ): MapRingConfigResult {
   const now = opts.now ?? new Date()
   const prior = opts.activePriorConfigs ?? new Map<string, DeviceConfigRow>()
+  const openRows = (metric: string): readonly DeviceConfigRow[] => {
+    const p = prior.get(metric)
+    if (p === undefined)
+      return []
+    return Array.isArray(p) ? p : [p as DeviceConfigRow]
+  }
 
-  const inserts: DeviceConfigRow[] = []
-  const closes: RingConfigClose[] = []
-
+  // Grouped by metric first: whether a read is "unchanged" is a property of
+  // the metric's whole schedule, not of one window.
+  const byMetric = new Map<string, DeviceConfigRow[]>()
   for (const window of fw.automaticMonitoringData ?? []) {
     for (const metric of firmwareDataTypeToMetrics(window.dataType)) {
-      inserts.push(toRow(window, ctx, now, metric))
-      if (prior.has(metric)) {
-        closes.push({ device_id: ctx.deviceId, metric, valid_to: now })
-      }
+      const rows = byMetric.get(metric) ?? []
+      rows.push(toRow(window, ctx, now, metric))
+      byMetric.set(metric, rows)
     }
   }
 
-  return { inserts, closes }
+  const inserts: DeviceConfigRow[] = []
+  const closes: RingConfigClose[] = []
+  const reads: RingConfigRead[] = []
+
+  for (const [metric, rows] of byMetric) {
+    const open = openRows(metric)
+    const only = open.length === 1 ? open[0] : undefined
+    if (only !== undefined && rows.length === 1 && sameSchedule(only, rows[0]!)) {
+      // Never move valid_from backwards: an export mapped with an older
+      // `now` than the row holds is not a newer read.
+      if (now.getTime() > only.valid_from.getTime())
+        reads.push({ device_id: ctx.deviceId, metric, prior_valid_from: only.valid_from, read_at: now })
+      continue
+    }
+    inserts.push(...rows)
+    if (open.length > 0)
+      closes.push({ device_id: ctx.deviceId, metric, valid_to: now })
+  }
+
+  return { inserts, closes, reads }
 }
 
 function toRow(

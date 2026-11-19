@@ -90,8 +90,12 @@ describe('local-day bucketing converts rather than labels', () => {
   it('wraps the ts column in timezone(UTC, …) before the zone conversion', () => {
     for (const metric of getBaselineMetricIds()) {
       const sql = buildBaselineSql(metric, 30)
-      if (!sql.includes('timezone('))
-        continue // sleep groups by night_of
+      // `now()` is a TIMESTAMPTZ, so `timezone($tz, now())` converts; only
+      // a ts COLUMN needs the UTC wrap. Sleep uses $tz for "local today"
+      // alone and groups by night_of.
+      const columnSql = sql.replace(/timezone\(\s*CAST\(\$tz AS VARCHAR\)\s*,\s*now\(\)\s*\)/gi, '')
+      if (!columnSql.includes('timezone('))
+        continue
       expect(sql).toMatch(/timezone\(\s*'UTC'\s*,\s*[\w.]+\s*\)/i)
       expect(sql).not.toMatch(/timezone\(\s*CAST\(\$tz[^)]*\)\s*,\s*ts\s*\)/i)
     }

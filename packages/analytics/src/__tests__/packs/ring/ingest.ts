@@ -7,7 +7,7 @@
 import type { IngestAdapter, PackSyncHooks } from '../../../core/packs'
 import type { DeviceConfigRow, FirmwareExport, MapperContext } from './mapper/types'
 import { describeError } from '../../../core/errors'
-import { CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams, fetchActivePriorConfigs, pushConfigCloses } from './config-closes'
+import { CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams, fetchActivePriorConfigs, pushConfigCloses, READ_DEVICE_CONFIG_SQL, readDeviceConfigParams } from './config-closes'
 import { mapFirmwareExport } from './mapper/firmware'
 import { PendingClosesStore } from './pending-closes'
 
@@ -22,7 +22,7 @@ export const firmwareIngestAdapter: IngestAdapter<FirmwareExport, MapperContext>
     //    subscribed to device_config.
     const activePriorConfigs = handlesConfig
       ? await fetchActivePriorConfigs(deps, ctx)
-      : new Map<string, DeviceConfigRow>()
+      : new Map<string, DeviceConfigRow[]>()
 
     // 2) Map firmware → mapped batch. The mapper owns the
     //    dataType → metric translation; no consumer translator needed.
@@ -38,6 +38,14 @@ export const firmwareIngestAdapter: IngestAdapter<FirmwareExport, MapperContext>
         // `attach()` has called `USE <iceberg>.default`, so 2-part names miss.
         await deps.execute(CLOSE_DEVICE_CONFIG_SQL, closeDeviceConfigParams(close))
       }
+    }
+
+    // 3b) An unchanged schedule re-read: no new version, the open row's
+    //     `valid_from` becomes the read time (principle 66; see
+    //     `mapper/ring-config.ts` for why it moves rather than stays).
+    if (handlesConfig) {
+      for (const read of mapped.device_config_reads)
+        await deps.execute(READ_DEVICE_CONFIG_SQL, readDeviceConfigParams(read))
     }
 
     // 4) Every mapped table, in buffer order.

@@ -40,6 +40,43 @@ export const CLOSE_DEVICE_CONFIG_SQL
     + `        AND metric = $metric\n`
     + `        AND valid_to IS NULL`
 
+/**
+ * An unchanged schedule re-read (`RingConfigRead`): the open row's
+ * `valid_from` moves to the read time; nothing is closed or inserted
+ * (principle 66 — see `mapper/ring-config.ts`).
+ *
+ * Matched on the exact `valid_from` the mapper saw, so a replay, or a row
+ * that changed underneath, updates nothing. `valid_from` is in the primary
+ * key; DuckDB rewrites a key UPDATE as delete + insert, which is fine for a
+ * new value no other row holds (the `$read_at > valid_from` guard, and one
+ * open row per metric, which the mapper requires before emitting a read).
+ * Local catalog only, like the sleep night-replace: a remote catalog would
+ * need its own answer before cloud sync is on.
+ */
+export const READ_DEVICE_CONFIG_SQL
+  = `UPDATE memory.main.device_config\n`
+    + `        SET valid_from = CAST($read_at AS TIMESTAMP)\n`
+    + `      WHERE device_id = $device_id\n`
+    + `        AND metric = $metric\n`
+    + `        AND valid_to IS NULL\n`
+    + `        AND valid_from = CAST($prior_valid_from AS TIMESTAMP)\n`
+    + `        AND valid_from < CAST($read_at AS TIMESTAMP)`
+
+/** The params `READ_DEVICE_CONFIG_SQL` binds. Naive UTC, the column family's convention. */
+export function readDeviceConfigParams(read: { device_id: string, metric: string, prior_valid_from: Date, read_at: Date }) {
+  return {
+    device_id: read.device_id,
+    metric: read.metric,
+    prior_valid_from: naiveUtc(read.prior_valid_from),
+    read_at: naiveUtc(read.read_at),
+  }
+}
+
+/** `2026-09-19 11:19:00.123` — a TIMESTAMP literal with no zone to reinterpret. */
+function naiveUtc(d: Date): string {
+  return d.toISOString().replace('T', ' ').replace('Z', '')
+}
+
 /** The params `CLOSE_DEVICE_CONFIG_SQL` binds — one builder, so the names cannot drift. */
 export function closeDeviceConfigParams(close: { valid_to: Date, device_id: string, metric: string }) {
   return {
@@ -76,7 +113,7 @@ export const ACTIVE_PRIOR_CONFIGS_SQL
 export async function fetchActivePriorConfigs(
   engine: Pick<IngestDeps, 'execute'>,
   ctx: Pick<IngestContext, 'deviceId' | 'familyId' | 'userId'>,
-): Promise<Map<string, DeviceConfigRow>> {
+): Promise<Map<string, DeviceConfigRow[]>> {
   // See ACTIVE_PRIOR_CONFIGS_SQL.
   const rows = await engine.execute<Record<string, unknown>>(
     ACTIVE_PRIOR_CONFIGS_SQL,
@@ -86,10 +123,15 @@ export async function fetchActivePriorConfigs(
       user_id: ctx.userId,
     },
   )
-  const map = new Map<string, DeviceConfigRow>()
+  // Every open row, not the last one per metric: more than one open row is
+  // a duplicate (older installs, or two exports buffered before one flush),
+  // and the mapper must see it to converge it rather than "re-read" one row.
+  const map = new Map<string, DeviceConfigRow[]>()
   for (const r of rows) {
     const metric = String(r.metric ?? '')
-    map.set(metric, {
+    const list = map.get(metric) ?? []
+    map.set(metric, list)
+    list.push({
       brand: String(r.brand ?? ''),
       family_id: String(r.family_id ?? ''),
       user_id: String(r.user_id ?? ''),
@@ -99,11 +141,33 @@ export async function fetchActivePriorConfigs(
       start_time: r.start_time == null ? null : String(r.start_time),
       end_time: r.end_time == null ? null : String(r.end_time),
       weeks: r.weeks == null ? null : Number(r.weeks),
-      valid_from: new Date(String(r.valid_from ?? '')),
-      valid_to: r.valid_to == null ? null : new Date(String(r.valid_to)),
+      valid_from: parseNaiveUtcTimestamp(r.valid_from),
+      valid_to: r.valid_to == null ? null : parseNaiveUtcTimestamp(r.valid_to),
     })
   }
   return map
+}
+
+const NAIVE_TIMESTAMP_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)(\.\d+)?(Z|[+-]\d{2}(?::?\d{2})?)?$/
+
+/**
+ * A naive-UTC TIMESTAMP as an engine returns it: a Date, or text. The device
+ * build returns `YYYY-MM-DDTHH:MM:SS[.ffffff]` (react-native-duckdb swaps the
+ * space for a `T`) and desktop DuckDB the same with a space — neither with a
+ * zone, and `new Date()` reads a zoneless date-time as LOCAL time, which put
+ * every parsed `valid_from` off by the phone's UTC offset. Exported for its test.
+ */
+export function parseNaiveUtcTimestamp(v: unknown): Date {
+  if (v instanceof Date)
+    return v
+  const s = String(v ?? '')
+  const m = NAIVE_TIMESTAMP_RE.exec(s)
+  if (!m)
+    return new Date(s)
+  // Milliseconds only: the stored value came from a JS Date, and Hermes is
+  // not guaranteed to parse a six-digit fraction.
+  const frac = m[3] ? m[3].slice(0, 4) : ''
+  return new Date(`${m[1]}T${m[2]}${frac}${m[4] ?? 'Z'}`)
 }
 
 /** A push of statements to one remote table: `R2Pusher.pushRemote`, bound to a ctx. */

@@ -299,6 +299,24 @@ export function buildBaselineSql(
     // SESSIONS, so a user with two sessions a night would satisfy the
     // 20-day minimum after 10 nights — contradicting T-14. Summing per
     // night also gives the right daily value: total sleep that night.
+    //
+    // The window is the $windowDays most recent COMPLETE local nights, the
+    // same rule the day-bucketed branch below applies to days: `night_of` in
+    // [local today - N, local today). `night_of` is the evening's date (a
+    // 22:00-07:00 sleep is the night of the 22:00 day), so last night is
+    // `local today - 1` and tonight, still accumulating, stays out — as
+    // today stays out of a step baseline.
+    //
+    // It was `ts_start > now() - N days`, which never referenced `$tz`. The
+    // runner binds `tz` for every definition, and DuckDB rejects a bound
+    // name the statement does not declare ("Failed to retrieve bind
+    // parameter index"), so this threw on every engine that binds what it
+    // is given: node DuckDB, the package's own harnesses. The device never
+    // saw it only because the app's DuckDB factory drops unreferenced
+    // params (`bindableParams`, zivaone_app#129). Instant-based, it also
+    // counted tonight's partial night after 18:00 and N+1 nights late in
+    // the evening. `ts_start` keeps a one-day-slack prefilter so the scan
+    // still prunes; `night_of` decides.
     dailySelect = `night_of AS day, sum(${column}) AS daily_value`
     tsColumn = 'ts_start'
     return `
@@ -306,7 +324,9 @@ export function buildBaselineSql(
         SELECT ${dailySelect}
         FROM ${view}
         WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
-          AND ${tsColumn} > now() - ${windowBind}
+          AND ${tsColumn} > now() - ${scanBind}
+          AND night_of >= ${localToday} - ${windowBind}
+          AND night_of < ${localToday}
         GROUP BY night_of
       )
       ${quantileSelect()}

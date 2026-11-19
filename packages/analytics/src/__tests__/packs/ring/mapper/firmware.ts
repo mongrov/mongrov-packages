@@ -9,12 +9,13 @@
  * vs. device_config closes). For flushing, callers use:
  *   - `batch.device_config` — new inserts
  *   - `batch.device_config_closes` — SCD-2 close directives
+ *   - `batch.device_config_reads` — an unchanged schedule re-read (no new row)
  *
  * See `.specifica/features/analytics-sync/spec.md` §Firmware mapper for the
  * shape contract.
  */
 
-import type { RingConfigClose } from './ring-config'
+import type { RingConfigClose, RingConfigRead } from './ring-config'
 import type {
   DeviceConfigRow,
   FirmwareExport,
@@ -36,11 +37,13 @@ export interface MapFirmwareOptions {
   /**
    * SCD-2 prior-config map keyed by metric id — see `mapRingConfig`.
    */
-  activePriorConfigs?: ReadonlyMap<string, DeviceConfigRow>
+  activePriorConfigs?: ReadonlyMap<string, DeviceConfigRow | readonly DeviceConfigRow[]>
 }
 
 export interface FirmwareMappedBatch extends MappedBatch {
   device_config_closes: RingConfigClose[]
+  /** Unchanged schedules re-read: move the open row's `valid_from`, insert nothing. */
+  device_config_reads: RingConfigRead[]
 }
 
 export function mapFirmwareExport(
@@ -70,6 +73,7 @@ export function mapFirmwareExport(
     device_battery: mapBattery(fw.battery_table ?? [], ctx),
     device_config: config.inserts,
     device_config_closes: config.closes,
+    device_config_reads: config.reads,
   }
 }
 
@@ -84,7 +88,7 @@ function mapRingConfigIfPossible(
   fw: FirmwareExport,
   ctx: MapperContext,
   opts: MapFirmwareOptions,
-): { inserts: MappedBatch['device_config'], closes: RingConfigClose[] } {
+): { inserts: MappedBatch['device_config'], closes: RingConfigClose[], reads: RingConfigRead[] } {
   // No consumer translator any more: the mapper reads the vendor struct
   // directly and owns the dataType -> metric translation itself.
   return mapRingConfig(fw.ring ?? { automaticMonitoringData: [] }, ctx, {
