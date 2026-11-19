@@ -72,7 +72,7 @@ export interface UserInfo {
    *
    * Load-bearing rather than cosmetic. Every timestamp is stored in UTC, so
    * this is the only thing that decides which local day a reading belongs
-   * to — sleep-session attribution via the 6pm-6pm rule (principle 24),
+   * to — attributing a session to its local day (principle 24),
    * baseline compute grouping by local day (principle 27), and day-cadence
    * rules. Mirrors `User.timezone` in `@mongrov/types/tenancy`, which is the
    * analytics plane's model of the same attribute.

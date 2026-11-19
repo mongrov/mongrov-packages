@@ -10,8 +10,8 @@
  *   defaults,
  * } from '@mongrov/analytics/rules';
  *
- * const engine = createRulesEngine({ analytics, storage, brand: 'ziva', ... });
- * await engine.register(defaults.zivaDefaults);
+ * const engine = createRulesEngine({ analytics, storage, brand: 'mybrand', ... });
+ * await engine.register(myPack.defaultRules);
  * engine.on('violation', (v) => notify(v));
  * ```
  */

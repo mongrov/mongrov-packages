@@ -40,7 +40,7 @@ interface OwnerRow {
  * Authorization is by ownership: the caller must be the user the insight
  * was raised for. This is deliberately stricter than family scope — a
  * family member can *see* aggregate data, but dismissing someone else's
- * health card is a write on their feed, and there is no product surface
+ * card is a write on their feed, and there is no product surface
  * that asks for it.
  *
  * Idempotent: dismissing an already-dismissed insight is a no-op that

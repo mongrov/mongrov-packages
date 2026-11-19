@@ -1,8 +1,8 @@
 /**
  * Tables an app owns (techspec principle 71).
  *
- * The package owns the ring-sensor and platform tables in `TABLE_NAMES`. A
- * table that only one app's feature needs — ZivaOne's `practice_session` is
+ * The engine owns the platform tables; domain packs bring theirs. A
+ * table that only one app's feature needs — a product's own session log is
  * the first — is declared by that app and handed to `createAnalytics` as
  * `appSchema`, so the package never carries a product's schema and a change
  * to it never needs a package release.
@@ -69,7 +69,7 @@ export interface AppMigration {
 }
 
 export interface AppSchema {
-  /** Scopes the app's migration version in KV. Lowercase identifier, e.g. `zivaone`. */
+  /** Scopes the app's migration version in KV. Lowercase identifier, e.g. `myapp`. */
   namespace: string
   tables: Readonly<Record<string, AppTable>>
   migrations?: readonly AppMigration[]

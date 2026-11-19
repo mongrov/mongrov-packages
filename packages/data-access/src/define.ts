@@ -115,7 +115,7 @@ const INTERNAL_SCHEMAS = new Set([
  *   - CTE names (`WITH x AS (`, `x(cols) AS (`) collected first + excluded
  *   - set-returning function calls (`FROM generate_series(...)`) excluded
  *   - schema-qualified internals (information_schema.*) excluded
- *   - the union-view `v_` prefix is stripped (v_spo2 → spo2) so names
+ *   - the union-view `v_` prefix is stripped (v_reading → reading) so names
  *     line up with invalidation event segments
  */
 // Hoisted to module scope so they compile once rather than on every call.

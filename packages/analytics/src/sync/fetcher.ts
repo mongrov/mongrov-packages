@@ -43,7 +43,7 @@ import { SyncError } from './errors'
  * identity tuple as a primary key to the sensor tables (`withIdentityKey`),
  * and those are exactly the tables `SCHEMAS` leaves keyless. So the clause was
  * omitted precisely where it was needed: re-fetching a range holding an
- * already-local heart-rate or SpO2 row threw a duplicate-key error instead of
+ * already-local keyed row threw a duplicate-key error instead of
  * being idempotent. That hits overlapping fetch-on-demand ranges and any
  * prefetch of data already held (2026-09-26 review, finding 4).
  *

@@ -41,7 +41,7 @@ export class AnalyticsError extends Error {
  * the underlying DuckDB text sits in `.cause`, which was dropped. That is how
  * a rule failure reached the logs with the binder error, the offending column
  * and the SQL position all missing, leaving nothing to diagnose from
- * (zivaone_app#70).
+ * (app#70).
  *
  * Walks the chain with a `seen` set, so a cycle terminates instead of hanging
  * the logger, and renders non-Error causes (strings, DuckDB result objects)

@@ -12,7 +12,7 @@
  *
  * Per-request context threading: the AI SDK's `execute(input)` has no
  * ctx arg. We hold a mutable `currentCtx` container and expose
- * `setContext(ctx)`. Consumers (zivaone_app) call `setContext` before
+ * `setContext(ctx)`. Consumers (the app) call `setContext` before
  * each LLM turn — matching how `@mongrov/ai`'s `AIProvider` threads
  * per-request scopes. This design keeps rate-limiter buckets + audit
  * writer state shared across requests rather than rebuilding the

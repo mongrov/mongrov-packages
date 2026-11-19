@@ -65,7 +65,7 @@ export const getInsights: ToolImpl<GetInsightsInput> = async (input, ctx) => {
 
 function finalize(text: string, rowCount: number): ToolResult {
   // principle 37 — every formatter's return path is guarded, not
-  // just the SpO2 one. Tool text lands in an LLM's context, and the
+  // just one tool's. Tool text lands in an LLM's context, and the
   // model repeats whatever register it finds there.
   for (const guard of packExtensions<(text: string, source: string) => void>('copyGuard'))
     guard(text, 'getInsights')

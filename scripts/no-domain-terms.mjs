@@ -15,8 +15,14 @@
  *   node scripts/no-domain-terms.mjs <dir> [<dir>]   scan these instead
  *
  * Scanned: `packages/<pkg>/src/**` (ts, tsx, js, mjs, toml, json), outside
- * test directories (`__tests__`, `__integration__`, `__fakes__`,
- * `__mocks__`) and the allowed `__tests__/packs/` fixtures.
+ * test directories (`__tests__` — including the test packs under
+ * `__tests__/packs/` — `__integration__`, `__fakes__`, `__mocks__`).
+ *
+ * Not domain terms, and so not reported:
+ *   - `ring` followed by `buffer` (a ring buffer);
+ *   - the entries of `no-domain-terms.allow.json`: a path prefix, a term, an
+ *     optional `match` regex the line must match, and the reason. Every entry
+ *     needs a reason; add one only for a word used in a non-domain sense.
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -53,6 +59,17 @@ const EXTENSIONS = /\.(?:ts|tsx|js|mjs|toml|json)$/
 const NON_WORD_RE = /[^A-Z0-9]+/i
 const CAMEL_RE = /(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/
 const SPO2_RE = /spo2/i
+
+const ALLOW = JSON.parse(readFileSync(new URL('./no-domain-terms.allow.json', import.meta.url), 'utf8'))
+  .map(a => ({ ...a, re: a.match ? new RegExp(a.match) : undefined }))
+for (const a of ALLOW) {
+  if (!a.reason)
+    throw new Error(`no-domain-terms.allow.json: ${a.path} / ${a.term} has no reason`)
+}
+
+function allowed(file, line, term) {
+  return ALLOW.some(a => file.startsWith(a.path) && a.term === term && (!a.re || a.re.test(line)))
+}
 
 const args = process.argv.slice(2)
 const fail = args.includes('--fail')
@@ -98,12 +115,16 @@ for (const root of roots) {
   for (const file of files(root)) {
     const lines = readFileSync(file, 'utf8').split('\n')
     lines.forEach((line, i) => {
-      const found = [...new Set(words(line).filter(w => TERMS.has(w)))]
+      const ws = words(line)
+      // A ring buffer is a data structure, not a wearable.
+      const found = [...new Set(ws.filter((w, j) => TERMS.has(w) && !(w === 'ring' && ws[j + 1] === 'buffer')))]
       // `SpO2` splits as sp|o2; catch it on the raw line.
       if (SPO2_RE.test(line) && !found.includes('spo2'))
         found.push('spo2')
-      if (found.length > 0)
-        hits.push({ file: relative(ROOT, file), line: i + 1, terms: found, text: line.trim().slice(0, 160) })
+      const rel = relative(ROOT, file)
+      const reported = found.filter(t => !allowed(rel, line, t))
+      if (reported.length > 0)
+        hits.push({ file: rel, line: i + 1, terms: reported, text: line.trim().slice(0, 160) })
     })
   }
 }

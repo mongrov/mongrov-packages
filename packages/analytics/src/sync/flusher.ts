@@ -20,8 +20,8 @@
  * Data safety: attempts do *not* remove durable rows until the write reports
  * success. This comment said so for a long time while `flush` called
  * `buffer.drain()` first, which deleted overflow chunks before writing; a
- * process killed mid-write lost them (zivaone_app#54). On failure the batch
- * is released: durable rows stay on disk, in-memory rows return to the ring,
+ * process killed mid-write lost them (app#54). On failure the batch
+ * is released: durable rows stay on disk, in-memory rows return to the buffer,
  * and the next attempt sees the same rows.
  */
 
@@ -76,7 +76,7 @@ export interface FlushedEvent {
    * Rows that were NEW to the warehouse (`ON CONFLICT DO NOTHING` kept the
    * rest out). `rowsFlushed` counts rows drained; a re-sync of rows already
    * held drains plenty and inserts none. Equal to `rowsFlushed` when the
-   * engine does not report a count (zivaone_app#460 P17).
+   * engine does not report a count (app#460 P17).
    */
   rowsInserted: number
   reason: FlushReason
@@ -90,7 +90,7 @@ export interface FlushedEvent {
   brand?: string
   familyId?: string
   /**
-   * Rows this flush could not write and will not retry (zivaone_app#226).
+   * Rows this flush could not write and will not retry (app#226).
    * Absent or 0 on a clean flush. Non-zero means data was dropped on
    * purpose — the count is here so that loss is visible without reading
    * DuckDB error text out of a log line.
@@ -105,10 +105,10 @@ export interface FlushedEvent {
  * item (a)).
  *
  * This exists because per-table `{table}:insert` is the wrong trigger for
- * rule evaluation. A rule with `context: 'asleep'` JOINs `v_sleep_session`;
- * if it fires the instant `spo2` flushes, the matching `sleep_session` rows
- * may still be sitting in the buffer, and the rule silently evaluates
- * against an incomplete night. Waiting for the batch boundary removes the
+ * rule evaluation. A context rule JOINs another table's view;
+ * if it fires the instant its own table flushes, the matching rows of the
+ * other may still be sitting in the buffer, and the rule silently evaluates
+ * against incomplete data. Waiting for the batch boundary removes the
  * race entirely rather than papering over it with a delay.
  */
 export interface BatchCompleteEvent {
@@ -118,7 +118,7 @@ export interface BatchCompleteEvent {
   /**
    * The subset of `affectedTables` that inserted at least one NEW row. Rules
    * evaluate against this: a table whose rows all already existed has nothing
-   * new for a rule to find (zivaone_app#460 P17).
+   * new for a rule to find (app#460 P17).
    */
   insertedTables: string[]
   affectedUserIds: string[]
@@ -172,7 +172,7 @@ interface TableRuntimeState {
 }
 
 /**
- * Whether the local table carries a PRIMARY KEY — its own (`sleep_session`,
+ * Whether the local table carries a PRIMARY KEY — its own (declared in its DDL,
  * `device_config`) or its pack-declared identity. Keyed tables must
  * go through the staging + ON CONFLICT path; see `#write`.
  */
@@ -220,7 +220,7 @@ export class BatchFlusher {
   readonly #buffer: SensorBuffer
   readonly #columnOrder: Record<string, readonly string[]>
   readonly #queue: PQueue
-  readonly #sleep: (ms: number) => Promise<void>
+  readonly #wait: (ms: number) => Promise<void>
   readonly #now: () => number
   readonly #emit: SyncEmitter | undefined
   readonly #tables = new Map<string, TableRuntimeState>()
@@ -232,7 +232,7 @@ export class BatchFlusher {
     this.#engine = config.engine
     this.#buffer = config.buffer
     this.#columnOrder = config.columnOrder
-    this.#sleep = config.sleep ?? defaultSleep
+    this.#wait = config.sleep ?? defaultWait
     this.#now = config.now ?? (() => Date.now())
     this.#emit = config.emit
     this.#queue = new PQueue({ concurrency: config.concurrency ?? 2 })
@@ -363,7 +363,7 @@ export class BatchFlusher {
       }
       catch (writeError) {
         // One unwritable value must not cost the table forever
-        // (zivaone_app#226). Find the rows that cannot be written, write the
+        // (app#226). Find the rows that cannot be written, write the
         // rest, and let the batch commit so the poison rows leave the buffer.
         //
         // Only once the table has exhausted its retry budget. Dropping rows
@@ -475,7 +475,7 @@ export class BatchFlusher {
         // table until an explicit `flush()` succeeds.
         return result
       }
-      await this.#sleep(BACKOFF_SEQUENCE_MS[attempt]!)
+      await this.#wait(BACKOFF_SEQUENCE_MS[attempt]!)
     }
     return lastResult
   }
@@ -518,7 +518,7 @@ export class BatchFlusher {
    * Appender enforces primary keys, has no `ON CONFLICT`, and throws
    * `Failed to append: Duplicate key ...`. That error is not
    * transaction-exempt, so it poisons the shared connection — and `#restore`
-   * puts the batch back at the front of the ring, so the next attempt fails
+   * puts the batch back at the front of the buffer, so the next attempt fails
    * identically until the failure limit trips. A re-sync would take the
    * warehouse down rather than deduplicate.
    *
@@ -529,7 +529,7 @@ export class BatchFlusher {
    * row-wise `INSERT ... VALUES` would have cost.
    *
    * The test is "does the table declare ANY primary key", not "is it in
-   * IDENTITY_COLUMNS". `sleep_session` and `device_config` spell their own
+   * IDENTITY_COLUMNS". Some tables spell their own
    * key in the base DDL and are deliberately absent from IDENTITY_COLUMNS,
    * so an IDENTITY_COLUMNS test sent both down the Appender path: a re-synced
    * night threw `Duplicate key` and jammed every later row behind it (found
@@ -603,7 +603,7 @@ export class BatchFlusher {
 
   /**
    * Split a failed batch into the rows that can be written and the rows that
-   * cannot (zivaone_app#226).
+   * cannot (app#226).
    *
    * One value the target column cannot represent — `6537.8` into
    * `temp_c DECIMAL(4,1)` — failed the whole table's write. The batch was
@@ -611,8 +611,8 @@ export class BatchFlusher {
    * a write commits), so the same row was retried on every later flush and
    * that metric could never write again. Its delta cursor is the newest
    * stored row, so it never advanced either: every sync re-pulled the whole
-   * history and failed on the same row. The vital reads "Never measured"
-   * while the ring streams hundreds of readings a day.
+   * history and failed on the same row. The screen reads "Never measured"
+   * while the device streams hundreds of readings a day.
    *
    * Rows are classified against a scratch copy of the target rather than by
    * retrying the target directly: a batch that partially appended before
@@ -726,7 +726,7 @@ export class BatchFlusher {
   }
 }
 
-function defaultSleep(ms: number): Promise<void> {
+function defaultWait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 

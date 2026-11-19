@@ -75,7 +75,7 @@ export class FlushTriggers {
   /**
    * Record the oldest-entry age for a table. Called by the buffer's push
    * pipeline (via the sync manager) so we can evaluate the age trigger
-   * without traversing the ring on every check.
+   * without traversing the buffer on every check.
    */
   noteEnqueue(table: string, enqueuedAt: number): void {
     if (!this.#oldestByTable.has(table)) {

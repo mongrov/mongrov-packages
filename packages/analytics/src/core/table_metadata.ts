@@ -6,7 +6,7 @@
  * watermark column and syncability flag.
  *
  * `timeColumn` — the monotonic column R2Pusher/R2Fetcher use to bound their
- * delta queries. Most tables use `ts`; `sleep_session` uses `ts_start`
+ * delta queries. Most tables use `ts`; a session table may use its start column
  * (matches its `day(ts_start)` partition); `device_config` (SCD-2) uses
  * `valid_from`.
  *

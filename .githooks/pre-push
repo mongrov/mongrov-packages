@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pre-push gate (techspec principle 72: local checks are the gate).
+#
+# mongrov-packages is domain-free (principle 73): no brand, wearable or
+# health term in packages/*/src. See scripts/no-domain-terms.mjs and its
+# allow-list for the few words used in a non-domain sense.
+set -e
+node scripts/no-domain-terms.mjs --fail

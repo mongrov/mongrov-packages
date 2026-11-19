@@ -18,7 +18,7 @@ import { createRegistryHooks, useAppMutation, useAppQuery } from '../hooks'
 
 const registry = {
   queries: {
-    'spo2.day': defineQuery({
+    'reading.day': defineQuery({
       engine: 'duckdb',
       input: z.object({ userId: z.string(), offset: z.number() }),
       output: z.object({ dayAvg: z.number().nullable() }),
@@ -51,7 +51,7 @@ export const bare: Registry = registry
 
 // The generic form keeps the entry types.
 export const typed: Registry<typeof registry.queries, typeof registry.mutations> = registry
-export type DayEntry = typeof typed.queries['spo2.day']
+export type DayEntry = typeof typed.queries['reading.day']
 
 // The provider prop takes it directly — the boundary that used to need
 // `as unknown as Registry`.
@@ -80,7 +80,7 @@ export function useLegacyCallSites(): void {
 const hooks = createRegistryHooks<typeof registry.queries, typeof registry.mutations>()
 
 export function useFactoryCallSites(): void {
-  const day = hooks.useAppQuery('spo2.day', { userId: 'u', offset: 0 })
+  const day = hooks.useAppQuery('reading.day', { userId: 'u', offset: 0 })
   const avg: number | null | undefined = day.data?.dayAvg
   void avg
 

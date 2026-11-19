@@ -21,7 +21,7 @@ interface CatalogDoc {
 }
 
 export interface ParseCatalogOptions {
-  /** Human-readable catalog name for error messages (e.g. `'ziva'`). */
+  /** Human-readable catalog name for error messages (e.g. `'mybrand'`). */
   name?: string
 }
 

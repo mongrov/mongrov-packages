@@ -8,7 +8,7 @@
 // -------------------- batches --------------------
 
 /**
- * A raw non-firmware batch of rows for a single table. Emitted by adapters
+ * A raw batch of rows for a single table. Emitted by adapters
  * that already speak the warehouse row shape (e.g. custom telemetry).
  */
 export interface SensorBatch {
@@ -42,7 +42,7 @@ export interface BufferEntry {
 export type OverflowPolicy = 'drop-oldest' | 'drop-newest' | 'block'
 
 export interface BufferSize {
-  /** Rows currently in the in-memory ring. */
+  /** Rows currently in the in-memory buffer. */
   inMemory: number
   /** Rows currently persisted in overflow. */
   overflow: number
@@ -58,7 +58,7 @@ export interface FlushResult {
   ok: boolean
   error?: Error
   /**
-   * Rows dropped as unwritable rather than retried forever (zivaone_app#226).
+   * Rows dropped as unwritable rather than retried forever (app#226).
    * A flush with `ok: true` and a non-zero count here did lose data.
    */
   rowsRejected?: number

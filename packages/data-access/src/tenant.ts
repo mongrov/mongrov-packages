@@ -18,8 +18,8 @@ import type { RequestContext } from './types'
  * `brand`/`familyId`/`tz` unconditionally, every query that omits one of
  * them from its SQL would fail at bind time.
  *
- * That is not hypothetical: `spo2.compareBaseline`,
- * `spo2.worthALookInsight` and `device.lastSyncedAt` in the ZivaOne
+ * That is not hypothetical: `reading.compareBaseline`,
+ * `reading.worthALookInsight` and `device.lastSyncedAt` in one app's
  * registry all reference `$userId`/`$brand`/`$familyId` but not `$tz`,
  * and all three failed the first time the SQL was executed against a real
  * engine.

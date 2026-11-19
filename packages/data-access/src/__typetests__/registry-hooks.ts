@@ -11,7 +11,7 @@ import type { QueryInputOf, QueryOutputOf } from '../hooks'
  * Registry-typed hooks.
  *
  * `useAppQuery<TInput, TOutput>` believes whatever the call site asserts.
- * zivaone_app annotated `user.spo2SafeLevel` as `{ value: number }` when the
+ * an app annotated `user.safeLevel` as `{ value: number }` when the
  * query returns a bare `number`, read `.data?.value`, got `undefined` forever,
  * and silently fell back to a default of 90. It compiled, never threw, and no
  * test caught it — the shape was asserted, not checked.
@@ -31,7 +31,7 @@ const registry = {
     output: z.number().int(),
     keyBuilder: ({ userId }) => `user:${userId}:safeLevel`,
   }),
-  'spo2.day': defineQuery({
+  'reading.day': defineQuery({
     engine: 'duckdb',
     input: z.object({ userId: z.string(), offset: z.number() }),
     output: z.object({ dayAvg: z.number().nullable() }),
@@ -49,20 +49,20 @@ const out: QueryOutputOf<Queries['user.safeLevel']> = 94
 const wrong: QueryOutputOf<Queries['user.safeLevel']> = { value: 94 }
 
 // derives the input type too
-const input: QueryInputOf<Queries['spo2.day']> = { userId: 'u1', offset: 0 }
+const input: QueryInputOf<Queries['reading.day']> = { userId: 'u1', offset: 0 }
 
 // @ts-expect-error `offset` is required by this query's input schema
-const missing: QueryInputOf<Queries['spo2.day']> = { userId: 'u1' }
+const missing: QueryInputOf<Queries['reading.day']> = { userId: 'u1' }
 
 // distinguishes entries — one shape does not leak into another
-const day: QueryOutputOf<Queries['spo2.day']> = { dayAvg: 96 }
+const day: QueryOutputOf<Queries['reading.day']> = { dayAvg: 96 }
 
-// @ts-expect-error spo2.day returns an object, not a number
-const asNumber: QueryOutputOf<Queries['spo2.day']> = 96
+// @ts-expect-error reading.day returns an object, not a number
+const asNumber: QueryOutputOf<Queries['reading.day']> = 96
 
 // A concrete registry map must satisfy createRegistryHooks' constraint.
 // The first attempt used `QueryDefinition<never, unknown>`, which a real map
 // does NOT extend — the same variance erasure consumers double-cast around —
 // so wiring it in an app failed at the call site rather than here.
 const hooks = createRegistryHooks<Queries>()
-export type DayResult = ReturnType<typeof hooks.useAppQuery<'spo2.day'>>['data']
+export type DayResult = ReturnType<typeof hooks.useAppQuery<'reading.day'>>['data']

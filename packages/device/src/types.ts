@@ -38,7 +38,7 @@ export type {
  * Ownership flags declare which lifecycle concerns the adapter (vendor SDK)
  * owns vs which the device machines must drive.
  *
- * - `scan: true`  — adapter runs its own scanner (e.g. JCRing). Registry
+ * - `scan: true`  — adapter runs its own scanner (e.g. a vendor SDK). Registry
  *                   asks the adapter to scan; it does NOT drive ble-plx.
  * - `reconnect`   — `true` = adapter self-reconnects; connection actor is a
  *                   THIN REFLECTOR (mirrors onConnectionChange, no timers).
@@ -68,7 +68,7 @@ export type ConnectionChangeListener = (
 /**
  * One transport-agnostic interface, two satisfaction paths:
  *   - GATT vendors: use `createGattAdapter(profile)` from @mongrov/device/gatt.
- *   - SDK vendors:  hand-write, delegating to the RN wrapper (e.g. JCRing).
+ *   - SDK vendors:  hand-write, delegating to the RN wrapper (e.g. a vendor SDK).
  *
  * Adapters map native error detail into `ErrorDetail` — never collapse
  * to a generic "disconnected". This drives ux screen selection and remote

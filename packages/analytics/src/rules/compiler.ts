@@ -21,7 +21,7 @@
  * ## v0.2.0 additions (Sprint 5 §4)
  *
  * - **`context`** (T-17) — an INNER JOIN, not a post-filter. "SpO₂ during
- *   sleep" must aggregate over sleep samples only; computing over
+ *   X" must aggregate over the samples in X only; computing over
  *   everything and labelling the result would report a number nobody asked
  *   for.
  * - **`consecutive: n`** (T-18) — run-length detection via gaps-and-islands.
@@ -165,7 +165,7 @@ export const BAND_SCALE_PARAM = 'bandScale'
  * DuckDB selects the `timezone()` overload from its SECOND argument, so
  * `timezone($tz, ts)` on a naive column LABELS the value with the zone
  * instead of converting into it, leaving an evening reading on its UTC date
- * (zivaone_app#73).
+ * (app#73).
  */
 export function localDayExpr(tsColumn: string): string {
   return `date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', ${tsColumn})))`
@@ -179,8 +179,8 @@ export function compileRule(rule: Rule): CompiledRule {
   const rawTable = meta.table
   const column = sanitizeIdent(meta.column)
   const table = sanitizeIdent(rawTable)
-  // A rule is a claim, so it reads the vital's clean view (T-25 consume
-  // rule): a clamped, spiked or off-wrist reading can never fire an alert.
+  // A rule is a claim, so it reads the metric's clean relation (T-25 consume
+  // rule): a reading its pack's quality views exclude can never fire an alert.
   const view = readRelation(table)
 
   if (rule.rawSql) {
@@ -315,7 +315,7 @@ function whereClause(ts: string, interval: string): string {
 }
 
 /*
- * Every bound threshold is CAST where it is used (zivaone_app#70).
+ * Every bound threshold is CAST where it is used (app#70).
  *
  * react-native-duckdb prepares with NO values and binds afterwards, so a
  * param's type must resolve from SQL context at prepare time. A bare param
@@ -403,7 +403,7 @@ HAVING ${outside}${floor};`
     //
     // Every parameter is CAST. react-native-duckdb resolves param types from
     // SQL context at prepare time, and a bare param in a projection or an
-    // arithmetic expression has none (zivaone_app#70/#72).
+    // arithmetic expression has none (app#70/#72).
     const params: Record<string, string | number> = {
       baselineDays: target.windowDays,
       baselineMetric: metricId,
@@ -506,20 +506,20 @@ HAVING ${compareClause(compare, 'observed_value', 'threshold_value')}${floor};`
  *   1. **Direction of the zone conversion.** `ts` is naive UTC, and DuckDB
  *      picks the `timezone()` overload from its SECOND argument — so
  *      `timezone($tz, ts)` LABELS the value rather than converting it, which
- *      attributed evening readings to the next local day (zivaone_app#73).
+ *      attributed evening readings to the next local day (app#73).
  *      The inner `timezone('UTC', ts)` is what makes it a conversion.
  *   2. **The partial current day is excluded.** Today is still accumulating;
  *      including it lets a quiet morning break a run that the full day would
  *      have continued, so a 3-day rule would fire or not depending on the
  *      hour it happened to run.
  *   3. **Every parameter is CAST**, for the react-native-duckdb prepare path
- *      (zivaone_app#70/#72).
+ *      (app#70/#72).
  */
 /**
  * Min readings before a day counts, as a fraction of the day's slots.
  *
- * 25% of `1440 / sampling_minutes`: SpO2 and temp 12 (48 slots), HRV and
- * stress 6 (24), HR 36 (144). Derived rather than tabulated, so a next-gen
+ * 25% of `1440 / sampling_minutes`: 12 for a 30-minute metric (48 slots),
+ * 6 for an hourly one (24), 36 for a 10-minute one (144). Derived rather than tabulated, so a next-gen
  * cadence moves every floor at once instead of leaving five constants to
  * chase.
  */
@@ -646,7 +646,7 @@ GROUP BY run_key
 -- this, any qualifying run anywhere in the window fired, so a warm spell
 -- that ended a week ago re-notified every day — the throttle allows one a
 -- day — for as long as the run stayed inside the window, up to 30 days after
--- the user recovered (zivaone_app#55, ziva-defaults-live.test.ts).
+-- the user recovered (app#55).
 HAVING COUNT(*) >= CAST($consecutive AS BIGINT)
    AND MAX(day) = date_trunc('day', timezone(CAST($tz AS VARCHAR), NOW())) - INTERVAL 1 DAY
 ORDER BY observed_value ${direction === 'greater_than' ? 'DESC' : 'ASC'}
@@ -722,7 +722,7 @@ runs AS (
          -- This was a difference of ROW_NUMBERs over the rows present, so a
          -- missed reading produced no row and its neighbours became adjacent.
          -- Measured: breaching readings at 01:00, 02:00 and 05:00 fired a
-         -- consecutive:3 rule exactly as three adjacent readings did. SpO2's
+         -- consecutive:3 rule exactly as three adjacent readings did. A 30-minute metric's
          -- Rule B has run on that since Sprint 5.
          --
          -- Consecutive means adjacent on the metric's cadence grid with no
@@ -764,7 +764,7 @@ LIMIT 1;`
 
 /**
  * `phase_band` × `consecutive` — N slot-adjacent readings outside the band,
- * on either side (D-H, `ziva.hr-out-of-band`).
+ * on either side (D-H).
  *
  * The band is resolved ONCE for the window, like `user_setting`'s threshold:
  *
@@ -819,7 +819,7 @@ function buildConsecutiveBand(args: {
    * every `breached` comparison is NULL, and the rule emits nothing. That is
    * the honest state — the screens draw no reference they have not earned
    * (principle 27), and this makes the alert agree with them
-   * (zivaone_app#267).
+   * (app#267).
    *
    * Both or neither is enforced by `validatePhaseBand`, so a half-set pair
    * cannot reach here and silently behave like one of the two.

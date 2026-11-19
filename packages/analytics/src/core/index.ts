@@ -152,7 +152,7 @@ export type {
   Unsubscribe,
 } from './types'
 // Watermark cache (Sprint 5 T-07). Disabled by default — measurement-gated
-// on Ziva pilot p95 latency; the instrument runs regardless.
+// on pilot p95 latency; the instrument runs regardless.
 export {
   createWatermarkCache,
   WATERMARK_CACHE_TTL_MS,

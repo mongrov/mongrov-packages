@@ -31,7 +31,7 @@ export const COMPARES = [
   /**
    * Inclusive, and necessary rather than cosmetic.
    *
-   * D-E puts the stress flag at 66, which is also the lower rail of the Tense
+   * A flag at 66 that is also, the lower rail of a zone
    * zone (`tense >= 66`). With `greater_than` a reading of exactly 66 sits in
    * Tense on the chart and does not count toward the alert — the screen and
    * the rule would disagree at the boundary the user chose.
@@ -99,11 +99,11 @@ const TargetRange = z.object({
 })
 
 /**
- * v0.2.0 (Sprint 5 §4, Ziva #1) — threshold read from KVStore at eval time
+ * v0.2.0 (Sprint 5 §4) — threshold read from KVStore at eval time
  * rather than baked into the rule.
  *
  * This is what makes the ⚙ sheet's promise real: the user drags a safe
- * level, the mutation writes `user:spo2SafeLevel`, and the SAME shipped
+ * level, the mutation writes `user:safeLevel`, and the SAME shipped
  * rule re-evaluates against the new number on the next batch. No recompile,
  * no per-user rule rows.
  *
@@ -113,7 +113,7 @@ const TargetRange = z.object({
  */
 const TargetUserSetting = z.object({
   type: z.literal('user_setting'),
-  /** KVStore key suffix, e.g. `user:spo2SafeLevel`. See the namespace registry. */
+  /** KVStore key suffix, e.g. `user:safeLevel`. See the namespace registry. */
   key: z.string().min(1),
   /** Used when the user has never set the value. */
   defaultValue: z.number(),
@@ -126,7 +126,7 @@ const TargetUserSetting = z.object({
  * Distinct from `baseline_percent`/`baseline_stddev` in where the baseline
  * comes from, which matters more than it looks. Those two recompute a mean
  * inline over raw readings in the window. This one reads `user_baseline.p50`
- * — the stored, day-first, ≥20-day-gated percentile (principle 27). An HRV
+ * — the stored, day-first, ≥20-day-gated percentile (principle 27). A
  * drop of 10 ms is only meaningful against the number the user's screen also
  * calls "usual"; recomputing a different average here would let the rule and
  * the chart disagree about the same word.
@@ -143,7 +143,7 @@ const TargetUserSetting = z.object({
 const TargetBaselineOffset = z.object({
   type: z.literal('baseline_offset'),
   windowDays: z.number().int().positive(),
-  /** Absolute units of the metric — ms for hrv_ms, °C for temp_c. */
+  /** Absolute units of the metric — the unit the metric is stored in. */
   offset: z.number().positive(),
   direction: z.enum(['below', 'above']),
   /** KVStore key overriding `offset` at eval time. Registry-validated. */
@@ -151,7 +151,7 @@ const TargetBaselineOffset = z.object({
 })
 
 /**
- * D-H (zivaone_app T-26) — outside the user's own band, either side.
+ * D-H (app T-26) — outside the user's own band, either side.
  *
  * The band is two stored rails, `${band}_lo` and `${band}_hi` in
  * `user_baseline` (their `p50`), the same rows the screen draws. While either
@@ -184,9 +184,10 @@ const TargetPhaseBand = z.object({
    * Supplying them keeps the rule running on a population range before the
    * user has one. That is a real choice with a real cost — a narrow range
    * fires for every healthy person outside it, for the whole learning
-   * period — so it is stated per rule rather than assumed. `ziva.hr-out-of-
-   * band` used 48-62 and alerted every 65 bpm sleeper for three weeks
-   * (zivaone_app#267).
+   * period — so it is stated per rule rather than assumed. one shipped
+   * band rule used a fixed population band and alerted for three weeks on users
+   * whose own band sat outside it
+   * (app#267).
    *
    * Both or neither — enforced by `validatePhaseBand`, not here: a
    * `.refine()` makes this a ZodEffects, which `z.discriminatedUnion`
@@ -270,9 +271,9 @@ export const RuleSchema = z.object({
   consecutiveKey: z.string().min(1).optional(),
   /**
    * Minimum distinct LOCAL days with data in the window before the rule may
-   * fire (QA #108). A window aggregate over a ring worn one day of seven
-   * measures the wear, not the user: `ziva.low-activity-week` summed a week of
-   * steps and fired on a ring paired that morning. Days are the user's local
+   * fire (QA #108). A window aggregate over a device worn one day of seven
+   * measures the wear, not the user: a weekly total rule summed a week of
+   * readings and fired on a device paired that morning. Days are the user's local
    * days, so the evaluator binds `$tz`. Window aggregates only (validator).
    */
   minDays: z.number().int().min(1).optional(),
