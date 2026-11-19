@@ -8,6 +8,7 @@ import {
 
   schemaVersionKey,
 } from '../migrations'
+import { PLATFORM_TABLE_NAMES } from '../platform-tables'
 import { IDENTITY_COLUMNS, LOCAL_ONLY_TABLES, TABLE_NAMES } from '../schemas'
 
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
@@ -21,23 +22,30 @@ async function newOpenDb() {
 }
 
 /**
- * DDL counts the baseline migration issues, derived from TABLE_NAMES so
- * adding a table does not require retuning every count in this file.
+ * DDL counts, derived from TABLE_NAMES so adding a table does not require
+ * retuning every count in this file.
+ *
+ * Since packs (S-02) two ledgers run: the health pack keeps the package's
+ * steps 1-8 under `schemaVersionKey` (3 and 4 are no-ops there now), then
+ * the platform pack runs its own two steps (its tables, then insight v2).
  * Local gets every table; remote skips the local-only ones.
  */
-const LOCAL_DDL_COUNT = TABLE_NAMES.length
-const REMOTE_DDL_COUNT = TABLE_NAMES.length - LOCAL_ONLY_TABLES.size
-const BASELINE_DDL_COUNT = LOCAL_DDL_COUNT + REMOTE_DDL_COUNT
+const PLATFORM_COUNT = PLATFORM_TABLE_NAMES.length
+const HEALTH_COUNT = TABLE_NAMES.length - PLATFORM_COUNT
+/** Health step 1: its tables locally, then remotely. */
+const HEALTH_BASELINE_COUNT = 2 * HEALTH_COUNT
+/** Platform step 1: its tables locally + all-but-local-only remotely. */
+const PLATFORM_BASELINE_COUNT = PLATFORM_COUNT + PLATFORM_COUNT - LOCAL_ONLY_TABLES.size
+const LOCAL_DDL_COUNT = HEALTH_COUNT
 /** step-2 re-ensures device_battery in both catalogs. */
 const STEP2_COUNT = 2
 /**
- * step-3 issues 8 statements: the fake returns no columns for the
- * information_schema probe, so the recreate path runs (probe + drop
- * scratch + create scratch + copy + drop + rename + index + remote).
+ * Insight v2 (platform step 2, package step 3 before packs) issues 8
+ * statements: the fake returns no columns for the probe, so the recreate
+ * path runs (probe + drop scratch + create scratch + copy + drop + rename +
+ * index + remote).
  */
-const STEP3_COUNT = 8
-/** step-4 creates user_baseline in the local catalog only. */
-const STEP4_COUNT = 1
+const INSIGHT_V2_COUNT = 8
 /**
  * step-5 (device_config data_type -> metric) probes information_schema and
  * returns early on a fresh install, where the baseline already created the
@@ -64,6 +72,11 @@ const STEP7_COUNT = 1
  * the rebuilds are skipped — one statement each.
  */
 const STEP8_COUNT = 2
+/** Health steps 2-8 (3 and 4 issue nothing). */
+const HEALTH_UPGRADE_COUNT = STEP2_COUNT + STEP5_COUNT + STEP6_COUNT + STEP7_COUNT + STEP8_COUNT
+/** Both platform steps. */
+const PLATFORM_ALL_COUNT = PLATFORM_BASELINE_COUNT + INSIGHT_V2_COUNT
+const FRESH_COUNT = HEALTH_BASELINE_COUNT + HEALTH_UPGRADE_COUNT + PLATFORM_ALL_COUNT
 
 const CTX = { brand: 'brandA', tenantId: 'fam123' }
 const CATALOG = 'zone_fam123'
@@ -78,12 +91,10 @@ describe('ensureMigrations', () => {
 
     expect(result).toEqual({ from: 0, to: CURRENT_VERSION })
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
-    // baseline issues LOCAL_SCHEMAS in the local catalog + SCHEMAS in the
+    // Each baseline issues local DDL in the local catalog + remote DDL in the
     // remote catalog (0.5.0 fix for "ensureSchemas never creates local.*
-    // tables"), minus the local-only tables remote-side; then steps 2-4.
-    expect(fake.calls).toHaveLength(
-      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT + STEP7_COUNT + STEP8_COUNT,
-    )
+    // tables"), minus the local-only tables remote-side; then the later steps.
+    expect(fake.calls).toHaveLength(FRESH_COUNT)
     // Local tables come first (baseline migration order).
     expect(fake.calls[0].sql).toContain('CREATE TABLE IF NOT EXISTS memory.hrv')
     expect(fake.calls[0].sql).not.toContain('PARTITIONED BY')
@@ -150,8 +161,9 @@ describe('ensureMigrations', () => {
     expect(fake.calls[0].sql).not.toContain('PARTITIONED BY')
     expect(fake.calls[1].sql).toContain('CREATE TABLE IF NOT EXISTS zone_fam123.default.device_battery')
     expect(fake.calls[1].sql).toContain('PARTITIONED BY (day(ts), device_id)')
-    // Steps 3 + 4 follow (see first-run test).
-    expect(fake.calls).toHaveLength(STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT + STEP7_COUNT + STEP8_COUNT)
+    // Health steps 3-8 follow, then both platform steps: a ledger below 4
+    // replays them, each idempotent (see first-run test).
+    expect(fake.calls).toHaveLength(HEALTH_UPGRADE_COUNT + PLATFORM_ALL_COUNT)
   })
 
   it('upgrade from v2 runs only step-3 — insight recreate with data mapping', async () => {
@@ -165,9 +177,11 @@ describe('ensureMigrations', () => {
     const sqls = fake.calls.map(c => c.sql)
     // A column probe on the local catalog gates the recreate. It uses
     // PRAGMA table_info rather than information_schema, which lives in the
-    // `system` catalog the iOS DuckDB build cannot resolve.
-    expect(sqls[0]).toContain('PRAGMA table_info')
-    expect(sqls[0]).toContain('insight')
+    // `system` catalog the iOS DuckDB build cannot resolve. (Platform step 2
+    // now, after the health ledger's steps 3-8.)
+    const probe = sqls.findIndex(s => s.includes('PRAGMA table_info') && s.includes('insight'))
+    expect(probe).toBeGreaterThan(-1)
+    expect(sqls.slice(probe).some(s => s.startsWith('INSERT INTO memory.insight_v2'))).toBe(true)
     // Copy preserves rows with id → insight_id, kind default 'threshold',
     // and severity 'critical' → 'urgent'.
     const copy = sqls.find(s => s.startsWith('INSERT INTO memory.insight_v2'))
@@ -193,9 +207,7 @@ describe('ensureMigrations', () => {
     const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
     expect(result.from).toBe(0)
     expect(result.to).toBe(CURRENT_VERSION)
-    expect(fake.calls.length).toBe(
-      BASELINE_DDL_COUNT + STEP2_COUNT + STEP3_COUNT + STEP4_COUNT + STEP5_COUNT + STEP6_COUNT + STEP7_COUNT + STEP8_COUNT,
-    )
+    expect(fake.calls.length).toBe(FRESH_COUNT)
 
     // Same call again — no-op. KV already at CURRENT_VERSION.
     fake.calls.length = 0
@@ -367,5 +379,44 @@ describe('MIGRATIONS shape', () => {
       const m = MIGRATIONS[i] as Migration
       expect(m.version).toBe(i + 1)
     }
+  })
+})
+
+describe('platform pack ledger (package-separation S-02)', () => {
+  const PLATFORM_KEY = 'analytics:pack_schema_version:platform:brandA:fam123'
+
+  it('an install at package step 4+ adopts platform 2 and replays nothing of it', async () => {
+    const { fake, db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    store.set(KEY, 4)
+
+    const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
+
+    expect(result).toEqual({ from: 4, to: CURRENT_VERSION })
+    expect(store.get(PLATFORM_KEY)).toBe(2)
+    // Health steps 5-8 only; no platform DDL.
+    expect(fake.calls).toHaveLength(STEP5_COUNT + STEP6_COUNT + STEP7_COUNT + STEP8_COUNT)
+    expect(fake.calls.some(c => c.sql.includes('insight'))).toBe(false)
+  })
+
+  it('an install below package step 4 replays both platform steps', async () => {
+    const { db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+    store.set(KEY, 3)
+
+    await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
+
+    expect(store.get(PLATFORM_KEY)).toBe(2)
+  })
+
+  it('a fresh install runs the platform steps itself, after the health ledger', async () => {
+    const { fake, db } = await newOpenDb()
+    const { kv, store } = createFakeKV()
+
+    await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
+
+    expect(store.get(PLATFORM_KEY)).toBe(2)
+    const firstPlatform = fake.calls.findIndex(c => c.sql.includes('CREATE TABLE IF NOT EXISTS memory.insight'))
+    expect(firstPlatform).toBe(HEALTH_BASELINE_COUNT + HEALTH_UPGRADE_COUNT)
   })
 })

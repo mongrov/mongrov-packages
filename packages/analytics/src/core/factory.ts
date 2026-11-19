@@ -34,6 +34,7 @@ import { dismissInsight as dismissInsightImpl } from './insight'
 import { resolveLogger, tailId } from './logger'
 import { analyticsMachine } from './machine'
 import { ensureMigrations } from './migrations'
+import { registerPacks } from './packs'
 import {
   clearLastAttach,
   loadLastAttach,
@@ -162,6 +163,8 @@ export function createAnalytics(
   internal: CreateAnalyticsInternal = {},
 ): AnalyticsEngine {
   const log = resolveLogger(config.logger)
+  if (config.packs)
+    registerPacks(config.packs)
   if (config.appSchema)
     validateAppSchema(config.appSchema)
   const duckdbFactory = internal.duckdbFactory ?? defaultDuckdbFactory()

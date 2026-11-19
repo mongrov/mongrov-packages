@@ -35,7 +35,6 @@
 
 import type { HybridDuckDB } from './engine'
 import type { AnalyticsErrorCode } from './errors'
-import type { QualityOptions } from './reading-quality'
 import type {
   AttachContext,
   FamilyMembersProvider,
@@ -44,8 +43,8 @@ import type {
   TokenVendor,
 } from './types'
 import { AnalyticsError } from './errors'
-import { fallbackMacroDdl, qualityMacroDdls, qualityMacroNames, qualityViewDdls, qualityViewNames } from './reading-quality'
-import { dropViewDdl, generateViewDdl, VIEWED_TABLES } from './schemas'
+import { qualityProviders, viewedTables } from './packs'
+import { dropViewDdl, generateViewDdl } from './schemas'
 
 /**
  * Peel one layer of `AnalyticsError('query_failed')` off engine-wrapped
@@ -390,12 +389,12 @@ export async function createViews(
     familyId: string
     localCatalog: string
     remoteCatalog?: string
-    /** How the clean views judge a reading. See `QualityOptions`. */
-    quality?: QualityOptions
+    /** How the quality views judge a reading; passed to each pack's provider. */
+    quality?: object
   },
   opts: CreateViewsHooks = {},
 ): Promise<CreateViewsResult> {
-  for (const table of VIEWED_TABLES) {
+  for (const table of viewedTables()) {
     try {
       await db.execute(generateViewDdl(table, ctx))
     }
@@ -422,14 +421,16 @@ export async function createViews(
  */
 export async function createQualityViews(
   db: HybridDuckDB,
-  quality: QualityOptions | undefined,
+  quality: object | undefined,
   opts: CreateViewsHooks = {},
   failCode: AnalyticsErrorCode = 'attach_failed',
 ): Promise<CreateViewsResult> {
   // Signal-quality views (T-25) read the union views, so they come after
   // them. A missing clean view would fail every rule and baseline, so
   // it fails the attach just as loudly.
-  for (const view of qualityViewDdls(quality)) {
+  const providers = qualityProviders()
+  const options = quality ?? {}
+  for (const view of providers.flatMap(p => p.views(options))) {
     try {
       await db.execute(view.sql)
     }
@@ -455,14 +456,16 @@ export async function createQualityViews(
   // reported unavailable, and the package's own readers then stay on the
   // views (`AnalyticsEngine.boundedReads`).
   const unavailableMacros: string[] = []
-  for (const macro of qualityMacroDdls(quality)) {
+  for (const { provider, macro } of providers.flatMap(p => (p.macros?.(options) ?? []).map(macro => ({ provider: p, macro })))) {
     try {
       await db.execute(macro.sql)
     }
     catch (cause) {
       opts.onMacroFailed?.(macro.name, rootCause(cause))
       try {
-        await db.execute(fallbackMacroDdl(macro.name))
+        if (!provider.fallbackMacro)
+          throw cause
+        await db.execute(provider.fallbackMacro(macro.name))
       }
       catch (fallbackCause) {
         unavailableMacros.push(macro.name)
@@ -491,7 +494,8 @@ export interface CreateViewsResult {
 export async function dropViews(db: HybridDuckDB): Promise<void> {
   // Dependents first: the macros read the union views too, and a clean macro
   // calls its quality macro.
-  for (const name of qualityMacroNames()) {
+  const providers = qualityProviders()
+  for (const name of providers.flatMap(p => p.macroNames?.() ?? [])) {
     try {
       await db.execute(`DROP MACRO TABLE IF EXISTS ${name};`)
     }
@@ -500,7 +504,7 @@ export async function dropViews(db: HybridDuckDB): Promise<void> {
     }
   }
   // The quality views read the union views.
-  for (const name of qualityViewNames()) {
+  for (const name of providers.flatMap(p => p.viewNames())) {
     try {
       await db.execute(`DROP VIEW IF EXISTS ${name};`)
     }
@@ -508,7 +512,7 @@ export async function dropViews(db: HybridDuckDB): Promise<void> {
       // expected: best-effort, as below.
     }
   }
-  for (const table of VIEWED_TABLES) {
+  for (const table of viewedTables()) {
     try {
       await db.execute(dropViewDdl(table))
     }

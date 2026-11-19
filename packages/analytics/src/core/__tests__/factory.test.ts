@@ -123,15 +123,16 @@ describe('createAnalytics — attach / detach lifecycle', () => {
     // Warehouse SECRET + ATTACH + every migration's CREATE TABLE IF NOT
     // EXISTS. Derived from TABLE_NAMES so adding a table doesn't require
     // retuning this number:
-    //   baseline  = all tables locally + all-but-local-only remotely
-    //   step-2    = device_battery re-ensured in both catalogs
-    //   step-3    = remote insight (CREATE IF NOT EXISTS)
-    //   step-4    = user_baseline, local only
+    //   baselines = every pack's tables locally + all-but-local-only
+    //               remotely (health step 1, platform step 1)
+    //   health 2  = device_battery re-ensured in both catalogs
+    //   platform 2 = remote insight (CREATE IF NOT EXISTS)
+    // (Before packs, ledger step 4 re-issued user_baseline locally after
+    // step 1 had created it; the platform pack creates it once.)
     const expectedCreateTables
       = TABLE_NAMES.length
         + (TABLE_NAMES.length - LOCAL_ONLY_TABLES.size)
         + 2
-        + 1
         + 1
     expect(fakeDb.calls.some(c => c.sql.includes('CREATE OR REPLACE SECRET'))).toBe(true)
     expect(fakeDb.calls.some(c => c.sql.includes('ATTACH'))).toBe(true)

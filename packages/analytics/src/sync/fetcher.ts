@@ -21,10 +21,9 @@
 
 import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
-import type { TableName } from '../core/schemas'
 import type { AttachContext } from '../core/types'
 import type { WatermarkStore } from './watermark'
-import { LOCAL_SCHEMAS } from '../core/schemas'
+import { hasLocalPrimaryKey } from '../core/schemas'
 import { timeColumnFor } from '../core/table_metadata'
 import { SyncError } from './errors'
 
@@ -55,8 +54,7 @@ import { SyncError } from './errors'
  * mongrov-packages#10 and #35.
  */
 function conflictClause(table: string, appSchema?: AppSchema): string {
-  const ddl = (LOCAL_SCHEMAS as Record<string, string>)[table as TableName] ?? appSchema?.tables[table]?.ddl
-  return ddl?.includes('PRIMARY KEY') ? ' ON CONFLICT DO NOTHING' : ''
+  return hasLocalPrimaryKey(table, appSchema) ? ' ON CONFLICT DO NOTHING' : ''
 }
 
 export type PrefetchPolicy

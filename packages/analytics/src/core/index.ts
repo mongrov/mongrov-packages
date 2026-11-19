@@ -10,10 +10,12 @@
 export { appSchemaVersionKey, ensureAppSchema, validateAppSchema } from './app-schema'
 
 export type { AppMigration, AppSchema, AppTable, AppTableRetention } from './app-schema'
+
 // Provider (Phase 5)
 export { AnalyticsProvider } from './context'
-
 export type { AnalyticsProviderProps } from './context'
+// Helpers a pack's migrations build on.
+export { addIdentityKey, qualifyDdl, quoteQualifier, toLocalDdl } from './ddl'
 // Device event enum + payload schemas (Sprint 5 §6). Re-exported from
 // @mongrov/types so @mongrov/device can emit typed events without a
 // runtime dependency on the analytics engine.
@@ -25,7 +27,6 @@ export {
   isDeviceEventType,
   SyncTrigger,
 } from './device-events'
-
 export type {
   DeviceEventPayload,
   DeviceEventType,
@@ -33,23 +34,22 @@ export type {
 } from './device-events'
 // Errors
 export { AnalyticsError, NotImplementedError } from './errors'
-
 export type { AnalyticsErrorCode } from './errors'
+
 // Factory (T-02 stub → T-10 real)
 export { createAnalytics } from './factory'
-
 // Hooks (T-11/12/13)
 export { useAnalytics, useInsight, useTimeseries } from './hooks'
+
 export type {
   UseAnalyticsResult,
   UseInsightResult,
   UseTimeseriesResult,
 } from './hooks'
-
 // Insight dismissal (Sprint 5 §7b / T-15c).
 export { dismissInsight } from './insight'
-export type { DismissInsightArgs, DismissInsightDeps } from './insight'
 
+export type { DismissInsightArgs, DismissInsightDeps } from './insight'
 // Baseline metadata (Sprint 5 §7).
 export {
   BASELINE_MIN_DAYS,
@@ -57,11 +57,35 @@ export {
   baselineAggregateFor,
   getBaselineMetricIds,
 } from './metric_metadata'
+
 export type {
   BaselineDailyAggregate,
   BaselineWindowDays,
 } from './metric_metadata'
+export { listColumns, REMOTE_NAMESPACE } from './migrations'
 
+export type { MigrationCatalogs } from './migrations'
+// Packs (principle 73): how a domain plugs into the engine.
+export {
+  definePack,
+  getPack,
+  getPacks,
+  packExtensions,
+  packTable,
+  packTables,
+  registerPack,
+  registerPacks,
+  viewedTables,
+} from './packs'
+
+export type {
+  AnalyticsPack,
+  PackMigration,
+  PackTable,
+  PackTableRetention,
+  PackViewDdl,
+  QualityViewProvider,
+} from './packs'
 // Signal-quality views (T-25, sprint6 §13). Claims read `v_{vital}_clean`;
 // `v_{vital}_q` carries the per-reading flags for diagnostics and muted charts.
 export {
@@ -89,8 +113,8 @@ export {
   STILL_WINDOW_MINUTES,
   wearGateSql,
 } from './reading-quality'
-export type { QualityOptions, QualityTable, QualityView } from './reading-quality'
 
+export type { QualityOptions, QualityTable, QualityView } from './reading-quality'
 // Effective sampling cadence (Sprint 5 T-41, principle 22). Chart data
 // providers and gap detection should resolve cadence through this rather
 // than reading metric_metadata directly.
@@ -100,11 +124,13 @@ export {
   minimumWindowMinutes,
   SAMPLING_CACHE_TTL_MS,
 } from './sampling'
+
 export type {
   EffectiveSampling,
   SamplingResolver,
   SamplingResolverConfig,
 } from './sampling'
+export { ensureSchemas, hasLocalPrimaryKey, localDdlFor } from './schemas'
 
 // Union views (Sprint 5 §3). Registry/rule/tool SQL targets `v_{table}`,
 // never `local.{table}` or `r2.default.{table}` (principle 19).
@@ -118,9 +144,7 @@ export {
   dropViewDdl,
   generateViewDdl,
   LOCAL_SCHEMAS,
-  quoteQualifier,
   TABLE_NAMES,
-  toLocalDdl,
   VIEWED_TABLES,
   watermarkColumnFor,
 } from './schemas'
