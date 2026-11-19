@@ -362,6 +362,21 @@ export const KV_KEY_REGISTRY = {
     usedBy: [],
     defaultValue: false,
   },
+
+  // ── sleep ─────────────────────────────────────────────────────────────
+  /**
+   * One-time banner dismissal, the Sleep twin of the other day-30 banners.
+   *
+   * The app has written this key since the sleep day-30 banner shipped, but it
+   * was never registered, so the namespace this file exists to show was
+   * missing one of its occupants (techspec T-61, 11-12 reconciliation).
+   */
+  'user:sleepDay30BannerDismissed': {
+    kind: 'ux_state',
+    valueType: 'boolean',
+    description: 'User dismissed the day-30 baseline-ready banner on Sleep',
+    usedBy: [],
+  },
 } as const satisfies Record<string, KvKeyEntry>
 
 export interface KvKeyEntry {

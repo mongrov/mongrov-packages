@@ -34,6 +34,7 @@ describe('KV_KEY_REGISTRY', () => {
       'user:hrvDropDays',
       'user:hrvDropMs',
       'user:motionFilter',
+      'user:sleepDay30BannerDismissed',
       'user:spo2Day30BannerDismissed',
       'user:spo2Notify',
       'user:spo2SafeLevel',
