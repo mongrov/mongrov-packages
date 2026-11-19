@@ -1,6 +1,6 @@
 # Upgrading
 
-## Unreleased — a night ends at 18:00 on its morning (D6, v1 window)
+## 0.51.x → 0.52.0 — a night ends at 18:00 on its morning (D6, v1 window)
 
 **Behaviour change in derived sleep; no API or schema change. Nights already
 stored are corrected the next time a sync re-derives them.**
@@ -17,7 +17,7 @@ dump-nights read 10–60 extra minutes of light sleep, among them ring 6035's
 +29 / +30 (zivaone_app#553's shape). `nextNightStart` and its stored-start
 query are gone.
 
-## Unreleased — ingest stores out-of-range readings; only malformed rows are dropped (S10, sprint6 T-60)
+## 0.51.x → 0.52.0 — ingest stores out-of-range readings; only malformed rows are dropped (S10, sprint6 T-60)
 
 **Behaviour change for `sink.push`, `sink.pushFirmware` and every `dropImplausibleRows` caller. New log line; `DropReport` gains a field.**
 
