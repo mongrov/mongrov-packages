@@ -5,6 +5,19 @@ All notable changes to `@mongrov/types` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-11-19
+
+### Removed (breaking)
+
+- `./kv-keys`, `./analytics-queries` and the `analytics-contracts` types
+  (`KvKey`, `KvKeyEntry` and the data-plane contracts from the root). They are
+  ZivaOne's and moved to `@zivaone/health` in zivaone_app (package-separation
+  S-03, principle 73: `@mongrov/*` is domain-free).
+
+### Kept
+
+- `device` and `device-events`: domain-free, and `@mongrov/device` depends on them.
+
 ## [0.16.0] - 2026-11-19
 
 ### Added
