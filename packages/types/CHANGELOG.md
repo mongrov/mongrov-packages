@@ -5,6 +5,13 @@ All notable changes to `@mongrov/types` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-11-19
+
+### Changed
+- Type docs are brand- and domain-free: the tenancy, device and device-event docs no longer name a brand, a vendor API, body-signal examples or tables no package defines.
+- The package header no longer claims "zero runtime": `device-events` exports zod schemas.
+- `prepublishOnly` runs the domain-term guard over the files `npm pack` publishes.
+
 ## [0.20.0] - 2026-11-19
 
 ### Removed (breaking)

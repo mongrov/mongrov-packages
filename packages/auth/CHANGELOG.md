@@ -5,6 +5,13 @@ All notable changes to `@mongrov/auth` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-11-19
+
+### Changed
+- The shipped `AuthConfig` docs no longer describe one app's session-attribution rule (the source was fixed in 0.12.0; the published build still carried it).
+- The `@mongrov/core` devDependency is the workspace copy.
+- `prepublishOnly` runs the domain-term guard over the files `npm pack` publishes.
+
 ## [0.12.0] - 2026-11-19
 
 ### Added

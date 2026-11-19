@@ -5,6 +5,13 @@ All notable changes to `@mongrov/ui` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-11-19
+
+### Changed
+- Docs only: an emoji comment in `ReactionPicker`.
+- Tests (`src/**/__tests__`) are no longer published with `src`.
+- `prepublishOnly` runs the domain-term guard over the files `npm pack` publishes.
+
 ## [0.5.0] - 2026-10-09
 
 ### Changed
