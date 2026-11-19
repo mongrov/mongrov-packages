@@ -1,5 +1,24 @@
 # Upgrading
 
+## Unreleased — ingest stores out-of-range readings; only malformed rows are dropped (S10, sprint6 T-60)
+
+**Behaviour change for `sink.push`, `sink.pushFirmware` and every `dropImplausibleRows` caller. New log line; `DropReport` gains a field.**
+
+Spec §13 amendment 2026-11-12 (S10, "flag, don't delete"): a value outside the §13b clamps is a reading the views flag, not a row to delete. A dropped row cannot be gated back on with `rangeFilter: false`, replayed, or explained.
+
+- **Stored now:** values outside `PLAUSIBLE_RANGES` (e.g. HR 250, SpO2 40, temp -15.8 or the 10x 365, HRV 4 or 250). `v_*_q.plausible` is `false` for them exactly as before, and `_clean` skips them while `rangeFilter` is on (the default) and shows them while it is off. No view, table or column changed.
+- **Still dropped** (malformed), per row, by reason:
+  `bad_timestamp` (missing or unparseable `ts`), `future` (beyond now + `MAX_CLOCK_AHEAD_DAYS`, unchanged at 30), `before_epoch` (before `EARLIEST_PLAUSIBLE_ISO`, 2020-01-01; a 1970 reset clock), `undecodable` (not a finite number, or more than the column can store, e.g. 6537.8 in `temp_c DECIMAL(4,1)`, #225), `no_value` (the firmware "no value" sentinel 0, or NULL, on `heart_rate` / `spo2` / `temperature`, whose row carries nothing else).
+- **`hrv`:** the 0 sentinel (and an undecodable value) is set to NULL and the row kept, so its stress survives (packages#82). An out-of-range non-zero HRV is now kept as is; before it was nulled.
+- **`sink.push` applies the rule too** (the live path). Until now only `pushFirmware` did, and the app filtered before `push`. Tables with no reading column pass through untouched.
+- **Sync log:** one line per flush (manual and scheduled) on `DROPPED_ROWS_EVENT` (`'sync.flush.dropped'`), `{ trigger, dropped: { [table]: { [reason]: n } }, nulled: { [table]: n }, total, samples }`, covering every row dropped or nulled since the previous flush. `warn` when rows were dropped, `info` when readings were only nulled, nothing when neither. `pushFirmware` no longer logs `IMPLAUSIBLE_ROWS_EVENT` per table; the constant stays exported, deprecated.
+- **API:** `dropMalformedRows` is the new name; `dropImplausibleRows` is the same function (deprecated alias). `DropReport.reasons` is new. `DropTally`, `DropReason`, `DropSummary` and `DROPPED_ROWS_EVENT` are exported.
+- **What the app should check on the pin:**
+  - Raw-view readers (`v_heart_rate`, `v_spo2`, `v_temperature`, `v_hrv` without `_q` / `_clean`) now see out-of-range values. Any count or latest-value read that assumed the ingest filter (e.g. the Vitals LATEST tile, `health.spo2HasAnyReadings`, `hr.daysWorn`, `hr.baselineMaturity`) should read `_clean`, or gate on `plausible`. 0 sentinels are still never stored.
+  - `sensor-adapter.ts` calls `dropImplausibleRows` before `sink.push`. It now gets the new rule; its drops are logged on its own `sensor-adapter.rows.implausible` line and never reach the sink, so they are missing from `sync.flush.dropped`. Removing that call lets the sink count them.
+  - With ZivaOne's `rangeFilter: false`, the newly stored values are clean: shown, and counted by alerts, verdicts and baselines (principle 69).
+- Rows already dropped are not recovered; raw capture holds the originals.
+
 ## 0.50.x → 0.51.0 — app-owned tables (`appSchema`, principle 71)
 
 **Additive. New optional config; no package table or migration added. Nothing to do unless the app owns a table.**
