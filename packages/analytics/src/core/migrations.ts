@@ -198,24 +198,46 @@ export async function ensureMigrations(
   const withMigrations = packs.filter(p => p.migrations?.length)
   // Adoption reads the other ledgers as they were before this attach, so a
   // pack that runs first cannot make a fresh install look migrated.
+  //
+  // The adopted version is persisted BEFORE any pack runs, including 0.
+  // Adoption is one-shot: once this pack's own key exists, it is never
+  // re-derived. Persisting only seeds above 0 left the key absent for a
+  // fresh or pre-adoption install, so if this attach failed after an
+  // earlier pack had advanced the ledger being adopted from (but before
+  // this pack's first step committed), the next attach adopted from the
+  // ADVANCED ledger and skipped steps that never ran.
   const seeds = new Map<AnalyticsPack, number>()
   for (const pack of withMigrations) {
     if (!pack.adoptVersion)
       continue
     if (typeof await kv.get<number>(versionKeyOf(pack, ctx)) === 'number')
       continue
+    let seed: number | undefined
     for (const key of pack.adoptVersion.keys(ctx.brand, ctx.tenantId)) {
       const v = await kv.get<number>(key)
       if (typeof v === 'number') {
-        seeds.set(pack, pack.adoptVersion.map(v))
+        seed = pack.adoptVersion.map(v)
         break
       }
     }
+    if (seed === undefined) {
+      // Nothing to adopt. An older spelling of this pack's own key is
+      // adopted by `runPackMigrations`; leave the key absent for it.
+      let legacy = false
+      for (const legacyKey of pack.legacyVersionKeys?.(ctx.brand, ctx.tenantId) ?? []) {
+        if (typeof await kv.get<number>(legacyKey) === 'number') {
+          legacy = true
+          break
+        }
+      }
+      if (legacy)
+        continue
+      seed = 0
+    }
+    seeds.set(pack, seed)
   }
-  for (const [pack, seed] of seeds) {
-    if (seed > 0)
-      await kv.set(versionKeyOf(pack, ctx), seed)
-  }
+  for (const [pack, seed] of seeds)
+    await kv.set(versionKeyOf(pack, ctx), seed)
 
   const ledger = schemaVersionKey(ctx.brand, ctx.tenantId)
   let primary: PackMigrationResult | undefined

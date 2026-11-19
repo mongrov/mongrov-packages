@@ -102,7 +102,7 @@ export class SensorBuffer {
   }
 
   /**
-   * Take a table's buffered rows for a flush, two-phase (app#54).
+   * Take a table's buffered rows for a flush, two-phase.
    *
    * Unlike `drain`, durable (overflow) rows are LEASED, not deleted: they stay
    * in the KVStore until `commit()`, which the flusher calls only after the

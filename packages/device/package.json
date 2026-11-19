@@ -38,7 +38,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build && node ../../scripts/no-domain-terms.mjs --pack . --fail"
   },
   "dependencies": {
     "xstate": "^5.30.0"

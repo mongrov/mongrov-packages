@@ -25,7 +25,7 @@ describe('ReadingSink (fake)', () => {
 
     const r1: DeviceReading = {
       deviceId: 'dev-1',
-      metric: 'hr',
+      metric: 'level',
       kind: 'scalar',
       ts: 1_000,
       value: 72,
@@ -33,7 +33,7 @@ describe('ReadingSink (fake)', () => {
     }
     const r2: DeviceReading = {
       deviceId: 'dev-1',
-      metric: 'hr',
+      metric: 'level',
       kind: 'scalar',
       ts: 2_000,
       value: 73,
@@ -57,24 +57,24 @@ describe('ConfigStore (fake)', () => {
     const fake = createFakeConfigStore()
 
     // Missing key → undefined
-    expect(await fake.store.getCursor('dev-1', 'hr')).toBeUndefined()
+    expect(await fake.store.getCursor('dev-1', 'level')).toBeUndefined()
 
     // Set + read back
-    await fake.store.setCursor('dev-1', 'hr', 1_700_000_000_000)
-    expect(await fake.store.getCursor('dev-1', 'hr')).toBe(1_700_000_000_000)
+    await fake.store.setCursor('dev-1', 'level', 1_700_000_000_000)
+    expect(await fake.store.getCursor('dev-1', 'level')).toBe(1_700_000_000_000)
 
     // Different device — independent
-    await fake.store.setCursor('dev-2', 'hr', 1_800_000_000_000)
-    expect(await fake.store.getCursor('dev-1', 'hr')).toBe(1_700_000_000_000)
-    expect(await fake.store.getCursor('dev-2', 'hr')).toBe(1_800_000_000_000)
+    await fake.store.setCursor('dev-2', 'level', 1_800_000_000_000)
+    expect(await fake.store.getCursor('dev-1', 'level')).toBe(1_700_000_000_000)
+    expect(await fake.store.getCursor('dev-2', 'level')).toBe(1_800_000_000_000)
 
     // Different metric on the same device — independent
-    await fake.store.setCursor('dev-1', 'spo2', 42)
-    expect(await fake.store.getCursor('dev-1', 'hr')).toBe(1_700_000_000_000)
-    expect(await fake.store.getCursor('dev-1', 'spo2')).toBe(42)
+    await fake.store.setCursor('dev-1', 'pressure', 42)
+    expect(await fake.store.getCursor('dev-1', 'level')).toBe(1_700_000_000_000)
+    expect(await fake.store.getCursor('dev-1', 'pressure')).toBe(42)
 
     fake.reset()
-    expect(await fake.store.getCursor('dev-1', 'hr')).toBeUndefined()
+    expect(await fake.store.getCursor('dev-1', 'level')).toBeUndefined()
   })
 })
 
@@ -84,7 +84,7 @@ describe('DeviceLogger (fake)', () => {
 
     const e1: DeviceDiagnosticEvent = {
       deviceId: 'dev-1',
-      adapterId: 'jcring',
+      adapterId: 'acme-band',
       trigger: 'failed',
       phase: 'connecting',
       category: 'timeout',
@@ -92,7 +92,7 @@ describe('DeviceLogger (fake)', () => {
     }
     const e2: DeviceDiagnosticEvent = {
       deviceId: 'dev-1',
-      adapterId: 'jcring',
+      adapterId: 'acme-band',
       trigger: 'reconnecting',
       phase: 'connected',
       category: 'unexpected-disconnect',

@@ -14,8 +14,8 @@
  */
 
 /**
- * A brand tenant — a consumer brand (family-scoped) or
- * LuminX (enterprise, org-scoped).
+ * A brand tenant — a consumer brand (family-scoped) or an enterprise
+ * brand (org-scoped).
  *
  * `tenantScope` selects the warehouse partitioning strategy: `'family'`
  * warehouses are keyed by `familyId`, `'org'` warehouses by org id.
@@ -52,11 +52,10 @@ export interface Family {
 /**
  * An authenticated user, scoped to one brand.
  *
- * `timezone` is load-bearing rather than cosmetic: `analytics/sync`'s mapper
- * needs an IANA zone to attribute sessions to the correct local
- * "night" via the 6pm–6pm rule (principle 24), and baseline compute needs it
- * to group readings by local day. Captured at sign-up, falling back to the
- * device timezone when the profile has none.
+ * `timezone` is load-bearing rather than cosmetic: ingest adapters and
+ * baseline compute need an IANA zone to attribute readings to the user's
+ * local day. Captured at sign-up, falling back to the device timezone when
+ * the profile has none.
  */
 export interface User {
   id: string

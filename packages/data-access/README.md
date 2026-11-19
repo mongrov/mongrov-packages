@@ -10,7 +10,7 @@ Screens never import storage engines. Instead, they read via `useAppQuery(name, 
 - **Engine dispatch** — `duckdb` (analytics), `rxdb` (reactive stream), `kv` (single-key read). Apps wire concrete adapters into `DataAccessProvider`.
 - **Authorize gate** — optional `authorize(input, ctx)` runs before every query and mutation; `false` throws `AuthorizationError`.
 - **Tenant auto-binding** — `{ brand, familyId }` from the active `RequestContext` are merged into DuckDB params automatically. Screens never pass tenant.
-- **Invalidation event bus** — `mitt`-backed exact-match dispatch plus a glob wrapper (`hrv:*`, `sleep:**`); mutations declare `invalidates`, queries declare `invalidatedBy`, refetches happen automatically.
+- **Invalidation event bus** — `mitt`-backed exact-match dispatch plus a glob wrapper (`reading:*`, `note:**`); mutations declare `invalidates`, queries declare `invalidatedBy`, refetches happen automatically.
 - **Optimistic mutations** — `optimistic(input, ctx)` surfaces immediately as `data`; reverts on failure.
 - **Cache defaults** — 30s `staleTime`, 5min `gcTime`, overridable per query.
 - **ESLint plugin** — `no-storage-engine-imports` bans direct `@mongrov/db`, `@mongrov/analytics`, `@mongrov/collab` imports outside the registry directory.
@@ -34,12 +34,12 @@ Assemble a registry once — typically under `src/data/` in your app.
 import { defineQuery } from '@mongrov/data-access';
 import { z } from 'zod';
 
-export const hrvLast7Days = defineQuery({
+export const readingsLast7Days = defineQuery({
   engine: 'duckdb',
   input: z.object({ userId: z.string() }),
-  output: z.array(z.object({ day: z.string(), rmssd: z.number() })),
-  sql: 'SELECT day, rmssd FROM hrv WHERE user_id = $userId AND brand = $brand AND family_id = $familyId ORDER BY day DESC LIMIT 7',
-  invalidatedBy: ['hrv:*'],
+  output: z.array(z.object({ day: z.string(), value: z.number() })),
+  sql: 'SELECT day, value FROM reading WHERE user_id = $userId AND brand = $brand AND family_id = $familyId ORDER BY day DESC LIMIT 7',
+  invalidatedBy: ['reading:*'],
   staleTime: 60_000,
 });
 ```
@@ -49,27 +49,32 @@ export const hrvLast7Days = defineQuery({
 import { defineMutation } from '@mongrov/data-access';
 import { z } from 'zod';
 
-export const recordHrvSample = defineMutation({
-  input: z.object({ rmssd: z.number(), ts: z.string() }),
+export const recordReading = defineMutation({
+  input: z.object({ value: z.number(), ts: z.string() }),
   output: z.object({ id: z.string() }),
   exec: async (input, ctx) => {
     // Direct engine access is legal here because this file lives in
     // src/data/, which the ESLint rule's `allowedDirs` grants an
     // exception to.
-    return await analytics.insert('hrv', { ...input, userId: ctx.requesterUserId });
+    const id = crypto.randomUUID();
+    await analytics.execute(
+      'INSERT INTO reading (id, user_id, ts, value) VALUES ($id, $userId, $ts, $value)',
+      { id, userId: ctx.requesterUserId, ts: input.ts, value: input.value },
+    );
+    return { id };
   },
-  invalidates: ['hrv:sample:added'],
+  invalidates: ['reading:sample:added'],
 });
 ```
 
 ```ts
 // src/data/registry.ts
-import { hrvLast7Days } from './queries';
-import { recordHrvSample } from './mutations';
+import { readingsLast7Days } from './queries';
+import { recordReading } from './mutations';
 
 export const registry = {
-  queries: { 'hrv.last7Days': hrvLast7Days },
-  mutations: { 'hrv.record': recordHrvSample },
+  queries: { 'readings.last7Days': readingsLast7Days },
+  mutations: { 'readings.record': recordReading },
   events: {},
 } as const;
 ```
@@ -89,7 +94,7 @@ export default function RootLayout() {
       engines={{ duckdb: analyticsEngine }}
       context={() => ({
         requesterUserId: session.userId,
-        brand: 'zivaone',
+        brand: 'acme',
         familyId: session.familyId,
         now: () => new Date(),
       })}
@@ -103,16 +108,16 @@ export default function RootLayout() {
 Screens consume via hooks — no engine imports:
 
 ```tsx
-// src/features/hrv/screen.tsx
+// src/features/readings/screen.tsx
 import { useAppQuery, useAppMutation } from '@mongrov/data-access';
 
-export function HrvScreen() {
+export function ReadingsScreen() {
   const { data, loading, error } = useAppQuery<
     { userId: string },
-    Array<{ day: string; rmssd: number }>
-  >('hrv.last7Days', { userId: 'me' });
+    Array<{ day: string; value: number }>
+  >('readings.last7Days', { userId: 'me' });
 
-  const record = useAppMutation<{ rmssd: number; ts: string }, { id: string }>('hrv.record');
+  const record = useAppMutation<{ value: number; ts: string }, { id: string }>('readings.record');
 
   if (loading) return <ActivityIndicator />;
   if (error) return <Text>{error.message}</Text>;
@@ -122,7 +127,7 @@ export function HrvScreen() {
       <List data={data} />
       <Button
         title="Record sample"
-        onPress={() => record.mutate({ rmssd: 42, ts: new Date().toISOString() })}
+        onPress={() => record.mutate({ value: 42, ts: new Date().toISOString() })}
       />
     </>
   );
@@ -197,8 +202,8 @@ Nesting providers is not supported in v0.1 — mount exactly one at the app root
 
 Standalone factory for tests or non-React callers. Exposes `emit`, `subscribe`, `subscribePattern`. Pattern semantics:
 
-- `hrv:*` — matches one `:`-delimited segment.
-- `hrv:**` — matches one or more segments.
+- `reading:*` — matches one `:`-delimited segment.
+- `reading:**` — matches one or more segments.
 - Empty pattern rejected. Case-sensitive.
 
 ### Errors
@@ -226,12 +231,12 @@ registry as a narrow `as const satisfies` map, then bridge to the loose
 import type { Registry } from '@mongrov/data-access';
 
 import { setTenant } from './mutations';
-import { heartRateRecent, hrvLast24h } from './queries';
+import { readingsLast24h, readingsRecent } from './queries';
 
 export const registry = {
   queries: {
-    'health.heartRateRecent': heartRateRecent,
-    'health.hrvLast24h': hrvLast24h,
+    'readings.recent': readingsRecent,
+    'readings.last24h': readingsLast24h,
   },
   mutations: {
     'tenant.set': setTenant,
@@ -293,20 +298,6 @@ The package ships with a full vitest suite you can mirror in-app.
   ```
 
 See `src/__tests__/integration.test.tsx` for a full smoke test wiring registry + provider + hooks together.
-
-## Version
-
-`0.1.0` — first stable cut of the query/mutation/event registry with
-engine dispatch. Alpha train (`0.1.0-alpha.0` → `0.1.0-alpha.3`) shipped
-under the `alpha` dist-tag while the zod peer-widening and CJS emit for
-the ESLint subpath were stabilized. Follow-ups tracked in
-[`.specifica/features/data-access/tasks.md`](../../../.specifica/features/data-access/tasks.md):
-
-- Row-level invalidation
-- Streaming query results
-- Persistent cache (AsyncStorage / MMKV)
-- Devtools panel
-- Custom engine adapters (GraphQL, REST)
 
 ## License
 

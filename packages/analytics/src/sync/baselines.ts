@@ -108,7 +108,7 @@ export function createBaselineRunner(config: BaselineRunnerConfig): BaselineRunn
   /**
    * Called directly, each row is announced as before. `computeAll` instead
    * collects every row and announces ONCE at the end of the cycle
-   * (app#460 P3): each announcement invalidates every
+   *: each announcement invalidates every
    * baseline-dependent screen query, and one per metric × window (~39 a
    * cycle) re-ran each of them ~39 times, queued behind the cycle's own SQL
    * on the single connection.

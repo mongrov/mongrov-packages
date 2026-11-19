@@ -2,11 +2,11 @@
  * Bounded reads of the quality relations from inside the package
  * (mongrov-packages#44).
  *
- * The `_q` / `_clean` views and `v_motion` are window functions over each
+ * The `_q` / `_clean` views (and any pack view built on them) are window functions over each
  * tenant's whole history, so a query for one day pays for every reading ever
  * taken: ~200 ms a query at 180 days, against 8-50 ms through the bounded
  * macros (`v_x_clean_between(lo, hi)`, see `reading-quality.ts`). Rules,
- * the HR phase bands and the AI tools all read a known window back from now,
+ * pack jobs and the AI tools all read a known window back from now,
  * so they can name the macro instead.
  *
  * ## Why swapping the relation cannot change an answer
@@ -92,8 +92,8 @@ const VIEW_FORM: RelationFor = view => view
  *      `boundedReads` off for the rest of the attach after a few failures —
  *      a shape that fails once will fail every pass.
  *   3. One throwaway `SELECT 1` absorbs the aborted transaction a failed
- *      prepare can leave on the react-native-duckdb build (app#195),
- *      so the retry is not the statement that pays for it. On a healthy
+ *      prepare can leave on the react-native-duckdb build,
+ *      so the retry is not the statement that pays for it. On a working
  *      connection it simply succeeds.
  *   4. The view form runs, and ITS failure is the caller's, as before.
  *

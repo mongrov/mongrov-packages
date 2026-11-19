@@ -1,8 +1,6 @@
 /**
- * @mongrov/analytics core — public surface.
- *
- * Stubs land in T-02; concrete implementations replace them per the
- * phased tasks in `.specifica/features/analytics-core/tasks.md`.
+ * @mongrov/analytics core — public surface: the engine, packs, schemas,
+ * migrations, quality relations, bounded reads and the React provider.
  */
 
 // App-owned tables (principle 71): a product table is declared by the app
@@ -11,7 +9,7 @@ export { appSchemaVersionKey, ensureAppSchema, validateAppSchema } from './app-s
 
 export type { AppMigration, AppSchema, AppTable, AppTableRetention } from './app-schema'
 
-// Bounded reads (mongrov-packages#44): the `_between` macro forms packs build on.
+// Bounded reads: the `_between` macro forms packs build on.
 export {
   BOUNDED_FAILURE_LIMIT,
   boundedRelation,
@@ -23,12 +21,12 @@ export {
   SPARE_DAYS,
 } from './bounded-read'
 export type { NowWindow, RelationFor } from './bounded-read'
-// Provider (Phase 5)
+// Provider
 export { AnalyticsProvider } from './context'
 export type { AnalyticsProviderProps } from './context'
 // Helpers a pack's migrations build on.
 export { addIdentityKey, qualifyDdl, quoteQualifier, toLocalDdl } from './ddl'
-// Device event enum + payload schemas (Sprint 5 §6). Re-exported from
+// Device event enum + payload schemas. Re-exported from
 // @mongrov/types so @mongrov/device can emit typed events without a
 // runtime dependency on the analytics engine.
 export {
@@ -49,9 +47,9 @@ export type { DuckDBAppender, DuckDBFactory, DuckDBInstance } from './engine'
 // Errors
 export { AnalyticsError, describeError, NotImplementedError } from './errors'
 export type { AnalyticsErrorCode } from './errors'
-// Factory (T-02 stub → T-10 real)
+// Factory
 export { createAnalytics } from './factory'
-// Hooks (T-11/12/13)
+// Hooks
 export { useAnalytics, useInsight, useTimeseries } from './hooks'
 export type {
   UseAnalyticsResult,
@@ -59,7 +57,7 @@ export type {
   UseTimeseriesResult,
 } from './hooks'
 
-// Insight dismissal (Sprint 5 §7b / T-15c).
+// Insight dismissal.
 export { dismissInsight } from './insight'
 export type { DismissInsightArgs, DismissInsightDeps } from './insight'
 
@@ -151,7 +149,7 @@ export type {
   TokenVendor,
   Unsubscribe,
 } from './types'
-// Watermark cache (Sprint 5 T-07). Disabled by default — measurement-gated
+// Watermark cache. Disabled by default — measurement-gated
 // on pilot p95 latency; the instrument runs regardless.
 export {
   createWatermarkCache,

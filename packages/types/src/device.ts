@@ -94,7 +94,7 @@ export interface ErrorDetail {
 export interface Device {
   /** Stable identity within the app (redact before remote log). */
   id: string
-  /** Which adapter handles this device (e.g. 'jcring', 'gatt-generic'). */
+  /** Which adapter handles this device (e.g. 'acme-band', 'gatt-generic'). */
   adapterId: string
   name?: string
   /** Open string set the adapter supports, e.g. 'band' | 'tracker' | 'tag'. */
@@ -105,7 +105,7 @@ export interface Device {
   owned?: boolean
 }
 
-/** Snapshot of device status/identity. firmwareVersion from vendor GetDeviceVersion(). */
+/** Snapshot of device status/identity. `firmwareVersion` as reported by the device. */
 export interface DeviceStatus {
   deviceId: string
   batteryPct?: number
@@ -128,7 +128,7 @@ export type DeviceCapability = 'LiveStream' | 'BatchSync' | 'Measure' | 'Firmwar
  *   scalar — one number          (a reading, a level, a battery)
  *   vector — numeric array        (imu / accelerometer sample)
  *   geo    — { lat, lng, … }      (tracker location)
- *   sample — waveform / series    (ppg trace)
+ *   sample — waveform / series    (a sampled signal trace)
  *   blob   — opaque structured     (a session, a summary)
  */
 export type ReadingKind = 'scalar' | 'vector' | 'geo' | 'sample' | 'blob'
@@ -152,7 +152,7 @@ export interface DeviceReading {
   ts: number
   /** OPAQUE payload — the package never inspects it. App owns the per-metric schema. */
   value: JsonValue
-  /** Generic unit, optional: 'celsius' | '%' | 'm' | 'm/s' | … */
+  /** Generic unit, optional: '%' | 'm' | 'm/s' | 'hPa' | … */
   unit?: string
   /** Optional vendor sequence number — alternative identity when ts collides. */
   seq?: number

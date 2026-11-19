@@ -48,7 +48,7 @@ function stream(chunks: string[]): AsyncIterable<string> {
 }
 
 const MESSAGES: Message[] = [
-  { id: '1', role: 'user', content: 'How was my sleep?', createdAt: new Date(0) },
+  { id: '1', role: 'user', content: 'How was the weather?', createdAt: new Date(0) },
 ]
 
 function logger() {
@@ -73,7 +73,7 @@ describe('maxSteps', () => {
     const client = createAIClient({
       model: fakeModel,
       logger: log,
-      tools: { getSleep: fakeTool },
+      tools: { getWeather: fakeTool },
     } as unknown as AIConfig)
 
     await drain(client.chat(MESSAGES))
@@ -99,7 +99,7 @@ describe('maxSteps', () => {
     const client = createAIClient({
       model: fakeModel,
       logger: logger(),
-      tools: { getSleep: fakeTool },
+      tools: { getWeather: fakeTool },
     } as unknown as AIConfig)
 
     await client.complete('hello')
@@ -115,7 +115,7 @@ describe('empty stream is not silent', () => {
     const client = createAIClient({
       model: fakeModel,
       logger: log,
-      tools: { getSleep: fakeTool },
+      tools: { getWeather: fakeTool },
     } as unknown as AIConfig)
 
     expect(await drain(client.chat(MESSAGES))).toBe('')
@@ -123,7 +123,7 @@ describe('empty stream is not silent', () => {
       'Chat stream produced no text',
       expect.objectContaining({
         hasTools: true,
-        toolNames: ['getSleep'],
+        toolNames: ['getWeather'],
         finishReason: 'tool-calls',
       }),
     )
@@ -153,7 +153,7 @@ describe('diagnostics never break the request', () => {
     const client = createAIClient({
       model: fakeModel,
       logger: log,
-      tools: { getSleep: fakeTool },
+      tools: { getWeather: fakeTool },
     } as unknown as AIConfig)
 
     await expect(drain(client.chat(MESSAGES))).resolves.toBe('')
@@ -174,7 +174,7 @@ describe('diagnostics never break the request', () => {
     const client = createAIClient({
       model: fakeModel,
       logger: log,
-      tools: { getSleep: fakeTool },
+      tools: { getWeather: fakeTool },
     } as unknown as AIConfig)
 
     await expect(drain(client.chat(MESSAGES))).resolves.toBe('')

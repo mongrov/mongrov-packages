@@ -294,7 +294,7 @@ export interface RulePack {
   validate?: (rule: { id: string, metric: string, context: string, target: { type: string } }) => void
   /** Admission policy at registration (throw `RuleValidationError`). */
   admit?: (rule: { id: string, metric: string, target: { type: string } }) => void
-  /** Settings `user_setting` targets and phase-band scales may read. */
+  /** Settings `user_setting` targets and `phase_band` scales may read. */
   settings?: RuleSettings
   /** Brand for rules registered without one. */
   defaultBrand?: string
@@ -319,7 +319,7 @@ export interface AnalyticsPack {
   tables?: Readonly<Record<string, PackTable>>
   /**
    * Run on every attach after the previous pack's. A pack creates its own
-   * tables in a migration (`ensurePackTables`), so an existing install
+   * tables in a migration (`ensureSchemas`), so an existing install
    * replays nothing it already has.
    */
   migrations?: readonly PackMigration[]
@@ -410,10 +410,54 @@ const registered: AnalyticsPack[] = []
 let cache: ReturnType<typeof index> | undefined
 
 /**
+ * Names a pack claims that must be unique across packs: tables, ingest
+ * adapters, rule contexts and tools. Two packs naming the same one would
+ * otherwise resolve silently by registration order.
+ */
+function claims(pack: AnalyticsPack): Array<[kind: string, name: string]> {
+  const rules = pack.rules as RulePack | undefined
+  return [
+    ...Object.keys(pack.tables ?? {}).map(n => ['table', n] as [string, string]),
+    ...Object.keys(pack.ingest ?? {}).map(n => ['ingest adapter', n] as [string, string]),
+    ...Object.keys(rules?.contexts ?? {}).map(n => ['rule context', n] as [string, string]),
+    ...Object.keys(pack.tools ?? {}).map(n => ['tool', n] as [string, string]),
+  ]
+}
+
+/** Throw when `pack` claims a name another of `others` (by name) already holds. */
+function assertNoCollision(pack: AnalyticsPack, others: readonly AnalyticsPack[]): void {
+  const owners = new Map<string, string>()
+  for (const p of others) {
+    if (p.name === pack.name)
+      continue
+    for (const [kind, name] of claims(p)) owners.set(`${kind} ${name}`, p.name)
+  }
+  for (const [kind, name] of claims(pack)) {
+    if (kind === 'rule context' && name === 'any')
+      throw new AnalyticsError('invalid_config', `pack ${pack.name}: rule context "any" is reserved by the engine`)
+    const owner = owners.get(`${kind} ${name}`)
+    if (owner)
+      throw new AnalyticsError('invalid_config', `pack ${pack.name}: ${kind} "${name}" is already owned by pack ${owner}`)
+  }
+}
+
+/**
  * @internal Packs registered before the first lookup, and again after
  * `resetPacks` — for test suites that exercise the engine with a pack.
+ * Validated as `registerPack` validates: shape (`definePack`), reserved
+ * names, and no table / ingest adapter / rule context / tool claimed twice.
  */
 export function setDefaultPacks(packs: readonly AnalyticsPack[]): void {
+  const seen: AnalyticsPack[] = []
+  for (const pack of packs) {
+    definePack(pack)
+    if (pack.name === PLATFORM_PACK.name)
+      throw new AnalyticsError('invalid_config', `pack ${pack.name}: name is reserved`)
+    if (seen.some(p => p.name === pack.name))
+      throw new AnalyticsError('invalid_config', `pack ${pack.name}: listed twice`)
+    assertNoCollision(pack, [...seen, PLATFORM_PACK])
+    seen.push(pack)
+  }
   defaultPacks = packs
   defaultsLoaded = false
   registered.length = 0
@@ -433,7 +477,8 @@ function loadDefaults(): void {
 /**
  * Register a pack. Registering the same pack object again is a no-op; a
  * different pack under a registered name replaces it in place (its position
- * is kept). A table already owned by another pack is rejected.
+ * is kept). A table, ingest adapter, rule context or tool already owned by
+ * another pack (the platform's included) is rejected.
  */
 export function registerPack(pack: AnalyticsPack): void {
   definePack(pack)
@@ -443,17 +488,7 @@ export function registerPack(pack: AnalyticsPack): void {
   const at = registered.findIndex(p => p.name === pack.name)
   if (at >= 0 && registered[at] === pack)
     return
-  const owners = new Map<string, string>()
-  for (const p of [...registered, PLATFORM_PACK]) {
-    if (p.name === pack.name)
-      continue
-    for (const t of Object.keys(p.tables ?? {})) owners.set(t, p.name)
-  }
-  for (const t of Object.keys(pack.tables ?? {})) {
-    const owner = owners.get(t)
-    if (owner)
-      throw new AnalyticsError('invalid_config', `pack ${pack.name}: table "${t}" is already owned by pack ${owner}`)
-  }
+  assertNoCollision(pack, [...registered, PLATFORM_PACK])
   if (at >= 0)
     registered[at] = pack
   else
@@ -503,7 +538,7 @@ export function qualityProviders(): readonly QualityViewProvider[] {
   return lookup().quality
 }
 
-/** An ingest adapter by name, from the first pack that declares it. */
+/** An ingest adapter by name (names are unique across packs). */
 export function ingestAdapter(name: string): IngestAdapter<any, any> | undefined {
   for (const p of lookup().packs) {
     const a = p.ingest?.[name]
@@ -516,6 +551,11 @@ export function ingestAdapter(name: string): IngestAdapter<any, any> | undefined
 /** A named extension from every pack that declares it, in pack order. */
 export function packExtensions<T>(key: string): T[] {
   return lookup().packs.flatMap(p => (p[key] === undefined ? [] : [p[key] as T]))
+}
+
+/** Each pack's `sync` hooks, with the pack's name (for logs). */
+export function packSyncHooks(): Array<{ pack: string, hooks: PackSyncHooks }> {
+  return lookup().packs.flatMap(p => (p.sync === undefined ? [] : [{ pack: p.name, hooks: p.sync }]))
 }
 
 function lookup() {

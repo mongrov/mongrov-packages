@@ -1,16 +1,17 @@
 /**
- * `device_event.event_type` enum + per-type payload schemas (Sprint 5 §6).
+ * Device lifecycle event types + per-type payload schemas.
  *
  * **Canonical home.** `@mongrov/analytics` re-exports these so its consumers
  * need only one import, and `@mongrov/device` imports them directly — the
  * device package must never depend on the analytics engine, but it does
- * need to emit events the engine will store.
+ * need to emit events an app may store.
  *
- * `device_event.payload` is a VARCHAR holding serialized JSON (Iceberg has
- * no JSON type), which means nothing about its contents is enforced by the
- * database. These schemas are that enforcement: producers validate before
- * writing, consumers validate after reading, and the registry query
- * `device.lastSyncedAt` can rely on `sync_completed` payloads actually
+ * No `@mongrov/*` package defines a table for these events; an app that
+ * stores them (for example in an events table registered by its own pack)
+ * typically keeps the payload as a string column of serialized JSON, so
+ * nothing about its contents is enforced by the database. These schemas are
+ * that enforcement: producers validate before writing, consumers validate
+ * after reading, and a reader of `sync_completed` payloads can rely on them
  * carrying the fields it reads.
  *
  */
@@ -18,7 +19,7 @@
 import { z } from 'zod'
 
 /**
- * Every value legal in `device_event.event_type`.
+ * Every legal device event type.
  *
  * Ordered by lifecycle: pairing, connection, telemetry, firmware, sync.
  */
@@ -58,7 +59,7 @@ export const DEVICE_EVENT_PAYLOAD_SCHEMAS = {
   connected: EmptyPayload,
   disconnected: EmptyPayload,
 
-  /** Routine battery telemetry. Also mirrored into `device_battery`. */
+  /** Routine battery telemetry. */
   battery_sample: z.object({
     level: z.number().min(0).max(100),
   }).strict(),
@@ -107,7 +108,7 @@ export function isDeviceEventType(value: string): value is DeviceEventType {
 
 /**
  * Validate a payload against its event type and return it serialized for
- * the `payload VARCHAR` column.
+ * a string payload column.
  *
  * Throws `ZodError` on mismatch rather than writing a row a consumer
  * cannot parse — a malformed event is worth failing the write for, since
@@ -122,7 +123,7 @@ export function encodeDeviceEventPayload<T extends DeviceEventType>(
 }
 
 /**
- * Parse a `device_event.payload` VARCHAR back to its typed shape.
+ * Parse a serialized event payload string back to its typed shape.
  *
  * Returns `null` rather than throwing when the row is unparseable: read
  * paths (the "Updated N min ago" label, insight feeds) should degrade to

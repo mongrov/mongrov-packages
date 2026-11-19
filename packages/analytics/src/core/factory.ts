@@ -188,8 +188,8 @@ export function createAnalytics(
       // Dispatch based on mode. Local: probe current catalog, no auth,
       // no ATTACH. R2: full attach protocol (URI + token + SECRET + ATTACH).
       // In both cases, ensureMigrations runs with the appropriate catalog
-      // set — LOCAL_SCHEMAS always in local catalog; SCHEMAS in remote
-      // when attached — so local tables get created even for R2 installs
+      // set — every pack's local DDL in the local catalog; its remote DDL
+      // in the remote catalog when attached — so local tables get created even for R2 installs
       // (fixing the pre-0.5.0 gap where the sink threw on first append).
       let attach
       let remoteCatalog: string | undefined

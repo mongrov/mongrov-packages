@@ -2,7 +2,8 @@
  * @mongrov/types
  *
  * Shared type definitions for @mongrov packages.
- * Zero runtime — interfaces only.
+ * Interfaces only, with one exception: the device-event payload schemas
+ * (`device-events`) are zod schemas and so carry runtime code.
  */
 
 // Common utility types

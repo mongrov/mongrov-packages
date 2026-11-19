@@ -151,19 +151,22 @@ const TargetBaselineOffset = z.object({
 })
 
 /**
- * D-H (app T-26) — outside the user's own band, either side.
+ * `phase_band` — outside the user's own stored band, either side.
+ *
+ * (The name is historical: the target compares each reading against any
+ * per-user band of two stored rails, whatever produced them.)
  *
  * The band is two stored rails, `${band}_lo` and `${band}_hi` in
- * `user_baseline` (their `p50`), the same rows the screen draws. While either
- * rail is missing the POPULATION rails apply (`defaultLo`/`defaultHi`): D-H
- * keeps the rule running on honest defaults rather than going quiet until the
- * user's band is learned. Both stored rails or neither — half a band is not a
- * band.
+ * `user_baseline` (their `p50`), the same rows an app's screen can draw.
+ * While either rail is missing the DEFAULT rails apply (`defaultLo` /
+ * `defaultHi`), keeping the rule running on stated defaults rather than
+ * going quiet until the user's band is learned. Both stored rails or
+ * neither — half a band is not a band.
  *
  * `scaleKey` names a KVStore setting holding a NAMED sensitivity, and
  * `scales` maps each name to a half-width multiplier applied about the band's
- * midpoint (the app's `widenBand`), so a user who picked "watchful" is
- * alerted against the same narrowed band their screen shows.
+ * midpoint, so a user who picked a narrower sensitivity is alerted against
+ * the same narrowed band the app shows them.
  *
  * Reading-cadence `consecutive` only: the band is stable for the window, and
  * each reading is compared to it — the same per-sample shape as
@@ -175,19 +178,18 @@ const TargetPhaseBand = z.object({
   band: z.string().min(1),
   windowDays: z.number().int().positive(),
   /**
-   * Population rails to compare against while the user's own are missing.
+   * Default rails to compare against while the user's own are missing.
    *
    * OPTIONAL, and omitting them is the honest default: with no rails stored
    * and no fallback the rule emits NO violation, which is what "still
    * learning" means everywhere else in the product (principle 27).
    *
-   * Supplying them keeps the rule running on a population range before the
+   * Supplying them keeps the rule running on a default range before the
    * user has one. That is a real choice with a real cost — a narrow range
-   * fires for every healthy person outside it, for the whole learning
-   * period — so it is stated per rule rather than assumed. one shipped
-   * band rule used a fixed population band and alerted for three weeks on users
-   * whose own band sat outside it
-   * (app#267).
+   * fires for every user whose normal sits outside it, for the whole
+   * learning period — so it is stated per rule rather than assumed. A rule
+   * on a fixed default band once alerted for weeks on users whose own band
+   * sat outside it.
    *
    * Both or neither — enforced by `validatePhaseBand`, not here: a
    * `.refine()` makes this a ZodEffects, which `z.discriminatedUnion`
@@ -271,9 +273,9 @@ export const RuleSchema = z.object({
   consecutiveKey: z.string().min(1).optional(),
   /**
    * Minimum distinct LOCAL days with data in the window before the rule may
-   * fire (QA #108). A window aggregate over a device worn one day of seven
-   * measures the wear, not the user: a weekly total rule summed a week of
-   * readings and fired on a device paired that morning. Days are the user's local
+   * fire. A window aggregate over a source that reported on one day of
+   * seven measures the gaps, not the user: a weekly total rule summed a
+   * week of readings and fired on a device paired that morning. Days are the user's local
    * days, so the evaluator binds `$tz`. Window aggregates only (validator).
    */
   minDays: z.number().int().min(1).optional(),

@@ -79,7 +79,7 @@ describe('registry — scan fanout & aggregation', () => {
 
   it('canHandle routing: SCAN_HIT is only recorded when at least one adapter claims it', () => {
     const claiming = createFakeAdapter({
-      id: 'jcring',
+      id: 'acme-band',
       canHandle: c => c.id.startsWith('jc:'),
     })
     const rejecting = createFakeAdapter({

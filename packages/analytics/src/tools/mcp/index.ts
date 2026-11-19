@@ -1,6 +1,6 @@
 /**
  * `@mongrov/analytics/tools/mcp` — Model Context Protocol server for
- * the six analytics tools. See `./README.md` for wiring examples.
+ * the analytics tool map (the platform's tools and every pack's). See `./README.md` for wiring examples.
  *
  * Importing this barrel does NOT itself construct a server. Callers
  * gate SDK-touching code behind `shouldStartMcpServer()`; combined

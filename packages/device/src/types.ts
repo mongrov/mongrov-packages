@@ -75,7 +75,7 @@ export type ConnectionChangeListener = (
  * diagnostics grouping.
  */
 export interface DeviceAdapter {
-  /** Stable adapter identity, e.g. `'jcring'` or `'gatt-generic'`. */
+  /** Stable adapter identity, e.g. `'acme-band'` or `'gatt-generic'`. */
   id: string
 
   /** Predicate: does this adapter handle the given scan hit? First match wins. */
@@ -133,7 +133,7 @@ export interface BatchSyncCapability {
 }
 
 /**
- * Command-initiated, terminating, progress-reporting session (e.g. PPG).
+ * Command-initiated, terminating, progress-reporting session (e.g. a one-off sampled measurement).
  * Emitted readings carry `tags.source = 'measure'` and do NOT advance the
  * BatchSync cursor.
  */

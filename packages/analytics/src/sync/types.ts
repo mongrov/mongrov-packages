@@ -58,7 +58,7 @@ export interface FlushResult {
   ok: boolean
   error?: Error
   /**
-   * Rows dropped as unwritable rather than retried forever (app#226).
+   * Rows dropped as unwritable rather than retried forever.
    * A flush with `ok: true` and a non-zero count here did lose data.
    */
   rowsRejected?: number

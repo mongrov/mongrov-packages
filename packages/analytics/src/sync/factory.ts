@@ -19,7 +19,7 @@
 
 import type { AppSchema } from '../core/app-schema'
 import type { HybridDuckDB } from '../core/engine'
-import type { IngestContext, NotedRows, PackSyncHooks, PostFlushJob, PostFlushRunner } from '../core/packs'
+import type { IngestContext, NotedRows, PostFlushJob, PostFlushRunner } from '../core/packs'
 
 import type { AnalyticsEngine, AttachContext, KVStore } from '../core/types'
 import type { RulesEngine } from '../rules/types'
@@ -32,7 +32,7 @@ import type { BackgroundTaskPort, ConstraintPort, SchedulerLogger, SchedulerStat
 import type { FlushResult, OverflowPolicy, SensorBatch } from './types'
 import { z } from 'zod'
 import { describeError } from '../core/errors'
-import { ingestAdapter, packExtensions } from '../core/packs'
+import { ingestAdapter, packExtensions, packSyncHooks } from '../core/packs'
 import { createBaselineRunner } from './baselines'
 import { SensorBuffer } from './buffer'
 import { DROPPED_ROWS_EVENT, DropTally, validateRows } from './drops'
@@ -264,9 +264,9 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       }
     }
     if (event.type === 'batch-complete' && strictBatchOrdering) {
-      // Every table in the batch has landed, so a `context: 'asleep'` rule
-      // can now JOIN the other tables it reads and see them whole.
-      // Only tables that inserted NEW rows (app#460 P17): a re-sync of
+      // Every table in the batch has landed, so a rule whose context joins
+      // another table can now read that table whole.
+      // Only tables that inserted NEW rows: a re-sync of
       // rows already held flushes every table and changes nothing a rule can
       // see, and each rule reads the full-history quality views.
       evaluateRules(
@@ -337,7 +337,7 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // Packs' post-flush jobs (e.g. deriving tables from raw ones), built for
   // this manager; a job that does not apply to the subscribed tables opts
   // out by returning nothing.
-  const jobs: PostFlushRunner[] = packExtensions<readonly PostFlushJob[]>('postFlush')
+  const jobs: Array<{ name: string, runner: PostFlushRunner }> = packExtensions<readonly PostFlushJob[]>('postFlush')
     .flat()
     .flatMap((job) => {
       const runner = job.create({
@@ -349,15 +349,32 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
         logger: config.logger,
         options: config.options ?? {},
       })
-      return runner ? [runner] : []
+      return runner ? [{ name: job.name, runner }] : []
     })
+  // Each job is isolated: a job that throws is logged and skipped, so it
+  // cannot abort the flush it follows or starve the jobs after it (the
+  // runner contract says `run` must not throw; this does not rely on it).
   const postFlush: PostFlushPort = {
     noteRows: (table, batch) => {
-      for (const job of jobs) job.noteRows?.(table, batch)
+      for (const { name, runner } of jobs) {
+        try {
+          runner.noteRows?.(table, batch)
+        }
+        catch (err) {
+          logError(config.logger, 'sync.post_flush.note_failed', { job: name, table, err: describeError(err) })
+        }
+      }
     },
     run: async (batchId, reason) => {
       let results: FlushResult[] = []
-      for (const job of jobs) results = mergeFlushResults(results, await job.run(batchId, reason))
+      for (const { name, runner } of jobs) {
+        try {
+          results = mergeFlushResults(results, await runner.run(batchId, reason))
+        }
+        catch (err) {
+          logError(config.logger, 'sync.post_flush.failed', { job: name, batchId, reason, err: describeError(err) })
+        }
+      }
       return results
     },
   }
@@ -437,11 +454,11 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
   // each flush reports and resets it (spec §13 S10, T-60).
   const dropTally = new DropTally()
 
-  const afterPushHooks = packExtensions<PackSyncHooks>('sync').flatMap(h => (h.afterPush ? [h.afterPush] : []))
+  const afterPushHooks = packSyncHooks().flatMap(({ pack, hooks }) => (hooks.afterPush ? [{ pack, afterPush: hooks.afterPush }] : []))
 
   // Both fallbacks below are the right default — a consumer without an RN
   // background-task adapter should still get a SyncManager. What was wrong is
-  // that they were silent (app#74).
+  // that they were silent.
   //
   // `noopBackgroundTask()` stores the handler and never calls it, so
   // `scheduler.start()` registers a cycle that can never fire and still logs
@@ -492,9 +509,10 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
           const flushed = await Promise.all(
             config.tables.map(t => flusher.flush(t, 'scheduled', batchId)),
           )
-          // After the raw tables land, before endBatch: corrected nights
-          // are written into this batch so rules see them (never throws).
-          // Their flush counts in the summary (app#452).
+          // After the raw tables land, before endBatch: rows derived by
+          // post-flush jobs are written into this batch so rules see them
+          // (never throws).
+          // Their flush counts in the summary.
           const results = mergeFlushResults(flushed, await postFlush.run(batchId, 'scheduled'))
           // Reported, not thrown: a failed table keeps its rows buffered for
           // the next cycle, and the rest of the cycle (push, fetch,
@@ -521,13 +539,20 @@ export function createSyncManager(config: CreateSyncManagerConfig): SyncManager 
       afterPush: (isLocal || afterPushHooks.length === 0)
         ? undefined
         : async (ctx) => {
-          for (const hook of afterPushHooks) {
-            await hook(ctx, {
-              pushRemote: (table, run) => pusher.pushRemote(table, ctx, run),
-              storage: config.storage,
-              tables: config.tables,
-              logger: rulesLogger,
-            })
+          // Each pack's hook is isolated: one that throws is logged and the
+          // rest still run, and the cycle goes on to its fetch.
+          for (const { pack, afterPush } of afterPushHooks) {
+            try {
+              await afterPush(ctx, {
+                pushRemote: (table, run) => pusher.pushRemote(table, ctx, run),
+                storage: config.storage,
+                tables: config.tables,
+                logger: rulesLogger,
+              })
+            }
+            catch (err) {
+              logError(config.logger, 'sync.after_push.failed', { pack, err: describeError(err) })
+            }
           }
         },
       fetchIncremental: isLocal
@@ -744,8 +769,7 @@ function createSensorSink(deps: CreateSinkDeps): SensorSink {
           triggers.noteDrain(table)
         }
         // Post-flush jobs flush their derived rows after the loop drained
-        // those tables empty — fold them in, or the caller reads 0 for them
-        // (app#452).
+        // those tables empty — fold them in, or the caller reads 0 for them.
         results = mergeFlushResults(results, await postFlush.run(batchId, 'manual'))
       }
       finally {

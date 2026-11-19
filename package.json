@@ -6,6 +6,8 @@
     "build": "pnpm -r run build",
     "lint:sql-comments": "node scripts/check-sql-comment-backticks.mjs",
     "domain-terms": "node scripts/no-domain-terms.mjs --fail",
+    "domain-terms:pack": "node scripts/no-domain-terms.mjs --pack --fail",
+    "release:check": "pnpm -r run build && node scripts/no-domain-terms.mjs --pack --fail && node scripts/check-published-drift.mjs",
     "prepare": "git config core.hooksPath .githooks",
     "lint": "pnpm run lint:sql-comments && pnpm run domain-terms && eslint .",
     "lint:fix": "eslint . --fix",

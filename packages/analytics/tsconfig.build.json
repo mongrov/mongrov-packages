@@ -10,6 +10,9 @@
     "dist",
     "**/__tests__/**",
     "**/__mocks__/**",
+    "**/__fakes__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
     "src/__integration__/**"
   ]
 }

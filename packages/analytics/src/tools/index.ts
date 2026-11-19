@@ -1,17 +1,12 @@
-// @mongrov/analytics/tools — typed AI SDK tools + MCP.
+// @mongrov/analytics/tools — the AI tool framework.
 //
-// v0.1.0-alpha (T-01..T-12 landed): tool impls, formatters, rate
-// limiter, authorize hooks (with optional familyMembersProvider),
-// batched `tool_call_audit` writer, output-budget helper, `makeTool`
-// wrapper composing rate → auth → execute → budget → audit, and the
-// `createAnalyticsTools` factory returning an AI SDK tool map.
-// MCP subpath (T-13/T-14) still pending.
+// `createAnalyticsTools` builds an AI SDK tool map from the platform's tool
+// (`getInsights`) and every registered pack's `tools`, each wrapped by
+// `makeTool`: rate limit → authorize → execute → output budget → audit
+// (batched into `tool_call_audit`). The MCP server is the `./mcp` subpath.
 
 export * from './audit'
 export * from './authorize'
-// Copy guardrails (Sprint 5 T-29, principle 37). Exported so app-side
-// formatters and registry `transform` functions can apply the same
-// contract to text they generate.
 export { toolRead } from './bounded'
 export * from './budget'
 export * from './factory'

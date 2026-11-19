@@ -42,12 +42,12 @@ describe('beginSync', () => {
     const { sink, emitted } = recordingSink()
     const emitter = createSyncEventEmitter({ sink })
 
-    emitter.beginSync('ring_1', 'background')
+    emitter.beginSync('dev_1', 'background')
 
     expect(emitted).toHaveLength(1)
     expect(emitted[0]).toMatchObject({
       eventType: 'sync_started',
-      deviceId: 'ring_1',
+      deviceId: 'dev_1',
       payload: { trigger: 'background' },
     })
   })
@@ -57,13 +57,13 @@ describe('beginSync', () => {
     const clock = fakeClock()
     const emitter = createSyncEventEmitter({ sink, now: clock.now })
 
-    const run = emitter.beginSync('ring_1', 'manual')
+    const run = emitter.beginSync('dev_1', 'manual')
     clock.advance(1830)
     run.complete(412)
 
     expect(emitted[1]).toMatchObject({
       eventType: 'sync_completed',
-      deviceId: 'ring_1',
+      deviceId: 'dev_1',
       payload: { trigger: 'manual', rowsWritten: 412, latencyMs: 1830 },
     })
   })
@@ -74,7 +74,7 @@ describe('beginSync', () => {
     const { sink, emitted } = recordingSink()
     const emitter = createSyncEventEmitter({ sink })
 
-    emitter.beginSync('ring_1', 'auto').complete(0)
+    emitter.beginSync('dev_1', 'auto').complete(0)
 
     expect(emitted[1].eventType).toBe('sync_completed')
     expect((emitted[1].payload as { rowsWritten: number }).rowsWritten).toBe(0)
@@ -84,7 +84,7 @@ describe('beginSync', () => {
     const { sink, emitted } = recordingSink()
     const emitter = createSyncEventEmitter({ sink })
 
-    emitter.beginSync('ring_1', 'background').fail(new Error('BLE timeout'), 2)
+    emitter.beginSync('dev_1', 'background').fail(new Error('BLE timeout'), 2)
 
     expect(emitted[1]).toMatchObject({
       eventType: 'sync_failed',
@@ -97,13 +97,13 @@ describe('beginSync', () => {
     ['object throwable', { code: 42 }, '{"code":42}'],
   ])('normalizes a %s', (_label, thrown, expected) => {
     const { sink, emitted } = recordingSink()
-    createSyncEventEmitter({ sink }).beginSync('ring_1', 'auto').fail(thrown)
+    createSyncEventEmitter({ sink }).beginSync('dev_1', 'auto').fail(thrown)
     expect((emitted[1].payload as { error: string }).error).toBe(expected)
   })
 
   it('defaults retryCount to 0', () => {
     const { sink, emitted } = recordingSink()
-    createSyncEventEmitter({ sink }).beginSync('ring_1', 'auto').fail('x')
+    createSyncEventEmitter({ sink }).beginSync('dev_1', 'auto').fail('x')
     expect((emitted[1].payload as { retryCount: number }).retryCount).toBe(0)
   })
 })
@@ -112,7 +112,7 @@ describe('settle guarantees', () => {
   it('emits exactly one terminal event per run', () => {
     // A double-settle would double-count in any downstream tally.
     const { sink, emitted } = recordingSink()
-    const run = createSyncEventEmitter({ sink }).beginSync('ring_1', 'auto')
+    const run = createSyncEventEmitter({ sink }).beginSync('dev_1', 'auto')
 
     run.complete(10)
     run.complete(20)
@@ -125,7 +125,7 @@ describe('settle guarantees', () => {
 
   it('a failure after completion does not overwrite it', () => {
     const { sink, emitted } = recordingSink()
-    const run = createSyncEventEmitter({ sink }).beginSync('ring_1', 'auto')
+    const run = createSyncEventEmitter({ sink }).beginSync('dev_1', 'auto')
     run.fail('boom')
     run.complete(5)
 
@@ -134,18 +134,18 @@ describe('settle guarantees', () => {
 
   it('reports settled state', () => {
     const { sink } = recordingSink()
-    const run = createSyncEventEmitter({ sink }).beginSync('ring_1', 'auto')
+    const run = createSyncEventEmitter({ sink }).beginSync('dev_1', 'auto')
     expect(run.settled).toBe(false)
     run.complete(1)
     expect(run.settled).toBe(true)
   })
 
   it('never reports negative latency', () => {
-    // Guards against a clock that steps backwards (NTP correction).
+    // Guards against a clock that jumps backwards (NTP correction).
     const { sink, emitted } = recordingSink()
     let t = 5_000
     const run = createSyncEventEmitter({ sink, now: () => t })
-      .beginSync('ring_1', 'auto')
+      .beginSync('dev_1', 'auto')
     t = 4_000
     run.complete(1)
     expect((emitted[1].payload as { latencyMs: number }).latencyMs).toBe(0)
@@ -155,16 +155,16 @@ describe('settle guarantees', () => {
     const { sink, emitted } = recordingSink()
     const emitter = createSyncEventEmitter({ sink })
 
-    const a = emitter.beginSync('ring_1', 'auto')
-    const b = emitter.beginSync('ring_2', 'manual')
+    const a = emitter.beginSync('dev_1', 'auto')
+    const b = emitter.beginSync('dev_2', 'manual')
     b.complete(3)
     a.fail('timeout')
 
     expect(emitted.map(e => `${e.deviceId}:${e.eventType}`)).toEqual([
-      'ring_1:sync_started',
-      'ring_2:sync_started',
-      'ring_2:sync_completed',
-      'ring_1:sync_failed',
+      'dev_1:sync_started',
+      'dev_2:sync_started',
+      'dev_2:sync_completed',
+      'dev_1:sync_failed',
     ])
   })
 })
@@ -176,8 +176,8 @@ describe('payloads satisfy the shared schema contract', () => {
     const { sink, emitted } = recordingSink()
     const emitter = createSyncEventEmitter({ sink })
 
-    emitter.beginSync('ring_1', 'auto').complete(7)
-    emitter.beginSync('ring_2', 'background').fail(new Error('nope'), 1)
+    emitter.beginSync('dev_1', 'auto').complete(7)
+    emitter.beginSync('dev_2', 'background').fail(new Error('nope'), 1)
 
     expect(emitted).toHaveLength(4)
     for (const e of emitted) {

@@ -20,7 +20,7 @@
  * Data safety: attempts do *not* remove durable rows until the write reports
  * success. This comment said so for a long time while `flush` called
  * `buffer.drain()` first, which deleted overflow chunks before writing; a
- * process killed mid-write lost them (app#54). On failure the batch
+ * process killed mid-write lost them. On failure the batch
  * is released: durable rows stay on disk, in-memory rows return to the buffer,
  * and the next attempt sees the same rows.
  */
@@ -76,7 +76,7 @@ export interface FlushedEvent {
    * Rows that were NEW to the warehouse (`ON CONFLICT DO NOTHING` kept the
    * rest out). `rowsFlushed` counts rows drained; a re-sync of rows already
    * held drains plenty and inserts none. Equal to `rowsFlushed` when the
-   * engine does not report a count (app#460 P17).
+   * engine does not report a count.
    */
   rowsInserted: number
   reason: FlushReason
@@ -90,7 +90,7 @@ export interface FlushedEvent {
   brand?: string
   familyId?: string
   /**
-   * Rows this flush could not write and will not retry (app#226).
+   * Rows this flush could not write and will not retry.
    * Absent or 0 on a clean flush. Non-zero means data was dropped on
    * purpose — the count is here so that loss is visible without reading
    * DuckDB error text out of a log line.
@@ -118,7 +118,7 @@ export interface BatchCompleteEvent {
   /**
    * The subset of `affectedTables` that inserted at least one NEW row. Rules
    * evaluate against this: a table whose rows all already existed has nothing
-   * new for a rule to find (app#460 P17).
+   * new for a rule to find.
    */
   insertedTables: string[]
   affectedUserIds: string[]
@@ -362,8 +362,8 @@ export class BatchFlusher {
         ({ appended: rowsFlushed, inserted: rowsInserted } = await this.#write(table, drained))
       }
       catch (writeError) {
-        // One unwritable value must not cost the table forever
-        // (app#226). Find the rows that cannot be written, write the
+        // One unwritable value must not cost the table forever.
+        // Find the rows that cannot be written, write the
         // rest, and let the batch commit so the poison rows leave the buffer.
         //
         // Only once the table has exhausted its retry budget. Dropping rows
@@ -528,12 +528,12 @@ export class BatchFlusher {
    * whole batch is duplicates. The cost is one extra pass, not the ~19x that
    * row-wise `INSERT ... VALUES` would have cost.
    *
-   * The test is "does the table declare ANY primary key", not "is it in
-   * IDENTITY_COLUMNS". Some tables spell their own
-   * key in the base DDL and are deliberately absent from IDENTITY_COLUMNS,
-   * so an IDENTITY_COLUMNS test sent both down the Appender path: a re-synced
-   * night threw `Duplicate key` and jammed every later row behind it (found
-   * by the UX team's app-side patch; `flusher-self-keyed.test.ts`). Only
+   * The test is "does the table declare ANY primary key", not "does it
+   * declare a pack identity". Some tables spell their own
+   * key in the base DDL and deliberately declare no `identity`,
+   * so an identity test sent both down the Appender path: a re-synced
+   * row threw `Duplicate key` and jammed every later row behind it
+   * (`flusher-self-keyed.test.ts`). Only
    * keyless tables (`tool_call_audit` is append-only by design) take the
    * direct path.
    *
@@ -603,10 +603,10 @@ export class BatchFlusher {
 
   /**
    * Split a failed batch into the rows that can be written and the rows that
-   * cannot (app#226).
+   * cannot.
    *
-   * One value the target column cannot represent — `6537.8` into
-   * `temp_c DECIMAL(4,1)` — failed the whole table's write. The batch was
+   * One value the target column cannot represent — `6537.8` into a
+   * `DECIMAL(4,1)` column — failed the whole table's write. The batch was
    * then released back to the buffer by design (T-45 keeps durable rows until
    * a write commits), so the same row was retried on every later flush and
    * that metric could never write again. Its delta cursor is the newest
@@ -622,9 +622,9 @@ export class BatchFlusher {
    * the normal path.
    *
    * The probe deliberately does NOT copy the PRIMARY KEY. Every metric table
-   * has one — `withIdentityKey` splices the `IDENTITY_COLUMNS` tuple into the
-   * local DDL, so it is absent from the `SCHEMAS` string and present on the
-   * created table — and keyed tables reach the target through `ON CONFLICT DO
+   * has one — `withIdentityKey` splices the pack table's `identity` tuple into
+   * the local DDL, so it is absent from the declared DDL string and present on
+   * the created table — and keyed tables reach the target through `ON CONFLICT DO
    * NOTHING`. A duplicate is therefore not a rejection, and a probe that
    * enforced the key would discard rows the target accepts. NOT NULL is
    * copied for the opposite reason: the target does enforce it.

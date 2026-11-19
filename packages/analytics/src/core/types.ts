@@ -247,8 +247,8 @@ export interface AnalyticsEngine {
   setRetention: (days: number) => Promise<void>
   /**
    * Replace the quality options the clean views are built with, and rebuild
-   * them now if attached (app#474: the motion-filter switch in
-   * Settings).
+   * them now if attached (for example when a user flips a quality
+   * filter in an app setting).
    *
    * Why at once rather than at the next attach: alerts follow what is shown
    * (principle 69). The same `v_{table}_clean` views feed the charts AND the

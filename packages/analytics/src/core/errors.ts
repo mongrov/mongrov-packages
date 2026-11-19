@@ -40,8 +40,7 @@ export class AnalyticsError extends Error {
  * `AnalyticsError` that message is the wrapper's own — "execute failed" — and
  * the underlying DuckDB text sits in `.cause`, which was dropped. That is how
  * a rule failure reached the logs with the binder error, the offending column
- * and the SQL position all missing, leaving nothing to diagnose from
- * (app#70).
+ * and the SQL position all missing, leaving nothing to diagnose from.
  *
  * Walks the chain with a `seen` set, so a cycle terminates instead of hanging
  * the logger, and renders non-Error causes (strings, DuckDB result objects)

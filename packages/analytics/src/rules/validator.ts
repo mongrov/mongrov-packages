@@ -174,8 +174,8 @@ function validateCadence(rule: Rule): void {
 
   // The window is how far back COMPLETED days are read, and today is
   // excluded, so it must hold the longest run the rule can ask for plus
-  // today. A shipped flag rule with a 24h window and a 2-night run:
-  // valid by every other check, and unable ever to fire (app#55).
+  // today. A shipped flag rule with a 24h window and a 2-day run:
+  // valid by every other check, and unable ever to fire.
   // A consecutiveKey can raise the count at eval time, so its registered
   // range's upper bound is the run that must fit.
   const longest = rule.consecutiveKey === undefined
@@ -222,8 +222,8 @@ function validateConsecutive(rule: Rule): void {
 
   const cadence = metricDefinition(rule.metric)?.sampling_minutes ?? 'per_session'
   if (cadence === 'per_session') {
-    // One value per session; "consecutive samples" means consecutive nights,
-    // which the window already bounds.
+    // One value per session; "consecutive samples" means consecutive
+    // sessions, which the window already bounds.
     return
   }
 
@@ -274,7 +274,7 @@ function validateUserSettingKey(rule: Rule): void {
 }
 
 /**
- * D-H — a `phase_band` target is a per-reading comparison against a band, so
+ * A `phase_band` target is a per-reading comparison against a band, so
  * it needs a run of readings (`consecutive >= 2`, reading cadence). Its scale
  * key must be a registered STRING setting: the value is a sensitivity name,
  * looked up in `scales`. A threshold key would be a number, and every name
@@ -290,9 +290,9 @@ function validatePhaseBand(rule: Rule): void {
   if (rule.cadence !== 'reading' || (rule.consecutive ?? 1) < 2)
     fail(`phase_band needs reading cadence and consecutive >= 2.`)
   /*
-   * The population rails are OPTIONAL, and omitting them is what makes a rule
+   * The default rails are OPTIONAL, and omitting them is what makes a rule
    * silent until the user has a band of their own — the same discipline every
-   * screen follows (principle 27, app#267).
+   * screen follows (principle 27).
    *
    * Both or neither: a rule with one rail would compare against a half-open
    * range nobody wrote down. Checked here rather than in the schema because a

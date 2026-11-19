@@ -1,57 +1,29 @@
 # @mongrov/analytics
 
-DuckDB + R2 Iceberg local analytics for React Native / Expo apps in the Mongrov platform.
+DuckDB + R2 Iceberg local analytics for React Native / Expo apps.
 
-Per-family (or per-tenant) warehouses attached as DuckDB catalogs. Zero-copy
-reads against R2 Iceberg tables. Headless core with optional React hooks and
-UI subpaths.
+Per-family (or per-tenant) warehouses attached as DuckDB catalogs, zero-copy
+reads against R2 Iceberg tables (or a local-only mode), a write-side sync
+pipeline, a structured threshold-rule engine and AI SDK tools with an MCP dev
+server. Headless core with optional React hooks.
 
-Status: **0.7.0** — Sprint 5 hardening. Core engine, `/sync`, `/rules`,
-`/tools` and `/tools/mcp` subpaths all landed; 727 tests green, plus the
-T-18 / T-28 integration suites against the MinIO + Iceberg REST docker
-stack.
+The engine is **domain-free**. It knows only its own platform tables; every
+domain table, view, ingest adapter, rule context and tool arrives as a
+**pack** you register (see [Packs](#packs)).
 
-0.7.0 lands: `icu` extension, `v_{table}` union views (local-unpushed +
-remote), `user_baseline` with day-first quantiles, `batch:complete` batch
-lifecycle, rules `context` / `consecutive` / `user_setting` targets, the
-`getSpO2` tool, and copy guardrails on every formatter.
+Status: **0.60.x**. Upgrade notes: [UPGRADING.md](./UPGRADING.md); changes:
+[CHANGELOG.md](./CHANGELOG.md).
 
-**Breaking** — see [UPGRADING.md](./UPGRADING.md) for rewrites. Headlines:
-mapped sleep row shapes now match the DDL (they did not before, and sleep
-flushes were writing NULLs into NOT NULL columns); `AnalyticsEngine` gained
-`getFamilyMembers()` and `dismissInsight()`; rule and tool SQL now reads
-`v_{table}` views, so an attach is required; rules evaluate once per batch
-rather than per table.
+## Subpaths
 
-> Historical note (0.3.0): SCD-2 `device_config` support inverted the
-> ring-config mapping direction — `DeviceConfigRow` moved from `metric` to
-> `data_type`, with a consumer-supplied `RingConfigTranslator` producing the
-> firmware enum from our metric names. Sprint 5 §2 intended to reverse this
-> (`metric VARCHAR`), but the change is **blocked**: the spec's firmware
-> codes do not match the real JStyle codes. See UPGRADING §12.
-
-## Features
-
-- **Adapter-friendly DuckDB engine** — `HybridDuckDB` wrapper with pluggable
-  `DuckDBFactory` so tests can substitute an in-memory fake.
-- **Per-tenant Iceberg warehouse** — `CREATE SECRET` + `ATTACH ... (TYPE ICEBERG)`
-  for a single `zone_<tenantId>` catalog per attach.
-- **Migration runner** — versioned per `(brand, tenantId)`, idempotent, KV-tracked.
-- **Retention scheduler** — `max(userOverride, familySetting, brandDefault)`
-  precedence; sensor tables use effective days, `insight` 90d, `tool_call_audit`
-  30d; DELETE bounded by `sync_watermark` so unsynced rows never drop.
-- **KV persistence** — last-attach ctx restored across restarts (24h TTL);
-  per-user retention override.
-- **XState v5 state machine** — `idle → opening → ready → attaching → attached
-  → detaching → error` with token-refresh actor at 75% TTL.
-- **React hooks + provider** — `useAnalytics`, `useTimeseries`, `useInsight`,
-  `AnalyticsProvider`.
-- **Structured logger** — supply an `AnalyticsLogger` via config; falls back
-  to a no-op sink. No logs on the hot query path.
-- **Typed error taxonomy** — `AnalyticsError` with a code union covering every
-  failure mode (`engine_open_failed`, `attach_failed`, `detach_failed`,
-  `token_vendor_failed`, `migration_failed`, `retention_failed`, `query_failed`,
-  `not_attached`, `not_ready`, `not_implemented`, `extension_load_failed`).
+| Import | What |
+|---|---|
+| `@mongrov/analytics` | engine, factory, packs, hooks, provider, errors |
+| `@mongrov/analytics/sync` | sensor sink, ingest, buffer, flusher, R2 push/fetch, scheduler |
+| `@mongrov/analytics/rules` | rule schema, validator, compiler, rules engine, hooks |
+| `@mongrov/analytics/tools` | tool framework (authorize, rate limit, output budget, audit) |
+| `@mongrov/analytics/tools/mcp` | Model Context Protocol dev server over the same tools |
+| `@mongrov/analytics/ui` | reserved |
 
 ## Install
 
@@ -61,464 +33,382 @@ pnpm add @mongrov/analytics
 pnpm add react-native-duckdb @mongrov/db @mongrov/types
 ```
 
-`react-native-duckdb` is declared as an **optional peer** — the package boots
-lazily so importing `createAnalytics` on a Node/CI host without the native
-module does not throw. Failure to resolve it surfaces on `open()` as
-`AnalyticsError('engine_open_failed')`.
+`react-native-duckdb` is an **optional peer**: importing `createAnalytics` on
+a Node/CI host without the native module does not throw. Supply a DuckDB
+factory as the second argument, `createAnalytics(config, { duckdbFactory })`;
+opening an engine without one fails with `AnalyticsError('engine_open_failed')`.
 
-## Quick Start
+## Quick start
 
 ```tsx
-import { AnalyticsProvider, createAnalytics, useAnalytics } from '@mongrov/analytics'
 import type { AnalyticsConfig } from '@mongrov/analytics'
+import { AnalyticsProvider, createAnalytics, useAnalytics } from '@mongrov/analytics'
+import { weatherPack } from './weather-pack' // see "Packs" below
 
 const config: AnalyticsConfig = {
   storage: kv, // @mongrov/db KVStore or any structural equivalent
   warehouseUriBuilder: (brand, scope, tenantId) =>
-    `s3://mongrov-analytics/${brand}/${tenantId}/warehouse`,
-  catalogEndpoint: 'https://catalog.mongrov.example',
+    `s3://analytics/${brand}/${tenantId}/warehouse`,
+  catalogEndpoint: 'https://catalog.example.com',
   tokenVendor: {
     async fetch({ brand, tenantScope, tenantId }) {
-      const response = await api.getWarehouseToken({ brand, tenantScope, tenantId })
-      return { token: response.token, expiresAt: new Date(response.expiresAt) }
+      const res = await api.getWarehouseToken({ brand, tenantScope, tenantId })
+      return { token: res.token, expiresAt: new Date(res.expiresAt) }
     },
   },
-  familyMembersProvider: async ({ brand, familyId }) => {
-    return api.listFamilyMembers({ brand, familyId })
-  },
-  retention: {
-    ziva: { days: 180 },
-    luminx: { days: 90 },
-  },
+  familyMembersProvider: ({ brand, familyId }) => api.listFamilyMembers({ brand, familyId }),
+  retention: { acme: { days: 180 } }, // keyed by brand
+  packs: [weatherPack],
   logger: appLogger, // optional; defaults to a no-op
 }
 
-const engine = createAnalytics(config)
+const engine = createAnalytics(config, { duckdbFactory })
 
 function App() {
   return (
     <AnalyticsProvider engine={engine}>
-      <MyDashboard />
+      <Dashboard />
     </AnalyticsProvider>
   )
 }
 
-function MyDashboard() {
+function Dashboard() {
   const { state, attach, isAttached } = useAnalytics()
-
   useEffect(() => {
-    if (!isAttached) {
-      attach({
-        brand: 'ziva',
-        tenantScope: 'family',
-        tenantId: 'fam_123',
-        userId: 'user_1',
-      })
-    }
+    if (!isAttached)
+      attach({ brand: 'acme', tenantScope: 'family', tenantId: 'fam_123', userId: 'user_1' })
   }, [isAttached, attach])
-
   return <Text>State: {state}</Text>
 }
 ```
 
-## Public API
+For a device-only setup, `mode: 'local'` drops the R2 fields: no `iceberg` /
+`httpfs` extensions, no remote catalog, push and fetch are no-ops, rules still
+run on each batch.
 
-### `createAnalytics(config: AnalyticsConfig): AnalyticsEngine`
+## Packs
 
-Wires config + engine + XState machine into an `AnalyticsEngine`. Kicks
-`OPEN` synchronously; the returned engine is `opening` on the next tick.
+A pack is a plain object checked by `definePack` and registered with
+`registerPack(pack)`, `registerPacks([...])` or `createAnalytics({ packs })`.
+Register packs before the first attach and before parsing rules: until a pack
+is registered, the engine has none of its tables, metrics or contexts.
 
-### `AnalyticsProvider`
+| Plug-in | Pack field | What the engine does with it |
+|---|---|---|
+| Tables | `tables` (`PackTable`: DDL, time column, sync, retention, identity, view, validate) | creates, migrates, sweeps, unions (`v_<table>`), keys the flusher and fetcher |
+| Migrations | `migrations`, `versionKey`, `legacyVersionKeys`, `adoptVersion` | runs them per pack, each with its own KV ledger |
+| Quality views | `quality` (`QualityViewProvider`) | builds them on attach and `setQuality`, with bounded macros and fallbacks |
+| Ingest | `ingest` (`IngestAdapter`), `tables[t].validate` | `sink.ingest(name, raw, ctx)`: map, validate, count drops, buffer |
+| Post-flush jobs | `postFlush` (`PostFlushJob`) | runs them inside every batch, before `batch:complete` |
+| Sync hooks | `sync.afterPush` (`PackSyncHooks`) | runs after each r2 push, with `pushRemote` |
+| Baselines | `baselines` (`BaselineProvider`) | computes them per user and window into `user_baseline` |
+| Metrics | `metrics` (`MetricDefinition`) | what rules, baselines and tools may name |
+| Rules | `rules` (`RulePack`: contexts, windows, validate, admit, settings) | read by the rule schema, validator and compiler |
+| Tools | `tools` (`PackTool`) | wrapped by `createAnalyticsTools` |
+| Copy guard | `copyGuard` | carried on the pack for its own tools and formatters; the framework does not call it |
 
-React context provider. Wrap once at the app root with a shared engine
-instance so hooks can consume it.
+The **platform pack** is always registered after yours: the `insight`,
+`sync_watermark`, `tool_call_audit` and `user_baseline` tables and the
+`getInsights` tool. Pack order is registration order, then the platform; a
+table, ingest adapter, rule context or tool name may be declared by one pack
+only — a second declaration throws `AnalyticsError('invalid_config')` at
+registration.
 
-### `useAnalytics(): UseAnalyticsResult`
+An app's own product tables can also be passed as `appSchema`
+(`AppSchema`); they run through the same migration runner and retention
+sweep, without a union view.
 
-Subscribes to state transitions via `useSyncExternalStore`. Returns:
+### Example: a weather pack
 
 ```ts
-type UseAnalyticsResult = {
-  state: AnalyticsState
-  isReady: boolean
-  isAttached: boolean
-  error: Error | null
-  attach: (ctx: AttachContext) => Promise<void>
-  detach: () => Promise<void>
-  execute: AnalyticsEngine['execute']
-  stream: AnalyticsEngine['stream']
-  setRetention: (days: number) => Promise<void>
+import type { IngestAdapter, PackTool } from '@mongrov/analytics'
+import {
+  addIdentityKey,
+  definePack,
+  ensureSchemas,
+  quoteQualifier,
+  registerPack,
+  REMOTE_NAMESPACE,
+  toLocalDdl,
+} from '@mongrov/analytics'
+import { z } from 'zod'
+
+const WEATHER_DDL = `CREATE TABLE weather_reading (
+  brand VARCHAR NOT NULL, family_id VARCHAR NOT NULL, user_id VARCHAR NOT NULL,
+  device_id VARCHAR NOT NULL, station_id VARCHAR NOT NULL, ts TIMESTAMPTZ NOT NULL,
+  wind_kph DOUBLE, rain_mm DOUBLE
+) PARTITIONED BY (day(ts))`
+
+interface StationReport {
+  stationId: string
+  samples: { at: string, windKph: number, rainMm: number }[]
 }
+
+const stationAdapter: IngestAdapter<StationReport> = {
+  async ingest(raw, ctx) {
+    return [['weather_reading', raw.samples.map(s => ({
+      brand: ctx.brand,
+      family_id: ctx.familyId,
+      user_id: ctx.userId,
+      device_id: ctx.deviceId,
+      station_id: raw.stationId,
+      ts: s.at,
+      wind_kph: s.windKph,
+      rain_mm: s.rainMm,
+    }))]]
+  },
+}
+
+const recentWind: PackTool = {
+  description: 'Average wind speed over the last N days. Args: days (1..30).',
+  inputSchema: z.object({ days: z.number().int().min(1).max(30) }),
+  async impl({ days }, ctx) {
+    const rows = await ctx.analytics.execute<{ avg_kph: number | null }>(
+      `SELECT avg(wind_kph) AS avg_kph FROM v_weather_reading
+        WHERE user_id = $userId AND ts > now() - INTERVAL (${days}) DAY`,
+      { userId: ctx.requesterUserId },
+    )
+    const text = `Average wind over ${days} days: ${rows[0]?.avg_kph ?? 'no data'} kph`
+    return { text, rowCount: rows.length, bytes: text.length }
+  },
+}
+
+export const weatherPack = definePack({
+  name: 'weather',
+  tables: {
+    weather_reading: {
+      ddl: WEATHER_DDL,
+      timeColumn: 'ts',
+      syncable: true,
+      retention: { tsColumn: 'ts', kind: 'sensor' },
+      identity: ['user_id', 'device_id', 'ts'],
+      view: true, // read through v_weather_reading
+    },
+  },
+  // A pack creates its own tables in its first migration; later ones
+  // must be idempotent (`ADD COLUMN IF NOT EXISTS`).
+  migrations: [{
+    version: 1,
+    name: 'weather tables',
+    async up(db, catalogs) {
+      await ensureSchemas(db, catalogs.local, {
+        weather_reading: addIdentityKey(toLocalDdl(WEATHER_DDL), ['user_id', 'device_id', 'ts']),
+      })
+      if (catalogs.remote)
+        await ensureSchemas(db, `${quoteQualifier(catalogs.remote)}.${REMOTE_NAMESPACE}`, { weather_reading: WEATHER_DDL })
+    },
+  }],
+  ingest: { station: stationAdapter },
+  metrics: {
+    wind_kph: { table: 'weather_reading', column: 'wind_kph', sampling_minutes: 10, exposure: 'full' },
+    rain_mm: { table: 'weather_reading', column: 'rain_mm', sampling_minutes: 10, exposure: 'full' },
+  },
+  rules: {
+    // A named context is a JOIN restricting the samples (`m` is the metric relation).
+    contexts: {
+      daytime: () => `INNER JOIN (SELECT 1 AS ok) d ON extract(hour FROM m.ts) BETWEEN 7 AND 19`,
+    },
+  },
+  tools: { recentWind },
+})
+
+registerPack(weatherPack)
 ```
 
-### `useTimeseries<T>(key, params?)`
+Then feed it from the sync pipeline:
 
-Reactive query hook. Runs on mount when engine is attached; re-runs on ctx or
-key change; supports manual `refetch`; exposes loading + error state.
+```ts
+await sync.sink.ingest('station', report, {
+  brand: 'acme', familyId: 'fam_123', userId: 'user_1', deviceId: 'station_7',
+})
+```
 
-### `useInsight<T>(id)`
+and write rules against its metrics:
 
-Reads a single row from the `insight` table by `id`. Returns `undefined`
-if not found.
+```ts
+import { createRulesEngine, RuleSchema } from '@mongrov/analytics/rules'
+
+const rules = createRulesEngine({ analytics: engine, storage: kv, familyMembersProvider, brand: 'acme', familyId: 'fam_123' })
+await rules.register([RuleSchema.parse({
+  id: 'acme.gusty-day',
+  name: 'Gusty day',
+  metric: 'wind_kph',
+  window: '24h',
+  aggregation: 'max',
+  compare: 'greater_than',
+  context: 'daytime',
+  target: { type: 'absolute', value: 60 },
+  severity: 'warn',
+})])
+rules.on('violation', v => notify(v))
+```
+
+Pack helpers: `getPacks`, `getPack`, `packTable`, `packTables`,
+`viewedTables`, `ingestAdapter`, `packExtensions`, and for migrations
+`ensureSchemas`, `listColumns`, `localDdlFor`, `hasLocalPrimaryKey`,
+`addIdentityKey`, `toLocalDdl`, `qualifyDdl`, `quoteQualifier`,
+`REMOTE_NAMESPACE`. Metric lookups: `metricDefinition`, `registeredMetricIds`,
+`exposedMetricIds`, `collectedOnlyColumns`, `samplingLabelFor`. Relations
+claims read: `readRelation`, `cleanRelation`, `qualityRelation`,
+`hasQualityRelations`. Bounded reads: `boundedRelation`, `executeBounded`,
+`executeBoundedRead`, `daysInterval`, `hoursInterval`.
+
+## Engine API
+
+### `createAnalytics(config, internal?): AnalyticsEngine`
+
+Wires config + engine + XState machine. Kicks `OPEN` synchronously; the
+engine is `opening` on the next tick. Registers `config.packs` in order.
 
 ### `AnalyticsEngine`
 
-Full method surface:
+- `attach(ctx)` / `detach()`
+- `execute(sql, params?)`, `stream(sql, params?)`, `createAppender(table)`
+- `setRetention(days)` — persists the user override and re-runs the sweep
+- `setQuality(opts)` — replaces the quality options the packs' views are
+  built with; when attached, rebuilds those views and bounded macros at once
+- `getFamilyMembers()`, `dismissInsight({ insightId, userId })`
+- `getLastAttach(brand)` — the last attach context if under 24 h old
+- `subscribe(listener)`, `close()`
+- getters: `state`, `lastError`, `catalog`, `mode`, `boundedReads`
 
-- `attach(ctx: AttachContext): Promise<void>`
-- `detach(): Promise<void>`
-- `execute(sql, params?): Promise<Row[]>`
-- `stream(sql, params?): AsyncIterable<Row>`
-- `createAppender(table): AnalyticsAppender`
-- `setRetention(days: number): Promise<void>` — persists user override and
-  re-runs sweep with the effective value
-- `setQuality(opts: QualityOptions): Promise<void>` — replaces the quality
-  options; when attached, rebuilds the clean views + bounded macros at once
-  and recomputes `boundedReads`; before attach, stored for the attach
-- `getLastAttach(brand: string): Promise<AttachContext | null>` — restore
-  ctx from KV (null when older than 24h)
-- `subscribe(listener): Unsubscribe`
-- `close(): Promise<void>`
-- getters: `state`, `lastError`, `catalog`
+### Hooks and provider
 
-## Config Reference
+`AnalyticsProvider`, `useAnalytics()`, `useTimeseries(key, sql, params?)`,
+`useInsight(id)`.
+
+### Config reference
 
 | Field | Type | Notes |
 |---|---|---|
+| `mode?` | `'r2' \| 'local'` | Default `'r2'`. `'local'` omits the four R2 fields below. |
 | `storage` | `KVStore` | 3-method structural type; supply `@mongrov/db` KVStore. |
-| `warehouseUriBuilder` | `(brand, scope, tenantId) => string` | Returns the S3/Iceberg URI. |
-| `catalogEndpoint` | `string` | Iceberg REST endpoint used by `CREATE SECRET`. |
-| `tokenVendor` | `TokenVendor` | `.fetch({ brand, tenantScope, tenantId })` returns bearer token + `expiresAt`. |
-| `familyMembersProvider` | `FamilyMembersProvider` | Called only when `tenantScope === 'family'`; primes retention math. |
-| `retention` | `Record<string, { days: number }>` | Brand-keyed defaults. Sensor tables use `max(userOverride, familySetting, brandDefault)`; `insight` = 90d fixed; `tool_call_audit` = 30d fixed. |
-| `logger?` | `AnalyticsLogger` | 4 levels (`debug` / `info` / `warn` / `error`); defaults to a no-op sink. |
+| `warehouseUriBuilder` | `(brand, scope, tenantId) => string` | r2: the S3/Iceberg URI. |
+| `catalogEndpoint` | `string` | r2: Iceberg REST endpoint used by `CREATE SECRET`. |
+| `tokenVendor` | `TokenVendor` | r2: `.fetch({ brand, tenantScope, tenantId })` → token + `expiresAt`. |
+| `familyMembersProvider` | `FamilyMembersProvider` | r2: family membership for rules, tools and retention. |
+| `retention` | `Record<string, { days: number }>` | Brand-keyed default days for `sensor` tables. |
+| `packs?` | `AnalyticsPack[]` | Registered at creation, in order. |
+| `appSchema?` | `AppSchema` | App-owned tables. |
+| `quality?` | `object` | Options for the packs' quality views. |
+| `extensions?`, `dbPath?`, `duckdb?` | | DuckDB extensions, file path, `memoryLimit` / `threads`. |
+| `eventBus?` | `EventBus` | Invalidation events. |
+| `logger?` | `AnalyticsLogger` | `debug` / `info` / `warn` / `error`; defaults to a no-op. |
 
-## State Machine
+## State machine
 
 ```
 idle → opening → ready → attaching → attached → detaching → ready
                           ↘ error ↙
 ```
 
-- `opening` runs `bootstrapExtensions()` (httpfs + iceberg + parquet).
-- `attaching` runs `attachWarehouse` (URI builder → token fetch → CREATE
-  SECRET → ATTACH → optional family-members prime) then `ensureMigrations`.
-- `attached` self-schedules a token refresh at 75% TTL via
-  `CREATE OR REPLACE SECRET`.
-- `error` is recoverable — re-issue `OPEN` (or `attach()` from userland).
+- `opening` loads extensions (httpfs + iceberg + parquet in r2 mode).
+- `attaching` attaches the warehouse (URI → token → `CREATE SECRET` →
+  `ATTACH`), then runs each pack's migrations and builds views.
+- `attached` refreshes the token at 75 % of its TTL.
+- `error` is recoverable — call `attach()` again.
 
 ## Retention
-
-Precedence per spec (any layer that preserves data wins):
 
 ```ts
 effectiveDays = max(userOverride ?? 0, familySetting ?? 0, brandDefault)
 ```
 
-Per-table SQL:
+Per table, from its `PackTable.retention`: `sensor` tables use
+`effectiveDays`, `insight` tables 90 days, `audit` tables 30 days, `null`
+never. A syncable table's DELETE is bounded by its push watermark, so rows
+not yet pushed are never dropped. The sweep runs on every successful attach
+and on every `setRetention`; an attach-time failure is logged, not thrown.
 
-```sql
-DELETE FROM {catalog}.{table}
- WHERE {tsCol} < LEAST(
-   now() - INTERVAL '{days} days',
-   (SELECT MAX(cursor_ts) FROM {catalog}.sync_watermark WHERE table_name = '{table}')
- );
-```
+## Errors
 
-- `MAX(cursor_ts)` returns NULL when nothing has synced → `LEAST(_, NULL) = NULL`
-  → `ts < NULL` is FALSE → unsynced rows preserved.
-- Sensor tables (hrv, heart_rate, spo2, temperature, activity, activity_bucket,
-  sleep_session, sleep_stage, sleep_raw, device_event) use `effectiveDays`.
-- `sleep_session` sweeps by `ts_end` (session close), not `ts_start`.
-- `insight` sweeps at 90d fixed.
-- `tool_call_audit` sweeps at 30d fixed.
-- `device_config` + `sync_watermark` are skipped.
-
-Retention sweep runs automatically on every successful `attach()` and on every
-`setRetention()` call. Failures raise `AnalyticsError('retention_failed', …)`;
-the attach-time sweep swallows and logs via `warn` so a DELETE failure never
-rejects a good attach.
-
-## Persistence
-
-- **Last-attach:** `analytics:last-attach:{brand}` → `{ ctx, savedAt }`.
-  Expires after 24h; `loadLastAttach` deletes stale entries as a side effect.
-- **Retention override:** `analytics:retention:override:{brand}:{tenantId}:{userId}`
-  → `number`. Overwrites cleanly on `setRetention()`.
-
-Both writes inside `attach()` and `setRetention()` are best-effort; failure
-surfaces as a `logger.warn(...)` call, never a rejected promise on the caller.
-
-## Logging
-
-The library only emits at these levels:
-
-- **debug** — state transitions on every distinct value change
-  (`analytics.state { value }`)
-- **info** — lifecycle milestones (`analytics.attached`, `analytics.detached`,
-  `analytics.closed`)
-- **warn** — best-effort catches (`analytics.persist.last_attach_failed`,
-  `analytics.persist.clear_last_attach_failed`, `analytics.retention.sweep_failed`)
-- **error** — reserved for callers who want to surface an `AnalyticsError`
-  before re-throwing; not used by the library today.
-
-Nothing is emitted on the hot query path (`execute`, `stream`, `createAppender`).
-Supply your own logger to trace at your integration layer if needed.
-
-## Error Taxonomy
-
-Every failure surfaces as an `AnalyticsError` with a discriminating `code`:
-
-| Code | Origin |
-|---|---|
-| `engine_open_failed` | DuckDB factory or `open()` threw. |
-| `extension_load_failed` | httpfs / iceberg / parquet install/load failed. |
-| `attach_failed` | Any step of the attach protocol (URI, secret, ATTACH, family). |
-| `detach_failed` | `DETACH` or `DROP SECRET`. |
-| `token_vendor_failed` | `tokenVendor.fetch(...)` or refresh CREATE OR REPLACE SECRET. |
-| `migration_failed` | Any migration step; KV rolled back to `n-1`. |
-| `retention_failed` | `runRetentionSweep` DELETE threw. |
-| `query_failed` | `execute` / `stream` native error. |
-| `not_attached` | Caller invoked `setRetention` before attach. |
-| `not_ready` | Query issued on a closed / non-open engine. |
-| `not_implemented` | Stub not yet wired (rare in 0.1.0-alpha.5). |
-
-## Testing
-
-The package ships with 125 unit tests across 14 files (Vitest). Fakes for the
-DuckDB instance, KV store, machine actors, and attach dependencies live in
-`src/core/__tests__/__fakes__/`.
-
-```bash
-pnpm test           # single run
-pnpm test --watch   # watch mode
-pnpm typecheck      # tsc --noEmit
-pnpm build          # tsc -p tsconfig.build.json
-```
-
-**Fake DuckDB** — captures every issued SQL for assertions and scripts return
-values or errors:
-
-```ts
-import { createFakeDuckDB } from '@mongrov/analytics/__tests__/__fakes__/fake-duckdb'
-
-const fake = createFakeDuckDB()
-fake.failNextExecute(new Error('disk full'))
-fake.failExecuteMatching(/^DELETE FROM /, new Error('retention sad'))
-```
-
-**Fake KV** — in-memory `KVStore` implementation with the backing map
-exposed for direct assertions.
-
-## Integration testing (live MinIO + Iceberg REST)
-
-The `test:integration` script drives the shipped `createAnalytics()`
-factory against a real docker-compose stack (MinIO + Tabular's
-`iceberg-rest`). Six scenarios cover the T-18 (analytics-core) and
-T-28 (analytics-sync) acceptance criteria:
-
-| Suite | Cases |
-|---|---|
-| `src/core/__tests__/minio.integration.test.ts` | attach round-trip, reattach preserves rows, catalog-alias isolation, retention sweep respects watermark, token refresh at 75 % TTL |
-| `src/sync/__tests__/push-fetch.integration.test.ts` | push local → fetch back into fresh engine, byte-equal round trip |
-
-```bash
-# One-shot (boots + tears down docker):
-pnpm test:integration
-
-# Iterative loop (keep the stack up between runs):
-cd infra/analytics-minio && docker compose up -d --wait && cd ../..
-INTEGRATION_STACK_EXTERNAL=1 pnpm test:integration
-```
-
-Details in
-[`infra/analytics-minio/README.md`](./infra/analytics-minio/README.md)
-(compose recipe, credentials, port map, image pins) and
-[`src/__integration__/README.md`](./src/__integration__/README.md)
-(harness architecture, divergences from prod, how to add a case).
-
-**CI**: the top-level workflow runs the fast unit matrix and a
-dedicated `analytics-integration` job that boots the compose stack in
-docker. See `.github/workflows/ci.yml`.
-
-`@duckdb/node-api` is a **devDependency** — it never enters the
-shipped bundle. React Native consumers still ship
-`react-native-duckdb` via the app-level `duckdbFactory`.
-
-## Packs
-
-The engine is domain-free (techspec principle 73). A domain arrives as a
-**pack**, built with `definePack` and registered with `registerPack` or
-`createAnalytics({ packs })`:
-
-| Plug-in | Pack field |
-|---|---|
-| Tables (DDL, time column, sync, retention, identity, union view) | `tables` |
-| Migrations, with their own KV ledger | `migrations`, `versionKey`, `adoptVersion` |
-| Quality views (and their bounded macros) | `quality` |
-| Ingest adapters + per-table validation | `ingest`, `tables[t].validate` |
-| Post-flush jobs | `postFlush` |
-| After-push sync hooks | `sync.afterPush` |
-| Baselines (`user_baseline`) | `baselines` |
-| Metrics, rule contexts, window minimums, settings registry | `metrics`, `rules` |
-| AI tools, copy guard | `tools`, `copyGuard` |
-
-The platform pack (`insight`, `sync_watermark`, `tool_call_audit`,
-`user_baseline`, the `getInsights` tool) is always present. An app's own
-tables (`appSchema`, principle 71) run through the same migration runner.
-
-ZivaOne's packs live in zivaone_app: `@zivaone/health` (reading, sleep and
-device tables, quality views, metrics, baselines, rules, tools) and
-`@zivaone/ring` (firmware ingest, SCD-2 schedule closes, sleep correction).
-The sleep parity harnesses moved with sleep correction to
-`zivaone_app/packages/ring`.
-
-This package's own suites run the engine with a copy of those packs as a test
-fixture (`src/__tests__/packs/`, registered by `src/__tests__/packs/setup.ts`).
-
-## Boundaries
-
-- **No** direct dependencies on `react-native-ble-plx`, `@mongrov/device`,
-  `@mongrov/collab`, or any UI-only package.
-- **No** value-level import from `@mongrov/db` — the `KVStore` contract is a
-  local structural type so this package can be consumed alone.
-- **No** logs on the hot query path.
-- **No** rejection of a successful attach for persistence / retention failures.
+Every failure is an `AnalyticsError` with a `code`: `engine_open_failed`,
+`extension_load_failed`, `attach_failed`, `detach_failed`,
+`token_vendor_failed`, `migration_failed`, `retention_failed`,
+`family_members_failed`, `query_failed`, `not_attached`, `not_ready`,
+`not_implemented`, `invalid_config`. `describeError(err)` flattens a cause
+chain into one line.
 
 ## Sync (`@mongrov/analytics/sync`)
 
-The `/sync` subpath layers the write-side pipeline on top of the core engine:
-device output → a pack's ingest adapter → in-memory buffer → BatchFlusher (p-queue
-serialised per table) → local DuckDB → R2Pusher → R2Fetcher (incremental /
-prefetch) → SyncScheduler (`expo-background-task`-friendly cycle).
-
-### Quick wiring
+Device output → a pack's ingest adapter → buffer → `BatchFlusher` (serialised
+per table) → local DuckDB → post-flush jobs → `batch:complete` →
+`R2Pusher` → after-push hooks → `R2Fetcher` → `SyncScheduler`.
 
 ```tsx
-import { createAnalytics } from '@mongrov/analytics'
-import {
-  createSyncManager,
-  SyncProvider,
-  useSensorSink,
-  useSyncProgress,
-  useSyncState,
-} from '@mongrov/analytics/sync'
-
-const analytics = createAnalytics(analyticsConfig)
+import { createSyncManager, SyncProvider } from '@mongrov/analytics/sync'
 
 const sync = createSyncManager({
-  analytics,
+  analytics: engine,
   storage: kv,
-  ctx: { brand: 'ziva', tenantScope: 'family', tenantId: 'fam_123', userId: 'u1' },
-  tables: [
-    'hrv', 'heart_rate', 'spo2', 'temperature',
-    'activity', 'activity_bucket',
-    'sleep_session', 'sleep_stage', 'sleep_raw',
-    'device_event', 'device_config',
-  ],
+  ctx: { brand: 'acme', tenantScope: 'family', tenantId: 'fam_123', userId: 'user_1' },
+  tables: ['weather_reading'],
   columnOrder: {
-    hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms', 'sdnn_ms'],
-    // …one entry per table matching the Iceberg column order.
+    weather_reading: ['brand', 'family_id', 'user_id', 'device_id', 'station_id', 'ts', 'wind_kph', 'rain_mm'],
   },
   prefetchPolicy: { kind: 'recent-active-only', activeDays: 30, windowDays: 90 },
   flush: { maxRows: 500, maxAgeMs: 60_000, concurrency: 3 },
   overflow: { maxBufferBytes: 5 * 1024 * 1024, policy: 'drop-oldest' },
-  scheduler: { requiresCharging: false, requiresWifi: true, taskName: 'mongrov.sync' },
-  eventBus: appEventBus, // optional
-  refreshToken: analytics.refreshToken, // optional
+  scheduler: { requiresCharging: false, requiresWifi: true, taskName: 'app.sync' },
+  rulesEngine: rules, // optional: evaluate rules once per batch
 })
-
 await sync.start()
-
-export default function App() {
-  return (
-    <AnalyticsProvider engine={analytics}>
-      <SyncProvider manager={sync}>
-        <Root />
-      </SyncProvider>
-    </AnalyticsProvider>
-  )
-}
 ```
 
-### SensorSink API
+`SensorSink` (`sync.sink` or `useSensorSink()`): `push(batch)`,
+`ingest(adapter, raw, ctx)`, `flush()`, `pendingRowCount(table?)`, `clear()`.
+`SyncManager`: `start`, `stop`, `triggerNow`, `prefetch(ctx)`, `subscribe`,
+`state`, `progress`. Hooks: `SyncProvider`, `useSyncManager`,
+`useSensorSink`, `useSyncState`, `useSyncProgress`.
 
-`useSensorSink()` (or `sync.sink`) returns:
+Other config: `eventBus`, `refreshToken`, `backgroundTask`
+(`BackgroundTaskPort`), `constraints` (`ConstraintPort`, r2 mode only),
+`strictBatchOrdering`, `userTimezoneProvider`, `computeBaselines`, `options`
+(passed to the packs' post-flush jobs), `logger`, `appSchema`.
 
-- `push(batch: SensorBatch): Promise<void>` — enqueue a pre-mapped batch.
-- `ingest(adapter: string, raw: unknown, ctx: IngestContext): Promise<void>` —
-  maps a device's raw output with a registered pack's ingest adapter,
-  validates each table's rows (`PackTable.validate`) and fans out per table.
-- `flush(): Promise<FlushResult[]>` — drain every configured table now.
-- `pendingRowCount(table?: string): Promise<number>` — in-memory + overflow.
-- `clear(): Promise<void>` — reset buffer + overflow (used on sign-out).
+Prefetch policies: `all-family-on-attach`, `recent-active-only`, `lazy`.
 
-### Config reference (sync)
+Each scheduled cycle checks constraints (r2 mode only), flushes every table,
+pushes, runs the packs' after-push hooks, then fetches. `triggerNow()`
+bypasses the constraints.
 
-| Field | Type | Notes |
-|---|---|---|
-| `analytics` | `AnalyticsEngine` | Core engine created by `createAnalytics(...)`. |
-| `storage` | `KVStore` | Backing store for overflow chunks + watermarks. |
-| `ctx` | `AttachContext` | Passed to scheduler cycle (pushAll / fetchIncremental). |
-| `tables` | `readonly string[]` | Ordered list; enforces flush / push / fetch scope. |
-| `columnOrder` | `Record<string, readonly string[]>` | Column order per table; must match Iceberg schema. |
-| `prefetchPolicy` | `PrefetchPolicy` | `all-family-on-attach` / `recent-active-only` / `lazy`. |
-| `flush.maxRows` | `number` | Row-count trigger (default 500). |
-| `flush.maxAgeMs` | `number` | Age trigger (default 60 000 ms). |
-| `flush.concurrency` | `number` | p-queue concurrency (default 3). |
-| `overflow.maxBufferBytes` | `number` | Ring budget before spill. |
-| `overflow.policy` | `'drop-oldest' \| 'drop-newest' \| 'block'` | Overflow strategy. |
-| `scheduler.requiresCharging` | `boolean` | Skip cycle unless charging. |
-| `scheduler.requiresWifi` | `boolean` | Skip cycle unless Wi-Fi. |
-| `scheduler.taskName` | `string` | Background-task registration name. |
-| `eventBus?` | `EventBus` | Optional bus for `{table}:insert` / `{table}:sync_complete` fan-out. |
-| `refreshToken?` | `() => Promise<void>` | Called by pusher on `401 token_expired` before retry. |
-| `backgroundTask?` | `BackgroundTaskPort` | Inject a native background port (defaults to an in-process no-op). |
-| `constraints?` | `ConstraintPort` | Inject Wi-Fi + charging probes for the R2 transfer. Consulted in `r2` mode only; local mode never gates a cycle, since nothing leaves the device (#80). Omitting it in `r2` mode logs a warning and runs every scheduled cycle on any network. |
-| `logger?` | `SchedulerLogger` | Debug hook for the scheduler cycle. |
-| `options?` | `Record<string, unknown>` | Options for the packs' post-flush jobs, by the names each job documents. |
+## Rules (`@mongrov/analytics/rules`)
 
-### Prefetch policies
-
-- `{ kind: 'all-family-on-attach', windowDays }` — pull the last `windowDays`
-  of every configured table for the whole family after attach.
-- `{ kind: 'recent-active-only', activeDays, windowDays }` — only pull for
-  users active within `activeDays`, capped at `windowDays`.
-- `{ kind: 'lazy' }` — no prefetch; `fetchIncremental` picks up from the
-  fetch watermark on the first scheduler cycle.
-
-Call `sync.prefetch(ctx)` right after `analytics.attach(ctx)` completes.
-
-### Background scheduling
-
-`SyncScheduler` registers a single task (`config.scheduler.taskName`) with
-the injected `BackgroundTaskPort`. Every registered cycle:
-
-1. Constraint check (Wi-Fi + optional charging). Missing constraints emit
-   `constraint_not_met` and skip. `r2` mode only: in local mode there is no
-   push or fetch to gate, so this step is skipped and flush, sleep
-   derivation, baselines and rules run on every cycle (#80).
-2. `coordinator.flushAll()` — parallel `flusher.flush(table, 'scheduled')`.
-3. `coordinator.pushAll(tables, ctx)` — `R2Pusher.pushAll` (concurrency-safe).
-4. `coordinator.fetchIncremental(ctx)` — `R2Fetcher.fetchIncremental`.
-
-`sync.triggerNow()` bypasses constraints (e.g., manual "sync now" button).
-`sync.subscribe(fn)` fans out scheduler transitions (`idle | running | error`).
+See [`src/rules/README.md`](./src/rules/README.md). `RuleSchema`,
+`validateRule`, `compileRule`, `createRulesEngine`, `parseCatalog` (TOML
+catalogs), `useRuleViolations`, `useRuleRegistry`.
 
 ## AI tools (`@mongrov/analytics/tools`)
 
-Every registered pack's read-only AI SDK v4 tools (`pack.tools`), plus the
-platform's `getInsights`, sit on top of the warehouse, wired through a
-`rate → auth → execute → budget → audit` chain. See
+`createAnalyticsTools({ analytics, ... })` wraps every registered pack's
+tools plus the platform's `getInsights` in a `rate → authorize → execute →
+budget → audit` chain and returns an AI SDK tool map. See
 [`src/tools/README.md`](./src/tools/README.md).
 
-### MCP dev server (`@mongrov/analytics/tools/mcp`)
+`@mongrov/analytics/tools/mcp` exposes the same tools over Model Context
+Protocol (stdio or HTTP with a bearer token), dev-only behind
+`shouldStartMcpServer()`. See [`src/tools/mcp/README.md`](./src/tools/mcp/README.md).
 
-Same six tools, exposed over Model Context Protocol via stdio
-(Claude Desktop) or HTTP with bearer auth (MCP Inspector, curl).
-Dev-guarded (`shouldStartMcpServer()`) + `sideEffects: false` so
-prod RN bundles drop the SDK. See
-[`src/tools/mcp/README.md`](./src/tools/mcp/README.md).
+## Testing
+
+```bash
+pnpm test               # unit suites (Vitest)
+pnpm typecheck
+pnpm build
+pnpm test:integration   # live MinIO + Iceberg REST stack (docker)
+```
+
+The package's suites run the engine with test packs
+(`src/__tests__/packs/`). The integration stack is described in
+[`infra/analytics-minio/README.md`](./infra/analytics-minio/README.md).
+`@duckdb/node-api` is a devDependency only.
+
+## Boundaries
+
+- No dependency on BLE, `@mongrov/device`, `@mongrov/collab` or UI packages.
+- No value-level import from `@mongrov/db`; `KVStore` is structural.
+- No logs on the hot query path.
+- A persistence or retention failure never rejects a good attach.
 
 ## License
 

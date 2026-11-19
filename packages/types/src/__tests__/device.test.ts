@@ -39,7 +39,7 @@ describe('Device', () => {
     for (const state of states) {
       const device: Device = {
         id: 'dev-1',
-        adapterId: 'jcring',
+        adapterId: 'acme-band',
         state,
       }
       expect(device.state).toBe(state)
@@ -52,13 +52,13 @@ describe('Device', () => {
     const device: Device = {
       id: 'dev-2',
       adapterId: 'gatt-generic',
-      name: 'Ring #42',
-      kind: 'ring',
+      name: 'Tag #42',
+      kind: 'tag',
       state: 'ready',
       rssi: -55,
       owned: true,
     }
-    expect(device.name).toBe('Ring #42')
+    expect(device.name).toBe('Tag #42')
     expect(device.owned).toBe(true)
     expect(device.rssi).toBe(-55)
   })
@@ -75,11 +75,11 @@ describe('DeviceReading', () => {
   it('should accept scalar payload', () => {
     const reading: DeviceReading = {
       deviceId: 'dev-1',
-      metric: 'hr',
+      metric: 'level',
       kind: 'scalar',
       ts: 1_700_000_000_000,
       value: 72,
-      unit: 'bpm',
+      unit: '%',
       receivedAt: 1_700_000_000_050,
       tags: { source: 'live' },
     }
@@ -115,7 +115,7 @@ describe('DeviceReading', () => {
   it('should accept sample payload', () => {
     const reading: DeviceReading = {
       deviceId: 'dev-1',
-      metric: 'ppg',
+      metric: 'trace',
       kind: 'sample',
       ts: 1_700_000_000_000,
       value: [0.12, 0.15, 0.19, 0.22],
@@ -130,10 +130,10 @@ describe('DeviceReading', () => {
   it('should accept blob payload', () => {
     const reading: DeviceReading = {
       deviceId: 'dev-1',
-      metric: 'sleep',
+      metric: 'session',
       kind: 'blob',
       ts: 1_700_000_000_000,
-      value: { stages: ['deep', 'rem', 'light'], durations: [3600, 1800, 5400] },
+      value: { segments: ['a', 'b', 'c'], durations: [3600, 1800, 5400] },
       receivedAt: 1_700_000_000_050,
       tags: { source: 'backlog' },
     }
@@ -236,7 +236,7 @@ describe('DeviceDiagnosticEvent', () => {
     for (const trigger of triggers) {
       const event: DeviceDiagnosticEvent = {
         deviceId: 'dev-1',
-        adapterId: 'jcring',
+        adapterId: 'acme-band',
         trigger,
         phase: 'connecting',
         category: 'timeout',
@@ -278,14 +278,14 @@ describe('ScanCandidate', () => {
   it('should support fully-populated ScanCandidate', () => {
     const c: ScanCandidate = {
       id: 'aa:bb:cc:dd:ee:ff',
-      name: 'Ring-42',
+      name: 'Tag-42',
       rssi: -60,
       manufacturerData: 'ff0102030405',
       serviceUUIDs: ['180d', '180f'],
-      adapterId: 'jcring',
+      adapterId: 'acme-band',
     }
     expect(c.serviceUUIDs).toHaveLength(2)
-    expect(c.adapterId).toBe('jcring')
+    expect(c.adapterId).toBe('acme-band')
   })
 })
 

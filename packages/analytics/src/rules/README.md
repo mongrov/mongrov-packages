@@ -1,188 +1,171 @@
 # `@mongrov/analytics/rules`
 
 Structured threshold rule engine over the analytics warehouse. Rules are
-authored as Zod-typed objects (or TOML), compiled to parameterized
-DuckDB SQL, evaluated on-batch + on-schedule, throttled via MMKV, and
-delivered fire-and-forget through an emitter. The engine never mutates
-warehouse state.
+authored as Zod-typed objects (or TOML), compiled to parameterized DuckDB
+SQL, evaluated on each batch and on a schedule, throttled through the KV
+store, and delivered fire-and-forget through an emitter. The engine never
+mutates warehouse state.
+
+The engine knows no metric, table or context of its own. Metrics come from
+the registered packs (`pack.metrics`), named sample contexts and per-metric
+policy from `pack.rules` (`RulePack`). Register packs before parsing rules.
 
 ```ts
-import {
-  createRulesEngine,
-  defaults,
-} from '@mongrov/analytics/rules';
+import { createRulesEngine, parseCatalog } from '@mongrov/analytics/rules'
 
 const engine = createRulesEngine({
-  analytics,               // AnalyticsEngine (see @mongrov/analytics/core)
-  storage,                 // KVStore (see @mongrov/db)
-  familyMembersProvider,   // (ctx) => Promise<string[]>
-  brand: 'ziva',
-  familyId: currentUserId, // single-user family in v0.1.0
-});
+  analytics, // AnalyticsEngine
+  storage, // KVStore
+  familyMembersProvider, // (ctx) => Promise<string[]>
+  brand: 'acme',
+  familyId: currentFamilyId,
+})
 
-await engine.register(defaults.zivaDefaults);
+await engine.register(parseCatalog(catalogToml, { name: 'acme' }))
+engine.on('violation', v => notify(v))
 
-engine.on('violation', (v) => notify(v));
-
-// Wire into your sync pipeline
-await engine.evaluateOnBatch({ affectedUserIds, affectedTables });
-// …and/or the scheduler cadence
-await engine.evaluateScheduled();
+// Wire into the sync pipeline (createSyncManager({ rulesEngine }) does this
+// once per batch), and/or a schedule:
+await engine.evaluateOnBatch({ affectedUserIds, affectedTables })
+await engine.evaluateScheduled()
 ```
+
+## Files
+
+| File | What |
+|---|---|
+| `schema.ts` | `RuleSchema`, `TargetSchema`, `ThrottleSchema`, `WINDOWS`, `AGGREGATIONS`, `COMPARES`, `SEVERITIES`, `RuleValidationError` |
+| `validator.ts` | `validateRule`, `allowedWindowsFor` — checks that need the registered packs |
+| `contexts.ts` | `ruleContextNames`, `contextJoin` — `any` plus the packs' contexts |
+| `compiler.ts`, `compiler-cache.ts` | `compileRule` → `{ sql, params }`; memoized per registry revision |
+| `registry.ts`, `throttle.ts`, `emitter.ts`, `evaluator.ts` | rule set, per-user throttle, violation fan-out, evaluation |
+| `factory.ts` | `createRulesEngine` |
+| `defaults/loader.ts` | `parseCatalog` — TOML catalogs (`[[rule]]` entries) |
+| `hooks/` | `useRuleViolations`, `useRuleRegistry` |
 
 ## Rule schema
 
 ```ts
 {
   id: string,
-  brand?: string,               // defaults to config.brand at match time
+  brand?: string,               // defaults to the engine's brand
   name: string,
   description?: string,
-  metric: MetricId,             // enum from METRIC_METADATA (exposed only)
+  metric: string,               // a metric a registered pack exposes
   window: '1h' | '6h' | '24h' | '3d' | '7d' | '30d',
   aggregation: 'avg' | 'min' | 'max' | 'sum' | 'last' | 'count',
-  compare: 'less_than' | 'greater_than' | 'equals' | 'not_equals' | 'between',
+  compare: 'less_than' | 'greater_than' | 'less_than_or_equal'
+    | 'greater_than_or_equal' | 'equals' | 'not_equals' | 'between',
+  context: string,              // 'any' (default) or a pack's context
+  consecutive?: number,         // n adjacent breaching samples
+  cadence: 'reading' | 'day',   // what consecutive counts (default reading)
+  allowSingleDay?: boolean,
+  consecutiveKey?: string,      // KV setting overriding consecutive
+  minDays?: number,             // distinct local days with data required
   target:
-    | { type: 'absolute', value: number }
-    | { type: 'baseline_percent', windowDays: number, percent: number }
-    | { type: 'baseline_stddev',  windowDays: number, stddevs: number }
-    | { type: 'range', min: number, max: number },
+    | { type: 'absolute', value }
+    | { type: 'range', min, max }
+    | { type: 'baseline_percent', windowDays, percent }
+    | { type: 'baseline_stddev', windowDays, stddevs }
+    | { type: 'baseline_offset', windowDays, offset, direction, offsetKey? }
+    | { type: 'user_setting', key, defaultValue }
+    | { type: 'phase_band', band, windowDays, defaultLo?, defaultHi?, scaleKey?, scales?, defaultScale? },
   severity: 'info' | 'warn' | 'critical',
-  throttle: { minGapMinutes: number, maxPerDay: number },  // defaults 60 / 3
-  rawSql?: string,              // escape hatch — allowlisted placeholders only
+  throttle: { minGapMinutes, maxPerDay },  // defaults 60 / 3
+  rawSql?: string,              // escape hatch — allow-listed placeholders only
   rawSqlParams?: string[],
-  exposureOverride?: boolean,   // required when rawSql touches collected_only cols
+  exposureOverride?: boolean,   // required when rawSql reads collected_only columns
 }
 ```
 
-Rules are validated at `register()` time via `RuleSchema.parse` +
-`validateRule` — a bad rule throws `RuleValidationError` before any SQL is
-compiled.
+Targets, briefly:
 
-## Sampling minimums
+- `baseline_percent` / `baseline_stddev` compare against a mean computed
+  inline over the window.
+- `baseline_offset` compares against the user's stored baseline
+  (`user_baseline.p50`) minus or plus a fixed offset.
+- `user_setting` reads the threshold from a KV setting at evaluation time;
+  the key must be registered in the packs' `RuleSettings`.
+- `phase_band` (the name is historical; it means *a stored per-user band*)
+  compares each reading against a band whose two edges are stored in
+  `user_baseline` as `${band}_lo` / `${band}_hi`. Optional population edges
+  (`defaultLo` / `defaultHi`, both or neither) apply until the user's own are
+  stored; without them the rule stays silent until then. `scaleKey` /
+  `scales` widen or narrow the band about its midpoint by a named setting.
 
-The validator refuses windows smaller than the metric's sampling cadence.
-`per_session` metrics (sleep) require ≥ 3 days.
+A rule is checked when parsed (`RuleSchema`, against the packs registered
+then) and again at `register()` (`validateRule`, plus each pack's
+`rules.validate` and `rules.admit`). A bad rule throws `RuleValidationError`
+before any SQL is compiled.
 
-| Metric              | Cadence (min) | Minimum window |
-|---------------------|---------------|----------------|
-| hrv_ms              | 60            | 1h             |
-| stress              | 60            | 1h             |
-| hr_bpm              | 10            | 1h             |
-| spo2                | 30            | 1h             |
-| temp_c              | 30            | 1h             |
-| activity_steps      | 1             | 1h             |
-| calories            | 10            | 1h             |
-| distance_km         | 10            | 1h             |
-| sleep_total_minutes | per_session   | 3d             |
-| sleep_score         | per_session   | 3d             |
-| device_battery      | 240           | 6h             |
+## Windows
+
+`allowedWindowsFor(metric)`: a pack's explicit `rules.windows[metric]` if it
+declares one; otherwise every window at least twice the metric's
+`sampling_minutes` (and `consecutive` times that for run-length rules). A
+metric sampled once per session (`sampling_minutes: 'per_session'`) allows
+`3d`, `7d` and `30d`.
+
+## Contexts
+
+`context: 'any'` uses every sample in the window. Any other name is a JOIN a
+pack registers (`pack.rules.contexts[name]({ table, qualityRelation })`),
+restricting the metric relation `m` — the aggregate is computed over those
+samples only, not computed over everything and then filtered.
 
 ## Compilation
 
-`compileRule(rule)` returns `{ sql, params, description }`. Guarantees:
+`compileRule(rule)` returns `{ sql, params, description }`:
 
-- `$userId`, `$brand`, `$familyId` are always DuckDB-bound parameters —
-  never string-concatenated.
-- Rule thresholds (`$threshold_absolute`, `$range_min`, `$baselineDays`,
-  `$pct`, `$stddevs`) are also bound parameters.
-- Table + column identifiers come from `METRIC_METADATA[metric]`, are
-  sanitized with `[^A-Za-z0-9_]/g → _`, then inlined as literals (DuckDB
-  has no identifier-binding surface).
+- `$userId`, `$brand`, `$familyId` and every threshold are bound
+  parameters, never concatenated.
+- Table and column identifiers come from the metric definition, are
+  sanitized (`sanitizeIdent`) and inlined.
+- Rules read the `v_<table>` union views (`viewFor`), or a pack's clean
+  relation when it declares quality views.
 - `rawSql` is passed through with an allow-list check: every `$name`
-  placeholder must be `{userId, brand, familyId}` or declared in
+  placeholder must be `userId`, `brand`, `familyId` or declared in
   `rawSqlParams`.
 
-Property tests in `__tests__/compiler.property.test.ts` prove no
-injection path exists across 1000 fast-check runs per `target.type`.
-
-Compiled SQL is memoized by `(ruleId, registry.rev)`. Registry mutations
-(register / enable / disable) bump `rev` and invalidate the cache
-transparently.
+Compiled SQL is memoized by `(ruleId, registry revision)`; register / enable
+/ disable bump the revision.
 
 ## Throttle
 
-Two KV keys per (ruleId, userId):
+Two KV keys per (ruleId, userId): the last fire time, and a daily count. A
+rule is throttled while `now - last < minGapMinutes` or the day's count has
+reached `maxPerDay`. Time comes from `config.clock`.
 
-- `analytics:rules:throttle:{ruleId}:{userId}:last` — ISO string of the
-  most recent fire.
-- `analytics:rules:throttle:{ruleId}:{userId}:count:{yyyy-mm-dd}` —
-  UTC daily count.
-
-`isThrottled` blocks when `now - last < minGapMinutes` **or** the
-current day's count exceeds `maxPerDay`. Stale daily-count keys are
-purged on the next-day read.
-
-Time is injected via `config.clock` (defaults to `() => new Date()`), so
-tests can pin midnight-adjacent transitions deterministically.
-
-## Brand defaults
-
-Each brand ships a curated catalog under `defaults/`:
-
-| Brand    | Export             | Count | Focus |
-|----------|--------------------|-------|-------|
-| Ziva     | `zivaDefaults`     | 4     | HRV drop, sleep deprivation, elevated stress, low activity |
-| LuminX   | `luminxDefaults`   | 3     | Battery low, battery critical, disconnect |
-| Viva     | `vivaDefaults`     | 2     | Battery low, disconnect |
-| YogaRing | `yogaringDefaults` | 2     | Stress nudge, activity nudge |
-
-Sidecar `.toml` files are the source of truth for authoring; the matching
-`.ts` files inline the same content as a template literal so Metro/tsup
-don't need a `.toml` loader. If you edit a sidecar, mirror the change into
-the wrapper string (a `scripts/sync-toml.mjs` helper can be added if this
-becomes friction).
-
-## Authoring a custom rule
-
-TOML — easiest for hand-editing:
+## Catalogs
 
 ```toml
 [[rule]]
-id = "myapp.custom.high-stress"
-brand = "ziva"
-name = "Sustained high stress"
-description = "Average stress over the past 24h above 75."
-metric = "stress"
+id = "acme.gusty-day"
+name = "Gusty day"
+metric = "wind_kph"
 window = "24h"
-aggregation = "avg"
+aggregation = "max"
 compare = "greater_than"
 severity = "warn"
 
 [rule.target]
 type = "absolute"
-value = 75
+value = 60
 
 [rule.throttle]
 minGapMinutes = 240
 maxPerDay = 2
 ```
 
-Load + register:
-
-```ts
-import { parseCatalog } from '@mongrov/analytics/rules';
-
-const rules = parseCatalog(tomlString, { name: 'myapp' });
-await engine.register(rules);
-```
-
-Object form is equivalent — `RuleSchema.parse(obj)` runs the same
-validation path.
+`parseCatalog(toml, { name })` runs every entry through `RuleSchema`; a TOML
+syntax error is rethrown as `RuleValidationError` naming the catalog. Default
+catalogs belong to the domain pack, not to this package.
 
 ## Hooks
 
 React is an optional peer.
 
 ```ts
-const { violations, clear } = useRuleViolations(engine, { limit: 50 });
-const { rules, enable, disable } = useRuleRegistry(engine);
+const { violations, clear } = useRuleViolations(engine, { limit: 50 })
+const { rules, enable, disable } = useRuleRegistry(engine)
 ```
-
-Both are session-scoped: subscriptions tear down on unmount.
-
-## Public surface
-
-See `index.ts` — every module documented above is re-exported. Registry
-and throttle stores are exposed for advanced composition; typical apps
-should go through `createRulesEngine`.
