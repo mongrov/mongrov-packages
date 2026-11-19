@@ -16,11 +16,13 @@
  * the platform pack. Tables, retention, views and migrations all follow it.
  */
 
+import type { ZodTypeAny } from 'zod'
 import type { SensorBuffer } from '../sync/buffer'
 import type { DropReport } from '../sync/drops'
 import type { BatchFlusher, FlushReason } from '../sync/flusher'
 import type { SchedulerLogger } from '../sync/scheduler'
 import type { FlushResult } from '../sync/types'
+import type { ToolImpl } from '../tools/types'
 import type { HybridDuckDB } from './engine'
 import type { MigrationCatalogs } from './migrations'
 import type { AttachContext, KVStore } from './types'
@@ -111,6 +113,14 @@ export interface QualityViewProvider {
   viewNames: () => string[]
   /** Every macro name this provider can create (for DROP). */
   macroNames?: () => string[]
+  /** The relations claims read for the tables this provider covers. */
+  relations?: {
+    has: (table: string) => boolean
+    /** What claims read (e.g. `v_<table>_clean`). */
+    clean: (table: string) => string
+    /** Per-reading flags (e.g. `v_<table>_q`). */
+    quality: (table: string) => string
+  }
 }
 
 // -------------------- ingest --------------------
@@ -246,6 +256,62 @@ export interface BaselineProvider {
   definitions: (options: Readonly<Record<string, unknown>>) => BaselineDefinition[]
 }
 
+// -------------------- rules --------------------
+
+/** What a rule context's join is built from. `m` aliases the metric relation. */
+export interface RuleContextArgs {
+  /** The metric's table. */
+  table: string
+  /** The per-reading quality relation to join, when the read is bounded. */
+  qualityRelation?: string
+}
+
+/** A key-value setting registry rules may read thresholds from. */
+export interface RuleSettings {
+  /** Registered and meant as a threshold. */
+  readable: (key: string) => boolean
+  /** Registered at all (UX state included). */
+  registered: (key: string) => boolean
+  /** The registered value type (`number`, `string`, …). */
+  valueType: (key: string) => string | undefined
+  /** The registered numeric range, when the key declares one. */
+  range?: (key: string) => readonly [number, number] | undefined
+  /** Every rule-readable key, for messages. */
+  readableKeys: () => string[]
+  /** Where a new key is added, for messages. */
+  registryName: string
+}
+
+/** What a pack adds to the rules engine (`pack.rules`). */
+export interface RulePack {
+  /**
+   * Named sample contexts: the JOIN restricting a rule's samples (`any`, no
+   * join, is the engine's). Context is a JOIN, not a post-filter.
+   */
+  contexts?: Readonly<Record<string, (args: RuleContextArgs) => string>>
+  /** Windows a metric allows, when its sampling alone does not decide. */
+  windows?: Readonly<Record<string, readonly string[]>>
+  /** Structural checks on a parsed rule (throw `RuleValidationError`). */
+  validate?: (rule: { id: string, metric: string, context: string, target: { type: string } }) => void
+  /** Admission policy at registration (throw `RuleValidationError`). */
+  admit?: (rule: { id: string, metric: string, target: { type: string } }) => void
+  /** Settings `user_setting` targets and phase-band scales may read. */
+  settings?: RuleSettings
+  /** Brand for rules registered without one. */
+  defaultBrand?: string
+}
+
+// -------------------- tools --------------------
+
+/** One AI tool a pack offers (`pack.tools`); the framework wraps it. */
+export interface PackTool {
+  /** What the model reads to decide when to call it. */
+  description: string
+  /** Zod schema of the arguments. */
+  inputSchema: ZodTypeAny
+  impl: ToolImpl<any>
+}
+
 // -------------------- the pack --------------------
 
 export interface AnalyticsPack {
@@ -283,6 +349,16 @@ export interface AnalyticsPack {
   /** Jobs run after each flush, inside the batch. */
   postFlush?: readonly PostFlushJob[]
   baselines?: BaselineProvider
+  /** Metrics by id (`MetricDefinition`). */
+  metrics?: Readonly<Record<string, import('./metrics').MetricDefinition>>
+  rules?: RulePack
+  /**
+   * AI tools by name, wrapped by `createAnalyticsTools` with the shared
+   * authorization, rate limit, audit and output budget.
+   */
+  tools?: Readonly<Record<string, PackTool>>
+  /** Checks text a tool returns (throws when it breaks the pack's copy rules). */
+  copyGuard?: (text: string, source: string) => void
   /** Free-form extensions read by other subsystems (ingest, post-flush, rules, tools). */
   [extension: string]: unknown
 }

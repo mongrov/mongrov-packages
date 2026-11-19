@@ -1,6 +1,7 @@
 import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
-import { assertNoBanTerms, formatBytes } from '../formatters'
+import { packExtensions } from '../../core/packs'
+import { formatBytes } from '../formatters/text'
 
 export const getInsightsInputSchema = z.object({
   userId: z.string(),
@@ -66,6 +67,7 @@ function finalize(text: string, rowCount: number): ToolResult {
   // principle 37 — every formatter's return path is guarded, not
   // just the SpO2 one. Tool text lands in an LLM's context, and the
   // model repeats whatever register it finds there.
-  assertNoBanTerms(text, 'getInsights')
+  for (const guard of packExtensions<(text: string, source: string) => void>('copyGuard'))
+    guard(text, 'getInsights')
   return { text, rowCount, bytes: formatBytes(text) }
 }

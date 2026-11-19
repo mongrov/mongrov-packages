@@ -6,8 +6,6 @@
  * validate rules themselves.
  */
 
-import type { MetricId } from '../core/metric_metadata'
-import type { TableName } from '../core/schemas'
 import type {
   AnalyticsEngine,
   AnalyticsLogger,
@@ -32,7 +30,7 @@ export type RuleSeverity = 'info' | 'warn' | 'critical'
  */
 export interface FlushSummary {
   affectedUserIds: string[]
-  affectedTables: TableName[]
+  affectedTables: string[]
 }
 
 /**
@@ -42,7 +40,7 @@ export interface FlushSummary {
  */
 export interface CompiledRule {
   ruleId: string
-  metric: MetricId
+  metric: string
   sql: string
   /**
    * The same query reading the vital through its bounded `_between` macros
