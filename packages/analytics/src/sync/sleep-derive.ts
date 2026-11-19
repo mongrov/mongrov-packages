@@ -29,27 +29,21 @@
  * firmware sleep comes back `no_firmware_sleep` and its stored rows stay, as
  * above.
  *
- * A minute belongs to the LATER night (#75, v1 parity). `correctNightSql`
- * reads HR to `windowEnd + FETCH_AFTER`, so a daytime sleeper's envelope can
- * run past 18:00 into the next night's window, where that night's own
- * firmware rows start; written as two sessions the overlap is in
- * `sleep_stage` twice and every total double-counts it. v3.1 never stored it
- * twice: `clearNight(windowStart, windowEnd)` wiped the later window before
- * its insert, and `sleep_processed.date` was unique. So a night ENDS where
- * the night after it begins: before its rows become sessions, every row
- * reaching the later night's first minute is dropped. "First minute" is the
- * first the later night will hold once this batch is written — its first
- * primary row when it was corrected here with a primary block (only primary
- * rows are stored, and they replace its stored rows), otherwise its stored
- * `ts_start`. A cut at the first held minute, not per minute: the two
- * nights' rows need not share a second (an envelope minute sits at its HR
- * sample's epoch, a firmware minute at the ring's), and a later night whose
- * primary block has gaps would otherwise leave the earlier night holes and
- * an END still past its start. Two residuals, both deterministic: a tail the
- * later night never reaches (it begins later) stays with the earlier night,
- * where v3.1's clear wiped it; and a later night not yet derived holds
- * nothing, so a night synced alone can still run past 18:00 until the next
- * sync re-derives it as the night before (D5) and cuts it.
+ * A minute belongs to the LATER night (#75, D6), and a night ends at its own
+ * window's end: 18:00 local on its morning. `correctNightSql` reads HR to
+ * `windowEnd + FETCH_AFTER`, so a daytime sleeper's envelope can run past
+ * 18:00. v3.1 never kept that tail under the earlier night:
+ * `clearNight(windowStart, windowEnd)` wiped the later window before its
+ * insert, and the Day tab read every night through
+ * `[D-1 18:00, D 17:59:59]` (`getStartAndEndOfDayUnix(date, true)`), so the
+ * screen never showed a minute past 18:00 under the night it came from. Every
+ * row at or after `windowEnd` is therefore dropped before the rows become
+ * sessions. Until 2026-11-19 the cut was the later night's first held minute,
+ * which left the stretch between 18:00 and that minute (up to FETCH_AFTER,
+ * 30 min) with the earlier night, and let a night synced alone run past
+ * 18:00 until the next sync: both where v3.1 showed nothing. The later night
+ * reads nothing before its own window start, so nothing is double-counted
+ * and no minute is lost that v3.1 kept.
  *
  * Local only. Rows already pushed to a remote catalog are not rewritten; that
  * needs a server-side answer before cloud sync is switched on.
@@ -60,18 +54,15 @@ import type { SensorBuffer } from './buffer'
 import type { BatchFlusher, FlushReason } from './flusher'
 import type { MapperContext, SleepSessionRow, SleepStageRow } from './mapper/types'
 import type { SchedulerLogger } from './scheduler'
-import type { ClassifiedRow } from './sleep-correction/classify'
 import type { SqlRunner } from './sleep-correction/correct'
-import type { NightOutcome } from './sleep-correction/orchestrate'
 import type { FlushResult } from './types'
 
 import { describeError } from '../core/errors'
 import { tailId } from '../core/logger'
-import { ROW_SECONDS, sessionsFromCorrected } from './mapper/sleep'
+import { sessionsFromCorrected } from './mapper/sleep'
 import { computeNightOf } from './mapper/time'
 import { logError } from './scheduler'
 import { parseDateStr } from './sleep-correction/classify'
-import { nightWindow } from './sleep-correction/night'
 import { correctSleepNights, nightsForEpochs, stagingBoundsFor } from './sleep-correction/orchestrate'
 import { stagingViewsSql } from './sleep-correction/staging'
 
@@ -151,27 +142,9 @@ function previousNight(iso: string): string {
   return shiftNight(iso, -1)
 }
 
-/** The night after an ISO night. */
-function nextNight(iso: string): string {
-  return shiftNight(iso, 1)
-}
-
 function shiftNight(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
-}
-
-/** The first primary row's minute (epoch s) — the `ts_start` `sessionsFromCorrected` stores. */
-function firstPrimaryMinute(rows: readonly ClassifiedRow[]): number | undefined {
-  let first: number | undefined
-  for (const r of rows) {
-    if (r.block_type !== 'primary')
-      continue
-    const e = parseDateStr(r.date)
-    if (first === undefined || e < first)
-      first = e
-  }
-  return first
 }
 
 /**
@@ -209,14 +182,6 @@ WHERE brand = $brand AND family_id = $family_id AND user_id = $user_id
   AND device_id = $device_id AND night_of = CAST($night AS DATE)`
 }
 
-/** The earliest stored session start of one night — the same key `replaceNight` deletes by. */
-function STORED_START_SQL(catalog: string) {
-  return `
-SELECT CAST(epoch(MIN(ts_start)) AS BIGINT) AS e FROM ${catalog}.main.sleep_session
-WHERE brand = $brand AND family_id = $family_id AND user_id = $user_id
-  AND device_id = $device_id AND night_of = CAST($night AS DATE)`
-}
-
 export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
   const pending = new Map<string, PendingRange>()
   const catalog = deps.localCatalog ?? 'memory'
@@ -233,34 +198,6 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
     }
     await deps.engine.execute(DELETE_STAGES_SQL(catalog), params)
     await deps.engine.execute(DELETE_SESSIONS_SQL(catalog), params)
-  }
-
-  /**
-   * Where the night after `night` begins once this batch is written (see the
-   * header): `next`'s first primary minute when it was corrected here with a
-   * primary block, else its stored `ts_start`; undefined when it holds
-   * nothing. Never before the next night's window start — its Phase 2 reads
-   * nothing earlier — so the earlier night loses only its tail. Read BEFORE
-   * the night is replaced, and only when it reaches into that window at all.
-   */
-  async function nextNightStart(ctx: MapperContext, night: string, rows: readonly ClassifiedRow[], next: NightOutcome | undefined): Promise<number | undefined> {
-    const nextIso = nextNight(night)
-    const nextWindowStart = next?.night === nextIso ? next.windowStart : nightWindow(nextIso, ctx.userTimezone).windowStart
-    if (!rows.some(r => parseDateStr(r.date) + ROW_SECONDS > nextWindowStart))
-      return undefined
-    if (next?.night === nextIso && next.status === 'ok' && next.rows) {
-      const own = firstPrimaryMinute(next.rows)
-      if (own !== undefined)
-        return own
-    }
-    const [stored] = await deps.engine.execute<{ e: number | bigint | null }>(STORED_START_SQL(catalog), {
-      brand: ctx.brand,
-      family_id: ctx.familyId,
-      user_id: ctx.userId,
-      device_id: ctx.deviceId,
-      night: storedNightOf(nextWindowStart, ctx.userTimezone),
-    })
-    return stored?.e == null ? undefined : Number(stored.e)
   }
 
   /**
@@ -345,17 +282,15 @@ export function createSleepDeriver(deps: SleepDeriverDeps): SleepDeriver {
     const failedNights: string[] = []
     let firstNightError: string | undefined
     let nightsReplaced = 0
-    // Ascending, as `nightsBetween` sorts them: a night is cut by the one
-    // after it before either is replaced.
-    for (const [i, n] of result.nights.entries()) {
+    for (const n of result.nights) {
       if (n.status === 'failed') {
         failedNights.push(n.night)
         firstNightError ??= n.error
       }
       if (n.status !== 'ok' || !n.rows)
         continue
-      const cut = await nextNightStart(ctx, n.night, n.rows, result.nights[i + 1])
-      const rows = cut === undefined ? n.rows : n.rows.filter(r => parseDateStr(r.date) + ROW_SECONDS <= cut)
+      // v3.1's window: nothing at or after 18:00 on the night's morning (header).
+      const rows = n.rows.filter(r => parseDateStr(r.date) < n.windowEnd)
       const out = sessionsFromCorrected(rows, ctx, { settleMin: n.settleMin })
       if (out.sleep_session.length === 0)
         continue

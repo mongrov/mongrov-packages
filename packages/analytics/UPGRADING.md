@@ -1,5 +1,22 @@
 # Upgrading
 
+## Unreleased — a night ends at 18:00 on its morning (D6, v1 window)
+
+**Behaviour change in derived sleep; no API or schema change. Nights already
+stored are corrected the next time a sync re-derives them.**
+
+The sleep deriver drops every corrected row at or after the night's window end
+(18:00 local on its morning) before it becomes a session. Until now a night
+was cut where the NEXT night's first held minute was, so the 18:00 → that
+minute stretch of an envelope that ran past 18:00 (up to 30 minutes,
+`FETCH_AFTER`) stayed with the earlier night, and a night synced alone kept
+its tail until the next sync. v3.1 never showed either: its `clearNight` of
+the next night wiped them and its Day tab read a night only to 17:59:59. Found
+by the display-parity harness (README, "Sleep parity harnesses"): 27 of 1421
+dump-nights read 10–60 extra minutes of light sleep, among them ring 6035's
++29 / +30 (zivaone_app#553's shape). `nextNightStart` and its stored-start
+query are gone.
+
 ## Unreleased — ingest stores out-of-range readings; only malformed rows are dropped (S10, sprint6 T-60)
 
 **Behaviour change for `sink.push`, `sink.pushFirmware` and every `dropImplausibleRows` caller. New log line; `DropReport` gains a field.**
