@@ -299,7 +299,7 @@ describe('the night before a batch is re-derived (v1 parity, ruled 2026-10-28)',
   }, 60_000)
 })
 
-describe('a minute past 18:00 belongs to the later night (#75, v1 parity)', () => {
+describe('a minute past 18:00 belongs to the later night (#75, D6; v1 window, 2026-11-19)', () => {
   // A daytime sleeper: firmware light sleep 11:00 → 17:39, sleeping-level HR
   // on past 18:00. Phase 2 reads HR to windowEnd + FETCH_AFTER (18:30), so
   // night 1's envelope runs to 18:34 — into night 2's window, where night 2's
@@ -338,21 +338,35 @@ describe('a minute past 18:00 belongs to the later night (#75, v1 parity)', () =
     await whole.db.close()
 
     const r = await rig({ hrWindows: HR })
-    // Night 1 alone: nothing claims its tail yet, so it runs to 18:35 — the
-    // residual the next sync fixes by re-deriving the night before (D5).
+    // Night 1 alone ends at its own window's end, as v3.1's Day tab showed
+    // it: no 18:00–18:35 tail waiting for the next sync to cut it.
     await r.sync(night1())
     const [alone] = await r.sessions()
-    expect(alone.end).toBe('2026-06-18 18:35:00')
-    expect(alone.total_minutes).toBe(455)
+    expect(alone.end).toBe('2026-06-18 18:00:00')
+    expect(alone.total_minutes).toBe(420)
 
-    // Night 2's batch re-derives night 1 as the night before, so night 1 is
-    // replaced (its id moves with its END) and no stale row keeps the tail.
+    // Night 2's batch re-derives night 1 as the night before (D5): same rows.
     await r.sync(night2())
     const twice = await expectCut(r)
     expect(twice).toEqual(once)
-    expect(twice[0].session_id).not.toBe(alone.session_id)
+    expect(twice[0].session_id).toBe(alone.session_id)
     await r.db.close()
   }, 120_000)
+
+  it('a tail the later night never reaches is still not the earlier night\'s (v3.1 clearNight + Day-tab window)', async () => {
+    // Night 2 begins at 23:00, so nothing it holds reaches 18:00–18:35. v3.1
+    // wiped that stretch with night 2's clearNight, and its Day tab read
+    // night 1 through 17:59:59 anyway; until 2026-11-19 v2 kept it in night 1.
+    // Real case: dump 6035_12Jun, night of 2026-06-10 (10:59 → 18:30).
+    const r = await rig({ hrWindows: HR })
+    await r.sync([...night1(), ...rawNight('2026-06-18T23:00:01', 135)])
+    const s = await r.sessions()
+    expect(s.map(x => x.night)).toEqual(['2026-06-17', '2026-06-18'])
+    expect(s[0].end).toBe('2026-06-18 18:00:00')
+    expect(s[0].total_minutes).toBe(420)
+    expect(s[1].start).toBe('2026-06-18 23:00:01')
+    await r.db.close()
+  }, 60_000)
 
   it('a night re-derived alone still loses its tail to the later night already stored', async () => {
     // The reverse order: night 2 is stored, then a batch touches night 1

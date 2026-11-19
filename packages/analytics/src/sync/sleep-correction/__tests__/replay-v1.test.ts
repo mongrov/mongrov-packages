@@ -24,20 +24,26 @@
  *       10-min `activity_bucket` (staging.ts, 0.48.0); v3.1 fed the record's
  *       own `activitydetails.step`. The two differ where sum(arraySteps) ≠
  *       step (~1.3% of records) or a bucket has no minute rows.
- *   (e) overlap — the night ends where the next night begins (#75, as v3.1's
- *       `clearNight` cut it on the phone); the oracle harness ran each night
- *       alone, so its tail runs on into the next night's window.
+ *   (e) window — the night ends at its own window's end, 18:00 on its
+ *       morning (#75/D6: v3.1's `clearNight` of the next night wiped the
+ *       tail, and its Day tab read the night only to 17:59:59); the oracle
+ *       harness ran each night alone, so its tail runs on past 18:00.
  *   (d) other
  *
  * Captures are real users' ring data and are not in this repo. Set
  * SLEEP_CAPTURES_DIR to ziva_app `packages/ux/helpers/testFiles` to run.
  * SLEEP_REPLAY_OUT=<file> writes the per-night comparison.
+ *
+ * With SLEEP_REPLAY_EXPORT_DIR also set, a second suite replays EVERY dump
+ * (not only the study nights) and exports what the app's sleep screens read,
+ * step 1 of the display-parity harness (analytics README, "Sleep parity
+ * harnesses").
  */
 import type { FirmwareExport } from '../../mapper/types'
 import type { SqlRunner } from '../correct'
 import type { SleepRelations } from '../sql'
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -52,10 +58,13 @@ import { OverflowStore } from '../../overflow'
 import { createSleepDeriver } from '../../sleep-derive'
 import { correctNight, detectNightHrTier, globalBaselines } from '../correct'
 import { nightWindow } from '../night'
+import { nightsForEpochs } from '../orchestrate'
 import { DEFAULT_RELATIONS } from '../sql'
 
 const CAPTURES = process.env.SLEEP_CAPTURES_DIR
 const OUT = process.env.SLEEP_REPLAY_OUT
+/** Display parity, step 1: every dump's warehouse rows land here (analytics README, "Sleep parity harnesses"). */
+const EXPORT_DIR = process.env.SLEEP_REPLAY_EXPORT_DIR
 const REF = JSON.parse(readFileSync(join(__dirname, 'fixtures/reference.v31.json'), 'utf8')) as {
   nights: RefNight[]
 }
@@ -327,8 +336,8 @@ function embeddedNights(dump: Record<string, unknown>, tzHours: number): Map<str
 // The production rig — `sleep-derive.test.ts` `rig()` fed by the mapper
 // ---------------------------------------------------------------------------
 
-const TABLES = ['sleep_raw', 'sleep_session', 'sleep_stage', 'heart_rate', 'activity', 'activity_bucket'] as const
-const FLUSHED = ['heart_rate', 'activity', 'activity_bucket', 'sleep_raw'] as const
+const TABLES = ['sleep_raw', 'sleep_session', 'sleep_stage', 'heart_rate', 'activity', 'activity_bucket', 'spo2', 'hrv'] as const
+const FLUSHED = ['heart_rate', 'activity', 'activity_bucket', 'spo2', 'hrv', 'sleep_raw'] as const
 
 const lit = (v: unknown) => (v == null || v === '' || Number.isNaN(Number(v)) ? 'NULL' : String(Number(v)))
 
@@ -638,11 +647,12 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
         // Drift from the oracle (or a session where the oracle had none):
         // re-run under controlled conditions to name the cause.
         const driftsFromRef = want ? row.vsRef != null && !row.vsRef.within : ref.error != null && stats != null
-        // The night's END is the next stored session's start: cut by the
-        // night after it (#75). A standalone re-run cannot reproduce that.
-        const cutByNext = stats != null && row.vsRef != null && row.vsRef.dEnd < 0
-          && r.sessions.some(s => s.s === stats.procEnd + 60)
-        if (driftsFromRef && cutByNext) {
+        // The night's END is its window's end: the oracle's tail ran past
+        // 18:00, which v3.1's clearNight of the next night wiped and its Day
+        // tab never showed (#75, D6). A standalone re-run cannot reproduce that.
+        const cutAtWindow = stats != null && want != null && row.vsRef != null && row.vsRef.dEnd < 0
+          && want.procEnd >= w.windowEnd && stats.procEnd < w.windowEnd
+        if (driftsFromRef && cutAtWindow) {
           row.experiments = { cause: 'e' }
         }
         else if (driftsFromRef && ref.tier != null && ref.p75 != null && ref.p90 != null) {
@@ -755,4 +765,96 @@ describe.skipIf(!CAPTURES)('sleep correction — v1 dumps through the production
     // At least as good as the parity harness, once the known conventions are named.
     expect(exact.length + within.length + explained.length).toBeGreaterThanOrEqual(PARITY_FLOOR)
   }, 600_000)
+})
+
+// ---------------------------------------------------------------------------
+// Display parity, step 1 of 3: every dump through the production path,
+// exported for the v1 display oracle (scripts/sleep-v1-display-oracle.mjs)
+// and the app's display-parity test (zivaone_app
+// src/features/sleep/__tests__/v1-display-parity.test.ts).
+// ---------------------------------------------------------------------------
+
+/**
+ * Ring → IANA zone for every capture, study or not. The study rings take the
+ * oracle's tz; the rest were read off each dump's ring doc (phone wall clock
+ * − write time) and cross-checked against the hours the ring slept. Both
+ * sides of the display comparison read the zone from `meta.json`, so a wrong
+ * guess here moves both equally; it never makes v1 and v2 disagree.
+ */
+const ZONE_FOR_RING: Record<string, string> = {
+  1639: 'America/Los_Angeles',
+  2357: 'America/Los_Angeles',
+  3787: 'America/Los_Angeles',
+  8047: 'America/Los_Angeles',
+  9150: 'America/Los_Angeles',
+  9837: 'America/Los_Angeles',
+  8083: 'Asia/Singapore',
+}
+const zoneForRing = (ring: string) => ZONE_FOR_RING[ring] ?? 'Asia/Kolkata'
+
+/** Tables the app's sleep reads touch, exported per dump as parquet. */
+const EXPORTED = ['sleep_session', 'sleep_stage', 'heart_rate', 'spo2', 'hrv'] as const
+
+function shiftIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
+}
+
+describe.skipIf(!CAPTURES || !EXPORT_DIR)('sleep display parity, step 1 — every dump through the production path', () => {
+  it('exports each dump\'s derived sleep and sleep-window vitals', async () => {
+    const files = readdirSync(CAPTURES!).filter(f => f.endsWith('.json')).sort()
+    mkdirSync(EXPORT_DIR!, { recursive: true })
+    const index: Array<{ dump: string, ring: string, zone: string, nights: number, sessions: number, skipped?: string }> = []
+    for (const file of files) {
+      const dump = JSON.parse(readFileSync(join(CAPTURES!, file), 'utf8')) as Record<string, unknown>
+      const ring = file.split('_')[0]
+      const zone = zoneForRing(ring)
+      const name = file.replace(/\.json$/, '')
+      const sleepRows = Array.isArray(dump.sleep) ? dump.sleep.length : 0
+      if (sleepRows === 0) {
+        index.push({ dump: name, ring, zone, nights: 0, sessions: 0, skipped: 'no sleep rows' })
+        continue
+      }
+      const r = await replayCapture(dump, ring, zone)
+      const db = r.db as unknown as SqlRunner
+      const dir = join(EXPORT_DIR!, name)
+      mkdirSync(dir, { recursive: true })
+      for (const t of EXPORTED)
+        await r.db.execute(`COPY (SELECT * FROM ${t} ORDER BY ALL) TO '${join(dir, `${t}.parquet`)}' (FORMAT PARQUET)`)
+
+      // The scalars production used, so the oracle can also run v1's code
+      // under them (separating D3 / exact-quantile drift from the rest).
+      const { p75, p90 } = await globalBaselines(db, r.cutoffEpoch)
+      const raw = await r.db.execute<{ e: unknown }>(`SELECT DISTINCT CAST(epoch(ts) AS BIGINT) AS e FROM sleep_raw WHERE quality IN (1, 2, 3, 5)`)
+      const nights = nightsForEpochs(raw.map(x => Number(x.e)), zone)
+      const tiers: Record<string, { tier: number, source: string }> = {}
+      if (nights.length) {
+        for (let iso = nights[0]; iso <= shiftIso(nights[nights.length - 1], 1); iso = shiftIso(iso, 1)) {
+          const w = nightWindow(iso, zone)
+          const t = await detectNightHrTier(db, w.windowStart, w.windowEnd)
+          tiers[iso] = { tier: t.tier, source: t.source }
+        }
+      }
+      const [{ now }] = await r.db.execute<{ now: unknown }>(`SELECT CAST(epoch(max(ts)) AS BIGINT) + 60 AS now FROM sleep_raw`)
+      writeFileSync(join(dir, 'meta.json'), JSON.stringify({
+        dump: file,
+        ring,
+        zone,
+        tenant: { ...TENANT, deviceId: ring },
+        nowEpoch: Number(now),
+        cutoffEpoch: r.cutoffEpoch,
+        lookbackDays: LOOKBACK_DAYS,
+        p75,
+        p90,
+        nights,
+        tiers,
+      }, null, 1))
+      index.push({ dump: name, ring, zone, nights: nights.length, sessions: r.sessions.length })
+      await r.db.close()
+    }
+    writeFileSync(join(EXPORT_DIR!, 'index.json'), JSON.stringify({ generatedAt: new Date().toISOString(), dumps: index }, null, 1))
+    console.log(`exported ${index.filter(d => !d.skipped).length}/${index.length} dumps, `
+      + `${index.reduce((n, d) => n + d.sessions, 0)} sessions, to ${EXPORT_DIR}`)
+    expect(index).toHaveLength(files.length)
+  }, 1_800_000)
 })

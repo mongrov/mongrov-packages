@@ -345,6 +345,74 @@ docker. See `.github/workflows/ci.yml`.
 shipped bundle. React Native consumers still ship
 `react-native-duckdb` via the app-level `duckdbFactory`.
 
+## Sleep parity harnesses (v1 = ziva_app v3.1)
+
+Sleep is carried forward from ziva_app v1 (`fix/sleepProcessed`, v3.1): where
+v2's numbers differ from v1's, v1 wins unless techspec records a ruling
+(sleep-correction spec: D3 per-night HR tier, D4 10-minute step buckets, D5
+the night before, D6 the later night owns 18:00, SC4 time asleep is the
+headline). Three harnesses check that, all env-gated because the 171 ring dumps
+they read are real users' data and never enter a repo. Point them at
+ziva_app's `packages/ux/helpers/testFiles`:
+
+```bash
+export SLEEP_CAPTURES_DIR=~/work/mongrov/ziva_app/packages/ux/helpers/testFiles
+```
+
+**1. Correction logic** — `src/sync/sleep-correction/__tests__/parity.test.ts`.
+The DuckDB port against `fixtures/reference.v31.json` (v3.1 run on
+datafusion-cli), 92 study nights. Mode B injects the reference scalars and must
+be 92/92; mode A computes its own (exact quantiles) and stands at 89/92.
+
+```bash
+pnpm vitest run src/sync/sleep-correction/__tests__/parity.test.ts   # SLEEP_PARITY_OUT=<file> for per-night rows
+```
+
+**2. Production path** — `src/sync/sleep-correction/__tests__/replay-v1.test.ts`.
+Each study dump through the path a ring sync takes (`mapFirmwareExport` →
+buffer → flusher → `LOCAL_SCHEMAS` DuckDB → `createSleepDeriver`) against the
+same oracle. Every drifting night is re-run to name its cause: (a) D3 tier,
+(b) exact quantiles, (c) steps, (e) the 18:00 window, (d) other — (d) must be
+empty. 2026-11-19: 73/92 exact, 18 explained (13 a, 2 b, 3 e).
+
+```bash
+pnpm vitest run src/sync/sleep-correction/__tests__/replay-v1.test.ts   # SLEEP_REPLAY_OUT=<file>
+```
+
+**3. What the screens show** — three steps across two repos, every dump and
+every night (2026-11-19: 170 dumps, 1421 dump-nights).
+
+```bash
+export SLEEP_REPLAY_EXPORT_DIR=/tmp/sleep-parity        # any scratch folder
+
+# a) v2: every dump through the production path; per dump, parquet of what the
+#    app's sleep reads touch + meta.json (zone, scalars, per-night tier)
+pnpm vitest run src/sync/sleep-correction/__tests__/replay-v1.test.ts -t "step 1"
+
+# b) v1: v3.1's own code, out of ziva_app git, on datafusion-cli — the
+#    correction loop of AppContextProvider (clearNight + insert, night by
+#    night) and the Day tab's sleepSummaryQuery / aggregateValuesQuery.
+#    Writes <dump>/v1-display.json: v1 as it ran, and v1 fed v2's scalars.
+ZIVA_APP_DIR=~/work/mongrov/ziva_app node scripts/sleep-v1-display-oracle.mjs
+#    (V1_REF=fix/sleepProcessed, DATAFUSION_CLI=/opt/homebrew/bin/datafusion-cli, JOBS=6)
+
+# c) the app's own queries and derivations over (a), compared field by field
+#    with (b): asleep, asleep (week), time in bed, deep/light/REM/awake,
+#    bedtime, wake, efficiency, heart rate, SpO₂, HRV
+cd ../../../zivaone_app && pnpm jest src/data/__tests__/sleep-v1-display-parity   # SLEEP_DISPLAY_OUT=<file>
+```
+
+Step (c) asserts every field exact against "v1 fed v2's scalars" on every
+night; "v1 as it ran" is printed beside it, its differences being the
+rulings'. A package change shows in (c) only after (a) is re-run from this
+checkout; an app change, after (c) alone.
+
+Two things these harnesses found about the reference itself:
+datafusion-cli 53's `--format csv` stdout drops rows from multi-batch results
+(the "N row(s) fetched" line stays right), and v3.1's window functions break
+`date` ties differently across partitions. The oracle script therefore COPYs
+every result to a file and runs one partition; it is deterministic run to run.
+
 ## Boundaries
 
 - **No** direct dependencies on `react-native-ble-plx`, `@mongrov/device`,
