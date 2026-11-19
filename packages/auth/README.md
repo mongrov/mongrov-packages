@@ -6,6 +6,8 @@ Auth lifecycle, token management, and biometric gate for React Native / Expo app
 
 - **Adapter pattern** — plug any backend by implementing `AuthAdapter`
 - **Secure token storage** — expo-secure-store, no plaintext fallback
+- **Secure credentials** — sync keychain storage with an app-extensible key union and plaintext migration
+- **Backend adapters** — Rocket.Chat (session handoff or password/OAuth) and Odoo
 - **Proactive token refresh** — timer-based refresh before expiry
 - **401 interceptor** — Axios interceptor with single-flight refresh and request queueing
 - **Biometric gate** — optional biometric authentication via expo-local-authentication
@@ -80,6 +82,64 @@ Derived session with `user`, `permissions`, `hasPermission()`, and `accessToken`
 ### `SecureTokenStore`
 
 Secure token persistence in `expo-secure-store` (keychain / keystore). Without it, saving a token rejects: tokens are never written to plain storage.
+
+### `createSecureCredentials({ keys, legacy?, keychainAccessible?, logger? })`
+
+Synchronous credential storage on the keychain / keystore (`expo-secure-store` `getItem` / `setItem`), for every credential the app keeps — the auth client's tokens and any other service's token — so they cannot drift apart across two backends.
+
+The key type is **app-supplied**: pass the keys `as const` and the union is inferred. A key outside it is a `tsc` error, and every key is checked against `SECURE_STORE_KEY_PATTERN` (`/^[\w.-]+$/`, which expo-secure-store enforces by throwing) when the store is created.
+
+```ts
+import type { CredentialKeyOf } from '@mongrov/auth';
+import { createSecureCredentials } from '@mongrov/auth';
+
+export const credentials = createSecureCredentials({
+  keys: ['mongrov.auth-access', 'mongrov.auth-refresh', 'chat.authToken'] as const,
+  // Optional one-way move off a plaintext store: copied on first read, then deleted there.
+  legacy: { store: plainKv, keys: { 'chat.authToken': 'chat:authToken' } },
+  logger,
+});
+export type CredentialKey = CredentialKeyOf<typeof credentials>;
+
+credentials.write('chat.authToken', token); // throws on failure
+credentials.read('chat.authToken');         // string | null, never throws
+credentials.delete('chat.authToken');       // nothing readable on return
+```
+
+- Keys are the on-device entry names, used as given (no prefix, no keychain service). Renaming one signs existing users out of it.
+- `keychainAccessible` defaults to `AFTER_FIRST_UNLOCK` (readable by background work while locked; kept on backup restore). Keep it stable across releases.
+- The logger receives key names and failure reasons only, never values.
+
+### Backend adapters
+
+Ready-made `AuthAdapter`s. None takes an admin or service token: anything an app is built with is readable from its bundle, so privileged calls belong on a server. Options named like one (`adminToken`, `serviceToken`, ...) are refused.
+
+**`createRocketChatSessionAdapter({ port, logger?, revokeTimeoutMs?, tokenLifetimeSeconds?, httpStatusOf? })`** — for an app whose Rocket.Chat client performs the login and keeps the user's token. The app passes `signIn({ authToken, userId })`; the adapter wraps the token in an unsigned JWT with `exp` (so hydrate's expiry check passes) and talks to the client only through a small port:
+
+```ts
+const adapter = createRocketChatSessionAdapter({
+  port: {
+    getCredentials: () => chatStore.getState(),            // { authToken, userId }
+    clearCredentials: () => chatStore.getState().clearCredentials(),
+    setUsername: name => chatStore.getState().setUsername(name),
+    fetchMe: () => chatApi.get('/me'),
+    revoke: (creds, signal) => chatApi.logout(creds, signal), // POST /logout with these creds
+  },
+  logger,
+});
+```
+
+At sign-out it starts `revoke` with the captured token, clears the device without waiting, and gives up after `revokeTimeoutMs` (default `ROCKETCHAT_REVOKE_TIMEOUT_MS`, 3 s); the outcome is logged as `auth.logout.server_revoke` with a status, never the token. `getUser` never returns an empty id. Use `proactiveRefresh: false` with it (the token lifetime is a year).
+
+**`createRocketChatAdapter({ baseUrl, timeout?, logger? })`** — email/password and native OAuth login against `/api/v1/login`; logout calls `/api/v1/logout`.
+
+**`createOdooAdapter({ baseUrl, database, timeout?, logger? })`** — JSON-RPC session login (`/web/session/authenticate`), cookie session refresh, `/web/session/destroy` on logout.
+
+The last two need the optional `axios` peer; it is loaded only when one of them is created.
+
+### `redactAuthString(value)`
+
+Log-safe form of free text: a token-shaped value becomes `[redacted]`, e-mail addresses become `[email]`.
 
 ### `createAuthInterceptor(axiosInstance, authClient): () => void`
 

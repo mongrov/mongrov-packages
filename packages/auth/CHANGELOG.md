@@ -5,6 +5,27 @@ All notable changes to `@mongrov/auth` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`createSecureCredentials`** — synchronous keychain/keystore credential storage
+  (`expo-secure-store` `getItem`/`setItem`) with an app-supplied key union (inferred from
+  `keys` `as const`; `CredentialKeyOf<T>`), key validation at creation
+  (`SECURE_STORE_KEY_PATTERN`), an optional one-way migration off a plaintext store,
+  tolerant reads, throwing writes and a synchronous erase on delete. Keys are used as
+  given with `keychainAccessible: AFTER_FIRST_UNLOCK` by default, so entries written by
+  the same keys before adopting it stay readable.
+- **`createRocketChatSessionAdapter`** — `AuthAdapter` for a Rocket.Chat client that does
+  the login itself, through a `RocketChatSessionPort`. Revokes the token on the server at
+  sign-out (bounded by `ROCKETCHAT_REVOKE_TIMEOUT_MS`, never blocking the local sign-out),
+  logs `auth.logout.server_revoke` without the token, never returns an empty user id.
+- **`createRocketChatAdapter`** (email/password, native OAuth) and **`createOdooAdapter`**
+  (JSON-RPC session). `axios` stays an optional peer, loaded when one is created.
+- Adapters refuse admin/service-token options: privileged calls belong on a server.
+- **`redactAuthString`** exported.
+
+Moved down from a consuming app (package-separation S-06); behaviour unchanged.
+
 ## [0.11.0] - 2026-10-24
 
 ### Removed
