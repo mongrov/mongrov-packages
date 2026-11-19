@@ -1,24 +1,2 @@
-/**
- * Heart-rate mapper (T-03).
- *
- * Firmware column rename: `singleHR` → `bpm`. No sentinel handling: the ring
- * firmware simply omits rows when it has no valid reading, so any row that
- * makes it here is a valid measurement.
- */
-
-import type { FirmwareHRRow, HeartRateRow, MapperContext } from './types'
-import { parseTimestamp } from './time'
-
-export function mapHeartRate(
-  rows: readonly FirmwareHRRow[],
-  ctx: MapperContext,
-): HeartRateRow[] {
-  return rows.map(row => ({
-    ts: parseTimestamp(row.timestamp),
-    brand: ctx.brand,
-    family_id: ctx.familyId,
-    user_id: ctx.userId,
-    device_id: ctx.deviceId,
-    bpm: row.singleHR,
-  }))
-}
+/** Moved to the ring pack (package-separation S-02); S-03 moves it to `@zivaone/ring`. */
+export * from '../../packs/ring/mapper/heart-rate'

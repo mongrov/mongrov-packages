@@ -47,6 +47,9 @@ export interface SyncCoordinator {
    * and `fetchIncremental` so the fetch step sees consistent closes.
    * Optional — only wired when `tables` includes `'device_config'`.
    */
+  /** Packs' after-push steps (e.g. replaying SCD-2 closes), before the fetch. */
+  afterPush?: (ctx: AttachContext) => Promise<void>
+  /** @deprecated the pre-pack name of `afterPush`; used when `afterPush` is absent. */
   pushClosesForDeviceConfig?: (ctx: AttachContext) => Promise<void>
   fetchIncremental: (ctx: AttachContext) => Promise<StepResult[]>
   /**
@@ -232,7 +235,8 @@ export class SyncScheduler {
     try {
       const flushed = await this.#config.coordinator.flushAll()
       const pushed = await this.#config.coordinator.pushAll(this.#config.tables, this.#config.ctx)
-      await this.#config.coordinator.pushClosesForDeviceConfig?.(this.#config.ctx)
+      const afterPush = this.#config.coordinator.afterPush ?? this.#config.coordinator.pushClosesForDeviceConfig
+      await afterPush?.(this.#config.ctx)
       const fetched = await this.#config.coordinator.fetchIncremental(this.#config.ctx)
       // Baselines are derived data — a failure here leaves the previous
       // (still-valid) rows in place and must not mark the cycle failed,

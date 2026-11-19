@@ -16,8 +16,10 @@
  * the platform pack. Tables, retention, views and migrations all follow it.
  */
 
+import type { DropReport } from '../sync/drops'
 import type { HybridDuckDB } from './engine'
 import type { MigrationCatalogs } from './migrations'
+import type { AttachContext, KVStore } from './types'
 import { DEFAULT_PACKS } from '../packs'
 import { AnalyticsError } from './errors'
 import { PLATFORM_PACK } from './platform-pack'
@@ -59,6 +61,12 @@ export interface PackTable {
   identity?: readonly string[]
   /** Read through a `v_<table>` union view (local rows past the push watermark + remote). */
   view?: boolean
+  /**
+   * Ingest validation (spec §13 S10): split rows into the ones to store and
+   * a count, by reason, of the rest. Applied to every row buffered for the
+   * table, through `SensorSink.push` and through ingest adapters alike.
+   */
+  validate?: (rows: readonly Record<string, unknown>[]) => DropReport
 }
 
 // -------------------- migrations --------------------
@@ -101,6 +109,62 @@ export interface QualityViewProvider {
   macroNames?: () => string[]
 }
 
+// -------------------- ingest --------------------
+
+/** Who a batch of device output belongs to. */
+export interface IngestContext {
+  brand: string
+  familyId: string
+  userId: string
+  deviceId: string
+  /** IANA zone of the user, for adapters that bucket by local time. */
+  userTimezone?: string
+}
+
+/** What an adapter may use while it maps. */
+export interface IngestDeps {
+  /** Query or write the local catalog (attached engine). */
+  execute: <T = Record<string, unknown>>(sql: string, params?: Record<string, unknown>) => Promise<T[]>
+  /** Tables the sync manager flushes (`createSyncManager({ tables })`). */
+  tables: readonly string[]
+  /** The app's key-value store, for an adapter's own bookkeeping. */
+  storage: KVStore
+  /** The sync manager's attach context. */
+  attach: AttachContext
+}
+
+/** Rows to buffer, by table, in order. */
+export type IngestRows = ReadonlyArray<readonly [table: string, rows: readonly Record<string, unknown>[]]>
+
+/**
+ * Turns one device's raw output into rows (`SensorSink.ingest(name, raw,
+ * ctx)`). The engine then validates each table's rows with the table's
+ * `validate`, counts what is dropped, buffers the rest and tells post-flush
+ * jobs what arrived. Runs before anything is buffered, so it may first read
+ * or update the local catalog (e.g. close SCD-2 rows it supersedes).
+ */
+export interface IngestAdapter<TRaw = unknown, TCtx extends IngestContext = IngestContext> {
+  ingest: (raw: TRaw, ctx: TCtx, deps: IngestDeps) => Promise<IngestRows>
+}
+
+/** What a pack's sync hooks may use. */
+export interface SyncHookDeps {
+  /** Run statements against one remote table, with the pusher's auth retry and events. */
+  pushRemote: (
+    table: string,
+    run: (remoteTable: string, execute: (sql: string, params?: Record<string, unknown>) => Promise<unknown>) => Promise<number>,
+  ) => Promise<{ ok: boolean, error?: Error }>
+  storage: KVStore
+  tables: readonly string[]
+  logger?: { warn: (msg: string, meta?: Record<string, unknown>) => void }
+}
+
+/** Steps a pack adds to each scheduled sync cycle (r2 mode only). */
+export interface PackSyncHooks {
+  /** After the cycle's push, before its fetch. */
+  afterPush?: (ctx: AttachContext, deps: SyncHookDeps) => Promise<void>
+}
+
 // -------------------- the pack --------------------
 
 export interface AnalyticsPack {
@@ -132,6 +196,9 @@ export interface AnalyticsPack {
     map: (ledgerVersion: number) => number
   }
   quality?: QualityViewProvider
+  /** Ingest adapters by name (`SensorSink.ingest(name, raw, ctx)`). */
+  ingest?: Readonly<Record<string, IngestAdapter<any, any>>>
+  sync?: PackSyncHooks
   /** Free-form extensions read by other subsystems (ingest, post-flush, rules, tools). */
   [extension: string]: unknown
 }
@@ -263,6 +330,16 @@ export function viewedTables(): readonly string[] {
 /** Every pack's quality views, in pack order. */
 export function qualityProviders(): readonly QualityViewProvider[] {
   return lookup().quality
+}
+
+/** An ingest adapter by name, from the first pack that declares it. */
+export function ingestAdapter(name: string): IngestAdapter<any, any> | undefined {
+  for (const p of lookup().packs) {
+    const a = p.ingest?.[name]
+    if (a)
+      return a
+  }
+  return undefined
 }
 
 /** A named extension from every pack that declares it, in pack order. */
