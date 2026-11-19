@@ -81,15 +81,21 @@ export {
 
 export type {
   AnalyticsPack,
+  BaselineDefinition,
+  BaselineProvider,
   IngestAdapter,
   IngestContext,
   IngestDeps,
   IngestRows,
+  NotedRows,
   PackMigration,
   PackSyncHooks,
   PackTable,
   PackTableRetention,
   PackViewDdl,
+  PostFlushDeps,
+  PostFlushJob,
+  PostFlushRunner,
   QualityViewProvider,
   SyncHookDeps,
 } from './packs'

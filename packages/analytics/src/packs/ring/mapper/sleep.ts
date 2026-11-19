@@ -21,7 +21,7 @@
  * different things — `FIRMWARE_QUALITY_TO_STAGE` is the one crossing point.
  */
 
-import type { ClassifiedRow } from '../../../sync/sleep-correction/classify'
+import type { ClassifiedRow } from '../sleep-correction/classify'
 import type {
   FirmwareSleepRawRow,
   MapperContext,
@@ -29,7 +29,7 @@ import type {
   SleepSessionRow,
   SleepStageRow,
 } from './types'
-import { parseDateStr } from '../../../sync/sleep-correction/classify'
+import { parseDateStr } from '../sleep-correction/classify'
 import { computeNightOf, parseTimestamp } from './time'
 
 /**
