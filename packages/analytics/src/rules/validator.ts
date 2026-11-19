@@ -6,19 +6,29 @@
  * cadence + the minimum viable window.
  */
 
-import type { MetricId } from '../core/metric_metadata'
-
+import type { MetricSampling } from '../core/metrics'
+import type { RulePack, RuleSettings } from '../core/packs'
 import type { Rule, Window } from './schema'
 import type { RulesLogger } from './types'
-import {
-  isRegisteredKvKey,
-  isRuleReadableKvKey,
-  KV_KEY_REGISTRY,
-  ruleReadableKvKeys,
-} from '@mongrov/types/kv-keys'
-import { METRIC_METADATA } from '../core/metric_metadata'
-import { minimumWindowMinutes } from '../core/sampling'
+import { collectedOnlyColumns, metricDefinition, samplingLabelFor } from '../core/metrics'
+import { packExtensions } from '../core/packs'
 import { RuleValidationError, WINDOWS } from './schema'
+
+function rulePacks(): RulePack[] {
+  return packExtensions<RulePack>('rules')
+}
+
+/** The first registered settings registry rules may read. */
+function settings(): RuleSettings | undefined {
+  return rulePacks().find(p => p.settings)?.settings
+}
+
+/** `consecutive x sampling` in minutes, or null for per-session metrics. */
+function minimumWindowMinutes(sampling: MetricSampling, consecutive: number): number | null {
+  if (sampling === 'per_session')
+    return null
+  return sampling * Math.max(1, consecutive)
+}
 
 /** Window durations in minutes. */
 const WINDOW_MINUTES: Record<Window, number> = {
@@ -31,32 +41,16 @@ const WINDOW_MINUTES: Record<Window, number> = {
 }
 
 /**
- * Explicit table per spec §Sampling-minimum validator. The remaining
- * exposed metrics fall through to a derived allow-list built from
- * `METRIC_METADATA[id].sampling_minutes` (see `allowedWindowsFor`).
- */
-const EXPLICIT_SAMPLING_MINIMUMS: Partial<Record<MetricId, Window[]>> = {
-  hrv_ms: ['24h', '3d', '7d', '30d'],
-  stress: ['6h', '24h', '3d', '7d', '30d'],
-  hr_bpm: ['1h', '6h', '24h', '3d', '7d', '30d'],
-  spo2: ['6h', '24h', '3d', '7d', '30d'],
-  temp_c: ['24h', '3d', '7d', '30d'],
-  activity_steps: ['1h', '6h', '24h', '3d', '7d', '30d'],
-  sleep_total_minutes: ['3d', '7d'],
-  device_battery: ['1h', '6h', '24h'],
-}
-
-/**
  * Allow-list of windows compatible with `metric.sampling_minutes`.
  * A window is compatible iff its duration ≥ (2 × sampling cadence),
  * i.e. the query is guaranteed to see at least two samples worst-case.
  * `per_session` metrics (sleep_score, sleep_total_minutes) require ≥ 3d.
  */
-export function allowedWindowsFor(metric: MetricId): Window[] {
-  const explicit = EXPLICIT_SAMPLING_MINIMUMS[metric]
+export function allowedWindowsFor(metric: string): Window[] {
+  const explicit = rulePacks().find(p => p.windows?.[metric])?.windows?.[metric]
   if (explicit)
-    return explicit
-  const cadence = METRIC_METADATA[metric].sampling_minutes
+    return [...explicit] as Window[]
+  const cadence = metricDefinition(metric)?.sampling_minutes ?? 'per_session'
   if (cadence === 'per_session') {
     return ['3d', '7d', '30d']
   }
@@ -64,18 +58,8 @@ export function allowedWindowsFor(metric: MetricId): Window[] {
   return WINDOWS.filter(w => WINDOW_MINUTES[w] >= minWindow)
 }
 
-/** Columns whose metric is marked `collected_only`. */
-const COLLECTED_ONLY_COLUMNS = new Set(
-  Object.values(METRIC_METADATA)
-    .filter(entry => entry.exposure === 'collected_only')
-    .map(entry => entry.column),
-)
-
-function samplingLabel(metric: MetricId): string {
-  const cadence = METRIC_METADATA[metric].sampling_minutes
-  return cadence === 'per_session'
-    ? 'once per sleep session'
-    : `every ${cadence}min`
+function samplingLabel(metric: string): string {
+  return samplingLabelFor(metric)
 }
 
 /**
@@ -88,7 +72,7 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
   validateConsecutive(rule)
   validateCadence(rule)
   validateMinDays(rule)
-  validateContext(rule)
+  for (const pack of rulePacks()) pack.validate?.(rule)
   validateUserSettingKey(rule)
   validatePhaseBand(rule)
 
@@ -131,54 +115,13 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
  * satisfiable, never less.
  */
 /**
- * D3 — HRV rules are relative-only (sprint6 §4).
- *
- * There is no meaningful absolute HRV threshold: 30 ms is alarming for one
- * person and unremarkable for another, so a fixed flag is a number that means
- * something different for every user who sees it.
- *
- * This is a validator rather than a review note because review has already
- * failed at it. Every generation of the HRV screen so far has shipped an
- * absolute flag — the most recent as `thresh: 35` on a drag control — and
- * each was caught by a person, late, after the work was done. Code catches
- * it whoever writes it and whenever they write it.
- *
- * `user_setting` is absolute too: letting the user pick 35 ms does not make
- * 35 ms mean anything. Relative targets (`baseline_percent`,
- * `baseline_stddev`, `baseline_offset`) are the whole permitted set.
- */
-const RELATIVE_ONLY_METRICS = new Set(['hrv_ms'])
-const ABSOLUTE_TARGET_TYPES = new Set(['absolute', 'range', 'user_setting'])
-
-/**
  * Admission policy, checked at REGISTRATION rather than inside
- * `validateRule`.
- *
- * `validateRule` answers "is this rule well-formed?" — a structural question
- * with the same answer everywhere. This answers "may this rule enter the
- * system?", which is a product decision. Keeping them apart matters
- * practically as well as conceptually: unit tests use `hrv_ms` as an ordinary
- * metric to exercise the compiler's absolute branch and the window minimums,
- * and a policy living in the structural validator made 36 of them fail for
- * reasons that had nothing to do with what they assert.
+ * `validateRule`: `validateRule` answers "is this rule well-formed?", a
+ * structural question; this answers "may this rule enter the system?", a
+ * product decision the packs make (`pack.rules.admit`).
  */
 export function assertRegistrable(rule: Rule): void {
-  validateRelativeOnly(rule)
-}
-
-function validateRelativeOnly(rule: Rule): void {
-  if (!RELATIVE_ONLY_METRICS.has(rule.metric))
-    return
-  if (!ABSOLUTE_TARGET_TYPES.has(rule.target.type))
-    return
-
-  throw new RuleValidationError(
-    `Rule ${rule.id}: metric ${rule.metric} is relative-only (decision D3) — `
-    + `target.type '${rule.target.type}' sets an absolute threshold. There is `
-    + `no HRV number that means the same thing for two people; compare against `
-    + `the user's own baseline instead (baseline_offset, baseline_percent or `
-    + `baseline_stddev). See .specifica/hrv/spec.md D3.`,
-  )
+  for (const pack of rulePacks()) pack.admit?.(rule)
 }
 
 /** Days in each day-sized window; hour windows cannot hold a day count. */
@@ -250,8 +193,7 @@ function validateCadence(rule: Rule): void {
 
 /** Upper bound of a registered KV key's range, when it declares one. */
 function consecutiveKeyMax(key: string): number | undefined {
-  const entry = (KV_KEY_REGISTRY as Record<string, { range?: readonly [number, number] }>)[key]
-  return entry?.range?.[1]
+  return settings()?.range?.(key)?.[1]
 }
 
 function validateConsecutive(rule: Rule): void {
@@ -278,9 +220,9 @@ function validateConsecutive(rule: Rule): void {
     )
   }
 
-  const cadence = METRIC_METADATA[rule.metric].sampling_minutes
+  const cadence = metricDefinition(rule.metric)?.sampling_minutes ?? 'per_session'
   if (cadence === 'per_session') {
-    // One value per night; "consecutive samples" means consecutive nights,
+    // One value per session; "consecutive samples" means consecutive nights,
     // which the window already bounds.
     return
   }
@@ -292,25 +234,6 @@ function validateConsecutive(rule: Rule): void {
       `Rule ${rule.id}: consecutive ${n} x ${cadence}min sampling needs `
       + `${needed}min but window ${rule.window} is only ${available}min. `
       + `The rule could never fire. Widen the window or lower consecutive.`,
-    )
-  }
-}
-
-/**
- * T-21 — context compatibility.
- *
- * `context: 'asleep'` JOINs `v_sleep_session` on the metric's `ts`, so a
- * metric whose own time axis IS the sleep session (sleep_total_minutes)
- * would self-join meaninglessly.
- */
-function validateContext(rule: Rule): void {
-  if (rule.context === 'any')
-    return
-  const table = METRIC_METADATA[rule.metric].table
-  if (table === 'sleep_session') {
-    throw new RuleValidationError(
-      `Rule ${rule.id}: context '${rule.context}' is redundant for metric `
-      + `${rule.metric} — it is already a per-session measure. Use context 'any'.`,
     )
   }
 }
@@ -334,17 +257,18 @@ function validateUserSettingKey(rule: Rule): void {
   if (rule.target.type !== 'user_setting')
     return
   const { key } = rule.target
-  if (isRuleReadableKvKey(key))
+  const registry = settings()
+  if (registry?.readable(key))
     return
 
-  const known = ruleReadableKvKeys()
-  const detail = isRegisteredKvKey(key)
+  const known = registry?.readableKeys() ?? []
+  const detail = registry?.registered(key)
     ? `'${key}' is registered but is UX state, not a threshold`
     : `'${key}' is not in the KVStore key namespace registry`
   throw new RuleValidationError(
     `Rule ${rule.id}: ${detail}. `
     + `Rule-readable keys are [${known.join(', ')}]. `
-    + `Add new keys to KV_KEY_REGISTRY in @mongrov/types/kv-keys — a key `
+    + `Add new keys to ${registry?.registryName ?? 'a pack\'s settings registry'} — a key `
     + `absent from the registry would silently fall back to defaultValue.`,
   )
 }
@@ -383,10 +307,10 @@ function validatePhaseBand(rule: Rule): void {
     fail(`phase_band defaultLo (${t.defaultLo}) must be below defaultHi (${t.defaultHi}).`)
   if (t.scaleKey !== undefined) {
     const key = t.scaleKey
-    if (!isRegisteredKvKey(key))
+    const registry = settings()
+    if (!registry?.registered(key))
       fail(`'${key}' is not in the KVStore key namespace registry.`)
-    const entry = (KV_KEY_REGISTRY as Record<string, { valueType?: string }>)[key]
-    if (entry?.valueType !== 'string')
+    if (registry?.valueType(key) !== 'string')
       fail(`scaleKey '${key}' must be a string setting naming a sensitivity.`)
     if (t.scales === undefined || Object.keys(t.scales).length === 0)
       fail(`scaleKey '${key}' needs a non-empty scales map.`)
@@ -398,7 +322,7 @@ function validatePhaseBand(rule: Rule): void {
 /** Scan a rawSql body for whole-word references to collected-only columns. */
 export function referencedCollectedOnlyColumns(sql: string): string[] {
   const hits = new Set<string>()
-  for (const col of COLLECTED_ONLY_COLUMNS) {
+  for (const col of collectedOnlyColumns()) {
     const pattern = new RegExp(`\\b${col}\\b`)
     if (pattern.test(sql))
       hits.add(col)

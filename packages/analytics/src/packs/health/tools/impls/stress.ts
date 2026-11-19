@@ -1,0 +1,98 @@
+import type { ToolImpl, ToolResult } from '../../../../tools/types'
+import { z } from 'zod'
+import { daysInterval, SPARE_DAYS } from '../../../../core/bounded-read'
+import { describeError } from '../../../../core/errors'
+
+import { toolRead } from '../../../../tools/bounded'
+import { assertNoBanTerms, formatBytes } from '../../../../tools/formatters'
+import { localDay, tzParam } from '../../../../tools/local-day'
+
+export const getStressInputSchema = z.object({
+  userId: z.string(),
+  days: z.number().int().min(1).max(90),
+})
+
+export type GetStressInput = z.infer<typeof getStressInputSchema>
+
+interface DayRow {
+  day: string
+  avg_stress: number
+  hi_stress: number
+}
+
+interface BaselineRow {
+  p10: number
+  p50: number
+  p90: number
+}
+
+/**
+ * Daily stress score against the user's own usual range (zivaone_app#24).
+ *
+ * Reads `v_hrv_clean`, whose `stress` is NULL for a reading that is not
+ * stress-clean: off-wrist or warming up, and moving only when
+ * `QualityOptions.motionFilter` is on (off by default, zivaone_app#377). The
+ * same relation the rules and the Stress screen read, so the tool counts
+ * exactly what the user is shown (principle 69). Its description must not
+ * name an exclusion that depends on the option.
+ * Compares to the user's own band; never labels a day tense on its own
+ * authority.
+ */
+export const getStress: ToolImpl<GetStressInput> = async (input, ctx) => {
+  // mongrov-packages#44 — the bounded macro covers `ts >= now() - $days days`
+  // (plus the spare day) when the engine has it; the view otherwise.
+  const rows = await toolRead<DayRow>(ctx, 'getStress', relation => `SELECT ${localDay()} AS day,
+            AVG(stress)::DOUBLE AS avg_stress,
+            MAX(stress)::DOUBLE AS hi_stress
+     FROM ${relation('v_hrv_clean', { back: daysInterval(`(CAST($days AS BIGINT) + ${SPARE_DAYS})`) })}
+     WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+       AND ts >= now() - INTERVAL (CAST($days AS BIGINT)) DAY
+       AND stress IS NOT NULL
+     GROUP BY 1 ORDER BY 1`, sql => ({
+    userId: input.userId,
+    brand: ctx.brand,
+    familyId: ctx.familyId,
+    days: input.days,
+    ...tzParam(ctx, sql),
+  }))
+
+  if (rows.length === 0)
+    return finalize('No stress data for the requested window.', 0)
+
+  const baseline = await readBaseline(ctx, input.userId)
+  const daily = rows
+    .map(r => `  ${r.day}: avg ${Math.round(r.avg_stress)} (high ${Math.round(r.hi_stress)})`)
+    .join('\n')
+  const usual = baseline === null
+    ? '  usual daily average: not established yet'
+    : `  usual daily average: ${Math.round(baseline.p10)}–${Math.round(baseline.p90)} (typical ${Math.round(baseline.p50)})`
+
+  return finalize(`Stress score (0–100), last ${input.days} days:\n${daily}\n${usual}`, rows.length)
+}
+
+async function readBaseline(
+  ctx: Parameters<ToolImpl<GetStressInput>>[1],
+  userId: string,
+): Promise<BaselineRow | null> {
+  try {
+    const rows = await ctx.analytics.execute<BaselineRow>(
+      `SELECT p10::DOUBLE AS p10, p50::DOUBLE AS p50, p90::DOUBLE AS p90
+       FROM user_baseline
+       WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+         AND metric = 'stress' AND window_days = 30`,
+      { userId, brand: ctx.brand, familyId: ctx.familyId },
+    )
+    return rows[0] ?? null
+  }
+  catch (err) {
+    ctx.logger?.warn('tools.getStress: baseline read failed, answering without it', {
+      err: describeError(err),
+    })
+    return null
+  }
+}
+
+function finalize(text: string, rowCount: number): ToolResult {
+  assertNoBanTerms(text, 'getStress')
+  return { text, rowCount, bytes: formatBytes(text) }
+}

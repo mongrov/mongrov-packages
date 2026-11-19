@@ -8,11 +8,12 @@
  * `useSyncExternalStore`.
  */
 
-import type { MetricId } from '../core/metric_metadata'
+import type { RulePack } from '../core/packs'
 import type { KVStore, Unsubscribe } from '../core/types'
 import type { Rule } from './schema'
 import type { RulesLogger } from './types'
 import { describeError } from '../core/errors'
+import { packExtensions } from '../core/packs'
 import { RuleSchema, RuleValidationError } from './schema'
 import { assertRegistrable, validateRule } from './validator'
 
@@ -34,7 +35,7 @@ export interface RulesRegistry {
   disable: (ruleId: string) => Promise<void>
   list: () => Rule[]
   getActive: () => Rule[]
-  getByMetric: (metric: MetricId) => Rule[]
+  getByMetric: (metric: string) => Rule[]
   getByBrand: (brand: string) => Rule[]
   subscribe: (listener: () => void) => Unsubscribe
   readonly rev: number
@@ -45,14 +46,14 @@ export interface RulesRegistry {
 export interface CreateRegistryConfig {
   storage: KVStore
   logger?: RulesLogger
-  /** Brand assigned to rules with no explicit `brand` field. Default `ziva`. */
+  /** Brand assigned to rules with no explicit `brand` field. Default: the first pack's `rules.defaultBrand`. */
   defaultBrand?: string
 }
 
 export function createRulesRegistry({
   storage,
   logger,
-  defaultBrand = 'ziva',
+  defaultBrand = packExtensions<RulePack>('rules').find(p => p.defaultBrand)?.defaultBrand ?? '',
 }: CreateRegistryConfig): RulesRegistry {
   const entries = new Map<string, { rule: Rule, enabled: boolean }>()
   const listeners = new Set<() => void>()

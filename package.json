@@ -5,6 +5,7 @@
   "scripts": {
     "build": "pnpm -r run build",
     "lint:sql-comments": "node scripts/check-sql-comment-backticks.mjs",
+    "domain-terms": "node scripts/no-domain-terms.mjs",
     "lint": "pnpm run lint:sql-comments && eslint .",
     "lint:fix": "eslint . --fix",
     "pretest": "node scripts/ensure-built.mjs",

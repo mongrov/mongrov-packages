@@ -7,9 +7,9 @@
  * via `rawSql` + `exposureOverride: true` (see validator.ts).
  */
 
-import type { MetricId } from '../core/metric_metadata'
 import { z } from 'zod'
-import { getExposedMetricIds } from '../core/metric_metadata'
+import { exposedMetricIds } from '../core/metrics'
+import { ruleContextNames } from './contexts'
 
 /** Custom error class for rule-schema / validator failures. */
 export class RuleValidationError extends Error {
@@ -18,8 +18,6 @@ export class RuleValidationError extends Error {
     this.name = 'RuleValidationError'
   }
 }
-
-const exposedMetricIds = getExposedMetricIds() as [MetricId, ...MetricId[]]
 
 export const WINDOWS = ['1h', '6h', '24h', '3d', '7d', '30d'] as const
 export type Window = (typeof WINDOWS)[number]
@@ -50,18 +48,32 @@ export const SEVERITIES = ['info', 'warn', 'critical'] as const
 export type Severity = (typeof SEVERITIES)[number]
 
 /**
- * Physiological context the rule restricts its samples to (Sprint 5 §4).
+ * The context a rule restricts its samples to (Sprint 5 §4): `any` (every
+ * sample in the window), or one a pack registers (`pack.rules.contexts`).
  *
- * - `any`     — every sample in the window
- * - `asleep`  — samples falling inside a `v_sleep_session` interval
- * - `resting` — samples in a minute with zero steps
- *
- * Context is a JOIN, not a post-filter: "SpO₂ during sleep" means the
- * aggregate is computed over sleep samples only, not computed over
+ * Context is a JOIN, not a post-filter: "a reading during X" means the
+ * aggregate is computed over those samples only, not computed over
  * everything and then labelled.
  */
-export const CONTEXTS = ['any', 'asleep', 'resting'] as const
-export type RuleContext = (typeof CONTEXTS)[number]
+export type RuleContext = string
+
+/**
+ * Checked when a rule is parsed, against the packs registered then — not
+ * when this module loads, which may be before the app registers its packs.
+ */
+function oneOf(names: () => string[]) {
+  return (value: string, ctx: z.RefinementCtx) => {
+    const options = names()
+    if (!options.includes(value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.invalid_enum_value,
+        options,
+        received: value,
+        message: `Invalid enum value. Expected ${options.map(o => `'${o}'`).join(' | ')}, received '${value}'`,
+      })
+    }
+  }
+}
 
 const TargetAbsolute = z.object({
   type: z.literal('absolute'),
@@ -229,12 +241,12 @@ export const RuleSchema = z.object({
   brand: z.string().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
-  metric: z.enum(exposedMetricIds),
+  metric: z.string().superRefine(oneOf(() => exposedMetricIds())),
   window: z.enum(WINDOWS),
   aggregation: z.enum(AGGREGATIONS).default('avg'),
   compare: z.enum(COMPARES),
   /** Restrict samples to a physiological context. Default `any`. */
-  context: z.enum(CONTEXTS).default('any'),
+  context: z.string().superRefine(oneOf(() => ruleContextNames())).default('any'),
   /**
    * Require `n` ADJACENT breaching samples before the rule fires.
    *

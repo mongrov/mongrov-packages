@@ -1,6 +1,7 @@
 /**
- * `createAnalyticsTools` — assemble the 6 wrapped AI SDK tools into
- * a single map ready to hand to `streamText({ tools })` / `generateText`.
+ * `createAnalyticsTools` — wrap every registered pack's AI tools
+ * (`pack.tools`) into a single map ready to hand to
+ * `streamText({ tools })` / `generateText`.
  *
  * Wires:
  *   - rate limiter   (or `null` if `rateLimit: false`)
@@ -18,16 +19,8 @@
  * whole tool map per turn.
  */
 
-import type { GetActivityTotalInput } from './impls/activity'
-import type { DetectAnomalyInput } from './impls/anomaly'
-import type { CompareTrendInput } from './impls/compare'
-import type { GetHeartRateInput } from './impls/heart-rate'
-import type { GetHRVInput } from './impls/hrv'
-import type { GetInsightsInput } from './impls/insights'
-import type { GetSleepSummaryInput } from './impls/sleep'
-import type { GetSpO2Input } from './impls/spo2'
-import type { GetStressInput } from './impls/stress'
-import type { GetTemperatureInput } from './impls/temperature'
+import type { PackTool } from '../core/packs'
+import type { AnalyticsToolMap } from '../packs/health/tools'
 import type { RateLimiter } from './rate-limit'
 
 import type {
@@ -36,38 +29,9 @@ import type {
   OutputBudget,
   ToolContext,
 } from './types'
+import { packExtensions } from '../core/packs'
 import { createAuditWriter } from './audit'
 import { familyScopeAuthorize } from './authorize'
-import {
-  getActivityTotal,
-
-  getActivityTotalInputSchema,
-} from './impls/activity'
-import {
-  detectAnomaly,
-
-  detectAnomalyInputSchema,
-} from './impls/anomaly'
-import {
-  compareTrend,
-
-  compareTrendInputSchema,
-} from './impls/compare'
-import { getHeartRate, getHeartRateInputSchema } from './impls/heart-rate'
-import { getHRV, getHRVInputSchema } from './impls/hrv'
-import {
-  getInsights,
-
-  getInsightsInputSchema,
-} from './impls/insights'
-import {
-  getSleepSummary,
-
-  getSleepSummaryInputSchema,
-} from './impls/sleep'
-import { getSpO2, getSpO2InputSchema } from './impls/spo2'
-import { getStress, getStressInputSchema } from './impls/stress'
-import { getTemperature, getTemperatureInputSchema } from './impls/temperature'
 import { createRateLimiter } from './rate-limit'
 import {
   DEFAULT_OUTPUT_BUDGET,
@@ -75,42 +39,7 @@ import {
 } from './types'
 import { makeTool } from './wrap'
 
-const DESCRIPTIONS = {
-  getHRV: 'Return the requester\'s or a family member\'s average HRV per day '
-    + 'over the last N days (1..90). Args: userId, days.',
-  getSleepSummary: 'Return nightly sleep duration and efficiency for a user '
-    + 'over the last N days (1..30). Args: userId, days.',
-  getActivityTotal: 'Return total steps and active minutes per day for a user '
-    + 'over the last N days (1..30). Args: userId, days.',
-  compareTrend: 'Compare a user\'s metric average across two windows. Args: '
-    + 'userId, metric (hrv_ms|sleep_total_minutes|activity_steps), '
-    + 'currentWindowDays, priorWindowDays (each 1..30).',
-  detectAnomaly: 'Flag statistical outliers (>= stddevThreshold from baseline) '
-    + 'in a user\'s metric over the last lookbackDays. Args: userId, metric '
-    + '(hrv_ms|sleep_total_minutes|activity_steps), lookbackDays (7..90), '
-    + 'stddevThreshold (1..4, default 2).',
-  getSpO2: 'Return nightly blood-oxygen averages during sleep for a user, '
-    + 'with how many brief low moments occurred each night and how it '
-    + 'compares to their usual range. Args: userId, days (1..90).',
-  getTemperature: 'Return a user\'s daily temperature in Celsius — average, high and low per day — alongside their own usual range. Says how it compares to their usual, never whether it is high. Args: userId, days (1..90).',
-  getHeartRate: 'Return a user\'s daily heart rate in beats per minute — average, low and high per day, on the user\'s own days — alongside their usual daily average. Says how it compares to their usual, never whether it is high. Args: userId, days (1..90).',
-  getStress: 'Return a user\'s daily stress score (0-100) — average and high per day, on the user\'s own days, counting the same readings the app shows (off-wrist and warm-up readings left out) — alongside their usual daily average. Compares to their usual; never calls a day tense on its own. Args: userId, days (1..90).',
-  getInsights: 'Return recent AI-generated insights for a user. Args: userId, '
-    + 'days (1..30, default 7), optional severity (info|warn|urgent).',
-} as const
-
-export interface AnalyticsToolMap {
-  getHRV: ReturnType<typeof makeTool<GetHRVInput>>
-  getSleepSummary: ReturnType<typeof makeTool<GetSleepSummaryInput>>
-  getActivityTotal: ReturnType<typeof makeTool<GetActivityTotalInput>>
-  compareTrend: ReturnType<typeof makeTool<CompareTrendInput>>
-  detectAnomaly: ReturnType<typeof makeTool<DetectAnomalyInput>>
-  getSpO2: ReturnType<typeof makeTool<GetSpO2Input>>
-  getTemperature: ReturnType<typeof makeTool<GetTemperatureInput>>
-  getHeartRate: ReturnType<typeof makeTool<GetHeartRateInput>>
-  getStress: ReturnType<typeof makeTool<GetStressInput>>
-  getInsights: ReturnType<typeof makeTool<GetInsightsInput>>
-}
+export type { AnalyticsToolMap } from '../packs/health/tools'
 
 export interface AnalyticsToolsHandle {
   tools: AnalyticsToolMap
@@ -164,78 +93,18 @@ export function createAnalyticsTools(
     clock: config.clock,
   }
 
-  const tools: AnalyticsToolMap = {
-    getSpO2: makeTool({
-      ...shared,
-      name: 'getSpO2',
-      description: DESCRIPTIONS.getSpO2,
-      inputSchema: getSpO2InputSchema,
-      impl: getSpO2,
-    }),
-    getTemperature: makeTool({
-      ...shared,
-      name: 'getTemperature',
-      description: DESCRIPTIONS.getTemperature,
-      inputSchema: getTemperatureInputSchema,
-      impl: getTemperature,
-    }),
-    getHeartRate: makeTool({
-      ...shared,
-      name: 'getHeartRate',
-      description: DESCRIPTIONS.getHeartRate,
-      inputSchema: getHeartRateInputSchema,
-      impl: getHeartRate,
-    }),
-    getStress: makeTool({
-      ...shared,
-      name: 'getStress',
-      description: DESCRIPTIONS.getStress,
-      inputSchema: getStressInputSchema,
-      impl: getStress,
-    }),
-    getHRV: makeTool({
-      ...shared,
-      name: 'getHRV',
-      description: DESCRIPTIONS.getHRV,
-      inputSchema: getHRVInputSchema,
-      impl: getHRV,
-    }),
-    getSleepSummary: makeTool({
-      ...shared,
-      name: 'getSleepSummary',
-      description: DESCRIPTIONS.getSleepSummary,
-      inputSchema: getSleepSummaryInputSchema,
-      impl: getSleepSummary,
-    }),
-    getActivityTotal: makeTool({
-      ...shared,
-      name: 'getActivityTotal',
-      description: DESCRIPTIONS.getActivityTotal,
-      inputSchema: getActivityTotalInputSchema,
-      impl: getActivityTotal,
-    }),
-    compareTrend: makeTool({
-      ...shared,
-      name: 'compareTrend',
-      description: DESCRIPTIONS.compareTrend,
-      inputSchema: compareTrendInputSchema,
-      impl: compareTrend,
-    }),
-    detectAnomaly: makeTool({
-      ...shared,
-      name: 'detectAnomaly',
-      description: DESCRIPTIONS.detectAnomaly,
-      inputSchema: detectAnomalyInputSchema,
-      impl: detectAnomaly,
-    }),
-    getInsights: makeTool({
-      ...shared,
-      name: 'getInsights',
-      description: DESCRIPTIONS.getInsights,
-      inputSchema: getInsightsInputSchema,
-      impl: getInsights,
-    }),
-  }
+  // Every registered pack's tools, in pack order (the platform's last).
+  const tools = Object.fromEntries(
+    packExtensions<Readonly<Record<string, PackTool>>>('tools')
+      .flatMap(byName => Object.entries(byName))
+      .map(([name, def]) => [name, makeTool({
+        ...shared,
+        name,
+        description: def.description,
+        inputSchema: def.inputSchema,
+        impl: def.impl,
+      })]),
+  ) as unknown as AnalyticsToolMap
 
   return {
     tools,

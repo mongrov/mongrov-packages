@@ -10,6 +10,7 @@
 
 import type { AnalyticsPack, PackMigration } from './packs'
 import type { PlatformTableName } from './platform-tables'
+import { platformTools } from '../tools/platform-tools'
 import { addIdentityKey, qualifyDdl, quoteQualifier, toLocalDdl } from './ddl'
 import { listColumns, REMOTE_NAMESPACE } from './migrations'
 import { PLATFORM_SCHEMAS, PLATFORM_TABLE_NAMES, PLATFORM_TABLES } from './platform-tables'
@@ -103,6 +104,7 @@ export const PLATFORM_PACK: AnalyticsPack = {
   name: 'platform',
   tables: PLATFORM_TABLES,
   migrations: PLATFORM_MIGRATIONS,
+  tools: platformTools,
   // Before packs, these steps ran under the package ledger: its step 1
   // created every table, step 3 rebuilt `insight`, step 4 created
   // `user_baseline`. An install at 4 or later has both platform steps'

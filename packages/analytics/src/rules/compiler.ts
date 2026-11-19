@@ -6,7 +6,7 @@
  *     `analytics.execute(sql, params)`. Never string-concatenated.
  *   - Static rule params (thresholds, window edges) are also bound as
  *     `$<name>`. Never concatenated.
- *   - Table + column identifiers are looked up in `METRIC_METADATA`,
+ *   - Table + column identifiers are looked up in the registered metrics,
  *     sanitized with `[^A-Za-z0-9_]/g → _`, then inlined as literals.
  *     DuckDB has no parameter binding for identifiers.
  *   - `rawSql` bypasses codegen; the compiler only allow-lists
@@ -34,12 +34,13 @@
  *   `local.{table}` or `r2.default.{table}` (principle 19).
  */
 
-import type { TableName } from '../core/schemas'
 import type { Aggregation, Compare, Rule, RuleContext, Target, Window } from './schema'
 import type { CompiledRule } from './types'
 import { boundedRelation, daysInterval, hoursInterval, SPARE_DAYS } from '../core/bounded-read'
-import { METRIC_METADATA } from '../core/metric_metadata'
-import { cleanViewFor, isQualityTable, qualityViewFor, readViewFor, stillEnoughSql } from '../core/reading-quality'
+import { metricDefinition } from '../core/metrics'
+import { cleanRelation, hasQualityRelations, qualityRelation, readRelation } from '../core/relations'
+import { timeColumnFor } from '../core/table_metadata'
+import { contextJoin } from './contexts'
 import {
 
   RuleValidationError,
@@ -65,9 +66,9 @@ export function viewFor(table: string): string {
   return `v_${sanitizeIdent(table)}`
 }
 
-/** Timestamp column per table — `sleep_session` uses `ts_start`. */
-function tsColumn(table: TableName): string {
-  return table === 'sleep_session' ? 'ts_start' : 'ts'
+/** Timestamp column per table — the table's registered `timeColumn`. */
+function tsColumn(table: string): string {
+  return timeColumnFor(table)
 }
 
 /**
@@ -123,96 +124,11 @@ function compareClause(compare: Compare, lhs: string, rhs: string): string {
 }
 
 /**
- * T-17 — INNER JOIN restricting samples to a physiological context.
- *
- * Aliased `m` for the metric relation throughout. Both joins carry the
- * full tenant triple, not just `user_id`: a join on user alone would match
- * another brand's sleep sessions for the same person on a multi-brand
- * install.
+ * T-17 — the JOIN restricting samples to a context (`pack.rules.contexts`;
+ * `any` adds none). Aliased `m` for the metric relation throughout.
  */
 export function emitContextJoin(context: RuleContext, table?: string, qualityRelation?: string): string {
-  switch (context) {
-    case 'any':
-      return ''
-    case 'asleep':
-      return `
-INNER JOIN ${viewFor('sleep_session')} s
-   ON s.user_id = m.user_id
-  AND s.brand = m.brand
-  AND s.family_id = m.family_id
-  AND m.ts BETWEEN s.ts_start AND s.ts_end`
-    case 'resting':
-      /*
-       * "Resting" is the ABSENCE of movement around the sample, not the
-       * presence of a zero-step row at its exact minute.
-       *
-       * The earlier form required an activity row to exist at
-       * date_trunc('minute', m.ts) with steps = 0, and being an INNER JOIN it
-       * dropped every sample that had no activity row at all. Two consequences,
-       * both wrong:
-       *
-       *   1. A device that only reports activity when the user moves — which is
-       *      most of them — produces NO resting samples, so a resting-gated
-       *      rule silently never fires.
-       *   2. It disagreed with the definition of "resting" everywhere else. The
-       *      HR slot table gates the flag rule on "no v_activity steps +/-15
-       *      min", `hr.restingVsUsual` uses exactly that, and the three
-       *      registries define `active` as steps > 0 within +/-15 min. Resting
-       *      has to be the complement of active or a reading can be neither,
-       *      and a rule and a screen would say different things about it.
-       *
-       * ANTI JOIN keeps this in the join position while inverting the meaning:
-       * the sample survives when no movement row matches the window.
-       *
-       * mongrov-packages#6 — and "movement" is the §7g FLOOR, not `steps > 0`.
-       * A worn ring logs a few steps in most waking minutes; 0.27.0 moved the
-       * chart's `still` flag and the baseline's resting average to "fewer than
-       * STILL_FLOOR steps in the window", and this gate was the one site left
-       * on `steps > 0`, so a reading could be still on the chart and moving
-       * for the rule that alerts on it.
-       *
-       * A floor is a SUM, which an anti join cannot express. For a metric
-       * with quality flags the gate therefore joins the reading to its own row
-       * in `v_<table>_q` and requires `still` — the very flag the charts read,
-       * proven row-for-row equal to the windowed sum in 0.27.0. Still a join,
-       * so `emitContextJoin` keeps its shape and the aggregate semantics the
-       * "context is a JOIN" test protects. Do NOT put the floor inside an ASOF
-       * ON clause: ASOF then hunts for a nearer passing row instead of
-       * measuring the window (disproven on 864 readings, see #6).
-       *
-       * Tables without quality flags keep the row-existence form below.
-       *
-       * `stillEnoughSql`, not a bare `rq.still` (zivaone_app#219). `still` is
-       * three-valued now — NULL where no activity row falls inside the window,
-       * so stillness is unknown rather than established. An INNER JOIN on a
-       * NULL drops the row, which would stop resting-gated rules firing
-       * exactly when activity coverage is sparse: overnight, which is when a
-       * resting rule matters most.
-       *
-       * Sharing the expression with the clean views is the point. They keep
-       * unknown readings, and if this gate did not, a reading would be still
-       * on the chart and moving for the rule that alerts on it -- the drift
-       * this comment says 0.27.0 removed, reintroduced by a different route.
-       */
-      if (table !== undefined && isQualityTable(table)) {
-        return `
-INNER JOIN ${qualityRelation ?? qualityViewFor(table)} rq
-   ON rq.user_id = m.user_id
-  AND rq.brand = m.brand
-  AND rq.family_id = m.family_id
-  AND rq.device_id = m.device_id
-  AND rq.ts = m.ts
-  AND ${stillEnoughSql('rq.')}`
-      }
-      return `
-ANTI JOIN ${viewFor('activity')} a
-   ON a.user_id = m.user_id
-  AND a.brand = m.brand
-  AND a.family_id = m.family_id
-  AND a.steps > 0
-  AND a.ts >= m.ts - INTERVAL 15 MINUTE
-  AND a.ts <  m.ts + INTERVAL 15 MINUTE`
-  }
+  return contextJoin(context, { table: table ?? '', qualityRelation })
 }
 
 const ALLOWED_RAW_PLACEHOLDERS = new Set(['userId', 'brand', 'familyId'])
@@ -257,19 +173,21 @@ export function localDayExpr(tsColumn: string): string {
 
 /** Compile a validated rule to a `CompiledRule`. */
 export function compileRule(rule: Rule): CompiledRule {
-  const meta = METRIC_METADATA[rule.metric]
+  const meta = metricDefinition(rule.metric)
+  if (!meta)
+    throw new RuleValidationError(`Rule ${rule.id}: metric ${rule.metric} is not registered by any pack.`)
   const rawTable = meta.table
   const column = sanitizeIdent(meta.column)
   const table = sanitizeIdent(rawTable)
   // A rule is a claim, so it reads the vital's clean view (T-25 consume
   // rule): a clamped, spiked or off-wrist reading can never fire an alert.
-  const view = readViewFor(table)
+  const view = readRelation(table)
 
   if (rule.rawSql) {
     return compileRawSql(rule, rule.rawSql)
   }
 
-  const ts = tsColumn(rawTable as TableName)
+  const ts = tsColumn(rawTable)
   const interval = windowInterval(rule.window)
 
   const description
@@ -296,13 +214,13 @@ export function compileRule(rule: Rule): CompiledRule {
    * whole lookback, plus the spare day for the session zone (bounded-read).
    */
   const fromFor = (form: 'view' | 'bounded') => (scope: Scope): string => {
-    if (form === 'view' || !isQualityTable(table))
+    if (form === 'view' || !hasQualityRelations(table))
       return `FROM ${view} m${emitContextJoin(rule.context, table)}`
     const back = scope === 'window'
       ? hoursInterval(WINDOW_HOURS[rule.window] + 24 * SPARE_DAYS)
       : daysInterval(`(CAST($baselineDays AS BIGINT) + ${SPARE_DAYS})`)
-    const rq = boundedRelation(qualityViewFor(table), { back })
-    return `FROM ${boundedRelation(cleanViewFor(table), { back })} m${emitContextJoin(rule.context, table, rq)}`
+    const rq = boundedRelation(qualityRelation(table)!, { back })
+    return `FROM ${boundedRelation(cleanRelation(table)!, { back })} m${emitContextJoin(rule.context, table, rq)}`
   }
 
   const args: BuildArgs = {
@@ -324,7 +242,7 @@ export function compileRule(rule: Rule): CompiledRule {
       ? buildConsecutive(a)
       : buildForTarget(a)
   const { sql, params } = build(args)
-  const boundedSql = isQualityTable(table)
+  const boundedSql = hasQualityRelations(table)
     ? build({ ...args, from: fromFor('bounded') }).sql
     : undefined
 
@@ -632,7 +550,7 @@ function buildDayCadence(args: BuildArgs): {
   const localDay = localDayExpr(`m.${ts}`)
 
   // Same floor the screen uses, from the same derivation — see minDayReadings.
-  const dayMeta = (METRIC_METADATA as Record<string, { sampling_minutes?: number | string }>)[metricId]
+  const dayMeta = metricDefinition(metricId)
   const daySampling = dayMeta?.sampling_minutes
   if (typeof daySampling !== 'number') {
     throw new RuleValidationError(
@@ -746,7 +664,7 @@ function buildConsecutive(args: BuildArgs): {
   // Cadence in minutes, for slot adjacency below. `sampling_minutes` is the
   // metric's nominal grid; `per_session` metrics have no reading cadence and
   // never reach a reading-cadence rule.
-  const meta = (METRIC_METADATA as Record<string, { sampling_minutes?: number | string }>)[metricId]
+  const meta = metricDefinition(metricId)
   const sampling = meta?.sampling_minutes
   if (typeof sampling !== 'number') {
     throw new RuleValidationError(

@@ -62,6 +62,10 @@ export type {
   BaselineDailyAggregate,
   BaselineWindowDays,
 } from './metric_metadata'
+// Metrics and the relations claims read, as the registered packs declare them.
+export { collectedOnlyColumns, exposedMetricIds, metricDefinition, registeredMetricIds, samplingLabelFor } from './metrics'
+
+export type { MetricDefinition, MetricSampling } from './metrics'
 export { listColumns, REMOTE_NAMESPACE } from './migrations'
 
 export type { MigrationCatalogs } from './migrations'
@@ -78,7 +82,6 @@ export {
   registerPacks,
   viewedTables,
 } from './packs'
-
 export type {
   AnalyticsPack,
   BaselineDefinition,
@@ -92,11 +95,15 @@ export type {
   PackSyncHooks,
   PackTable,
   PackTableRetention,
+  PackTool,
   PackViewDdl,
   PostFlushDeps,
   PostFlushJob,
   PostFlushRunner,
   QualityViewProvider,
+  RuleContextArgs,
+  RulePack,
+  RuleSettings,
   SyncHookDeps,
 } from './packs'
 // Signal-quality views (T-25, sprint6 §13). Claims read `v_{vital}_clean`;
@@ -126,8 +133,9 @@ export {
   STILL_WINDOW_MINUTES,
   wearGateSql,
 } from './reading-quality'
-
 export type { QualityOptions, QualityTable, QualityView } from './reading-quality'
+
+export { cleanRelation, hasQualityRelations, qualityRelation, readRelation } from './relations'
 // Effective sampling cadence (Sprint 5 T-41, principle 22). Chart data
 // providers and gap detection should resolve cadence through this rather
 // than reading metric_metadata directly.

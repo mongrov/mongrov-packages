@@ -20,8 +20,6 @@
  * blocks the rest of the pass.
  */
 
-import type { MetricId } from '../core/metric_metadata'
-
 import type { AnalyticsEngine, EventBus, KVStore } from '../core/types'
 import type { CompilerCache } from './compiler-cache'
 import type { createEmitter } from './emitter'
@@ -33,7 +31,7 @@ import { nanoid } from 'nanoid'
 import { executeBounded } from '../core/bounded-read'
 import { AnalyticsError, describeError } from '../core/errors'
 import { tailId } from '../core/logger'
-import { METRIC_METADATA } from '../core/metric_metadata'
+import { metricDefinition } from '../core/metrics'
 import { BAND_SCALE_PARAM, BASELINE_OFFSET_PARAM, USER_SETTING_PARAM } from './compiler'
 
 export interface EvaluatorConfig {
@@ -483,8 +481,8 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
   ): Rule[] {
     const tableSet = new Set<string>(affectedTables)
     return rules.filter((r) => {
-      const meta = METRIC_METADATA[r.metric as MetricId]
-      return tableSet.has(meta.table)
+      const meta = metricDefinition(r.metric)
+      return meta !== undefined && tableSet.has(meta.table)
     })
   }
 
