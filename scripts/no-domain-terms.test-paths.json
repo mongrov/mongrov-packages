@@ -32,7 +32,6 @@
     "packages/analytics/src/rules/__tests__/evaluator.test.ts",
     "packages/analytics/src/rules/__tests__/factory.test.ts",
     "packages/analytics/src/rules/__tests__/hooks.test.tsx",
-    "packages/analytics/src/rules/__tests__/hrv-v3-absolute-flag.test.ts",
     "packages/analytics/src/rules/__tests__/inclusive-compare.test.ts",
     "packages/analytics/src/rules/__tests__/insight-live.test.ts",
     "packages/analytics/src/rules/__tests__/loader-plain-objects.test.ts",
