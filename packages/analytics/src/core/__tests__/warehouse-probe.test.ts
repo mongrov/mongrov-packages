@@ -25,8 +25,8 @@ function dbWith(handler: (sql: string) => unknown[]) {
 
 describe('probeLocalCatalog', () => {
   it('uses current_database() when it works', async () => {
-    const { db, calls } = dbWith(() => [{ current_database: 'zivaone' }])
-    expect(await probeLocalCatalog(db)).toBe('zivaone')
+    const { db, calls } = dbWith(() => [{ current_database: 'acme' }])
+    expect(await probeLocalCatalog(db)).toBe('acme')
     expect(calls).toHaveLength(1)
   })
 
@@ -35,10 +35,10 @@ describe('probeLocalCatalog', () => {
       if (sql.includes('current_database')) {
         throw new Error('Binder Error: Referenced table "system" not found!')
       }
-      return [{ name: 'temp' }, { name: 'zivaone_analytics' }]
+      return [{ name: 'temp' }, { name: 'acme_analytics' }]
     })
 
-    expect(await probeLocalCatalog(db)).toBe('zivaone_analytics')
+    expect(await probeLocalCatalog(db)).toBe('acme_analytics')
     expect(calls[1]).toContain('database_list')
   })
 

@@ -38,7 +38,7 @@ function harness(emit?: SyncEmitter) {
 async function seed(buffer: SensorBuffer, table: string, userId: string, n = 1) {
   await buffer.push({
     table,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam1',
     userId,
     deviceId: 'ring_1',
@@ -71,7 +71,7 @@ describe('batch lifecycle', () => {
     expect(payload.affectedTables.sort()).toEqual(['sleep_session', 'spo2'])
     expect(payload.affectedUserIds).toEqual(['alice'])
     expect(payload.rowCounts).toEqual({ spo2: 3, sleep_session: 1 })
-    expect(payload.brand).toBe('ziva')
+    expect(payload.brand).toBe('acme')
     expect(payload.familyId).toBe('fam1')
     expect(payload.batchId).toBe(batchId)
   })

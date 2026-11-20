@@ -10,7 +10,7 @@
  *      straight into the keyed table.
  *   2. A Constraint Error is not transaction-exempt, so had we appended
  *      directly, the failure would poison the shared connection and take out
- *      unrelated queries — the same blast radius as zivaone_app#70.
+ *      unrelated queries — the same blast radius as app#70.
  *
  * The regression this guards is the measured one: `sleep_stage` reached 16399
  * rows for 2082 `sleep_raw` blocks because ten of the twelve sync-written
@@ -21,7 +21,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { IDENTITY_COLUMNS, LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
 
-const BRAND = 'ziva'
+const BRAND = 'acme'
 const FAMILY = 'fam_1'
 const USER = 'alice'
 const DEVICE = 'ring_1'

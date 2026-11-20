@@ -11,7 +11,7 @@ import { mergeTenantParams } from '../tenant'
 
 const ctx: RequestContext = {
   userId: 'u1',
-  brand: 'zivaone',
+  brand: 'acme',
   familyId: 'f1',
   timezone: 'America/New_York',
   now: () => new Date(1704067200000), // 2024-01-01T00:00Z
@@ -22,7 +22,7 @@ describe('T-08 · mergeTenantParams', () => {
     const merged = mergeTenantParams({ userId: 'u1' }, ctx)
     expect(merged).toEqual({
       userId: 'u1',
-      brand: 'zivaone',
+      brand: 'acme',
       familyId: 'f1',
       tz: 'America/New_York',
     })
@@ -30,7 +30,7 @@ describe('T-08 · mergeTenantParams', () => {
 
   it('supplies tenant fields even when input is undefined', () => {
     expect(mergeTenantParams(undefined, ctx)).toEqual({
-      brand: 'zivaone',
+      brand: 'acme',
       familyId: 'f1',
       tz: 'America/New_York',
     })
@@ -41,14 +41,14 @@ describe('T-08 · mergeTenantParams', () => {
       { userId: 'u1', brand: 'malicious', familyId: 'other', tz: 'Etc/GMT-14' },
       ctx,
     )
-    expect(merged.brand).toBe('zivaone')
+    expect(merged.brand).toBe('acme')
     expect(merged.familyId).toBe('f1')
     expect(merged.tz).toBe('America/New_York')
   })
 
   it('handles primitive input by dropping it (SQL author uses positional binds)', () => {
     expect(mergeTenantParams('raw', ctx)).toEqual({
-      brand: 'zivaone',
+      brand: 'acme',
       familyId: 'f1',
       tz: 'America/New_York',
     })
@@ -189,7 +189,7 @@ describe('T-06 · executeQuery — kv path', () => {
     // `kvEngine.get` answers `undefined` for a key nobody has written, a schema
     // that admits it passes it through, and React Query rejects `undefined` as
     // query data — so the query errors on every read for every user who has not
-    // touched that setting (zivaone_app#386, #353). Normalised once here rather
+    // touched that setting (app#386, #353). Normalised once here rather
     // than per query, which is how the first three were patched.
     const nullable = defineQuery({
       engine: 'kv',
@@ -317,7 +317,7 @@ describe('T-45 — instrumentation hook', () => {
   })
   const ctx = {
     userId: 'u',
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'f',
     timezone: 'UTC',
     now: () => new Date(),
@@ -366,7 +366,7 @@ describe('T-45 — instrumentation hook', () => {
 describe('referenced-placeholder binding', () => {
   const ctx = {
     userId: 'u1',
-    brand: 'zivaone',
+    brand: 'acme',
     familyId: 'f1',
     timezone: 'America/New_York',
     now: () => new Date(),
@@ -381,7 +381,7 @@ describe('referenced-placeholder binding', () => {
   it('drops tenant params a query never references', async () => {
     // The bug this prevents: mergeTenantParams injected brand/familyId/tz
     // unconditionally, so any query omitting one failed at bind time with
-    // "Failed to retrieve bind parameter index". Three ZivaOne registry
+    // "Failed to retrieve bind parameter index". Three app registry
     // queries did exactly that.
     // `userId` comes from caller input, not the tenant merge — only
     // brand/familyId/tz are context-injected.
@@ -404,7 +404,7 @@ describe('referenced-placeholder binding', () => {
       { duckdb: { execute } } as never,
     )
     expect(execute.mock.calls[0][1]).toEqual({
-      brand: 'zivaone',
+      brand: 'acme',
       familyId: 'f1',
       tz: 'America/New_York',
     })
@@ -429,6 +429,6 @@ describe('referenced-placeholder binding', () => {
       ctx,
       { duckdb: { execute } } as never,
     )
-    expect(execute.mock.calls[0][1]).toEqual({ brand: 'zivaone' })
+    expect(execute.mock.calls[0][1]).toEqual({ brand: 'acme' })
   })
 })

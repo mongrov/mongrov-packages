@@ -1,2 +1,2 @@
-// @mongrov/analytics/ui — subpath reserved; empty in v0.1.0
+// @mongrov/analytics/ui — subpath reserved for UI primitives; exports nothing yet.
 export {}

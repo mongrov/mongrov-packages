@@ -1,5 +1,11 @@
 [
   {
+    "path": "packages/",
+    "term": "fitness",
+    "match": "FITNESS FOR A PARTICULAR PURPOSE",
+    "reason": "The MIT licence's warranty disclaimer, not physical fitness."
+  },
+  {
     "path": "packages/analytics/",
     "term": "sleep",
     "match": "^\\s*sleep\\?: \\(ms: number\\)|config\\.sleep \\?\\?|sleep\\?: \\(ms",
@@ -20,7 +26,8 @@
   {
     "path": "packages/ai/",
     "term": "temperature",
-    "reason": "The LLM sampling temperature (an AI SDK generation parameter), not body temperature."
+    "reason": "The LLM sampling temperature option (an AI SDK generation parameter: `temperature?: number`), not body temperature.",
+    "match": "\\btemperature\\??: (number|\\d)"
   },
   {
     "path": "packages/analytics/infra/",
@@ -31,24 +38,25 @@
   {
     "path": "packages/device/",
     "term": "firmware",
-    "reason": "Device firmware (FirmwareCapability, getFirmwareInfo) is generic device vocabulary, not a wearable or health concept."
+    "reason": "Generic device firmware vocabulary (FirmwareCapability, getFirmwareInfo, firmwareVersion, firmware_updated), not a wearable or health concept.",
+    "match": "FirmwareCapability|getFirmwareInfo|FirmwareInfo|firmwareVersion|firmware_updated|'Firmware'|firmware (version|update|capability|info)"
   },
   {
     "path": "packages/types/",
     "term": "firmware",
-    "match": "firmware",
-    "reason": "Generic device types and lifecycle events (firmwareVersion, 'Firmware' capability, firmware_updated)."
+    "match": "firmwareVersion|firmware_updated|'Firmware'|telemetry, firmware, sync",
+    "reason": "Generic device types and lifecycle events (firmwareVersion, the 'Firmware' capability, firmware_updated)."
   },
   {
     "path": "packages/theme/",
     "term": "ring",
-    "match": "\\bring: |\\bring\\b.*(colou?r|token|focus)|focus.*\\bring\\b",
-    "reason": "The focus-ring colour token."
+    "match": "^\\s*ring: (string|'#[0-9A-Fa-f]{3,8}')[,;]?$",
+    "reason": "The focus-ring colour token (`ring: string` in the palette type, `ring: '#…'` in the light/dark palettes)."
   },
   {
     "path": "packages/ui/",
     "term": "ring",
-    "match": "ring-",
+    "match": "(focus|focus-visible):ring-",
     "reason": "Tailwind focus-ring classes (focus:ring-2, focus-visible:ring-…)."
   },
   {
@@ -62,5 +70,17 @@
     "term": "hr",
     "match": "createElement\\('hr'",
     "reason": "The HTML <hr> element in the Separator mock."
+  },
+  {
+    "path": "packages/analytics/src/__integration__/setup/global-setup.ts",
+    "term": "health",
+    "match": "/minio/health/",
+    "reason": "MinIO's readiness endpoint (/minio/health/ready) in the integration stack."
+  },
+  {
+    "path": "packages/analytics/",
+    "term": "firmware",
+    "match": "firmware_updated",
+    "reason": "The generic device lifecycle event `firmware_updated`, re-exported from @mongrov/types/device-events (see the packages/types entry)."
   }
 ]

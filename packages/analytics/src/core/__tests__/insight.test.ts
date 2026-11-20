@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { AnalyticsError } from '../errors'
 import { dismissInsight } from '../insight'
 
-const OWNED = { user_id: 'alice', metric: 'spo2', dismissed_at: null }
+const OWNED = { user_id: 'alice', metric: 'metric_a', dismissed_at: null }
 
 /** Engine stub: scripted SELECT result, recorded UPDATEs. */
 function engineWith(row: Record<string, unknown> | undefined) {
@@ -43,7 +43,7 @@ describe('dismissInsight', () => {
 
     expect(emitted).toEqual([{
       name: 'insight:dismissed',
-      payload: { insightId: 'ins_1', userId: 'alice', metric: 'spo2' },
+      payload: { insightId: 'ins_1', userId: 'alice', metric: 'metric_a' },
     }])
   })
 

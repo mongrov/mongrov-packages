@@ -1,5 +1,5 @@
 /**
- * `engine.setQuality` (zivaone_app#474) — the motion-filter switch in
+ * `engine.setQuality` (app#474) — the motion-filter switch in
  * Settings, on a real in-memory DuckDB.
  *
  * Alerts follow what is shown (principle 69): the `_clean` views feed the
@@ -19,8 +19,8 @@ import { AnalyticsError } from '../errors'
 import { createAnalytics } from '../factory'
 import { createFakeKV } from './__fakes__/fake-kv'
 
-const CTX: AttachContext = { brand: 'ziva', tenantScope: 'family', tenantId: 'u1', userId: 'u1' }
-const IDS = `'ziva', 'u1', 'u1', 'ring'`
+const CTX: AttachContext = { brand: 'acme', tenantScope: 'family', tenantId: 'u1', userId: 'u1' }
+const IDS = `'acme', 'u1', 'u1', 'ring'`
 const COLS = 'brand, family_id, user_id, device_id'
 const READING = `TIMESTAMP '2026-09-10 09:00:00'`
 
@@ -92,7 +92,7 @@ async function shown(engine: AnalyticsEngine): Promise<{ view: number, macro: nu
   return { view: Number(view[0]!.n), macro: Number(macro[0]!.n) }
 }
 
-describe('engine.setQuality (zivaone_app#474)', () => {
+describe('engine.setQuality (app#474)', () => {
   it('a flip changes what the clean view and its macro return at once; flipping back restores it', async () => {
     const { engine, handle } = await boot()
     await engine.attach(CTX)

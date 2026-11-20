@@ -91,7 +91,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
 
   /** Push-watermark KV key, matching sync/watermark.ts exactly. */
   function watermarkKey(tenantId: string, table: string): string {
-    return `analytics:watermark:ziva:${tenantId}:${table}:push`
+    return `analytics:watermark:acme:${tenantId}:${table}:push`
   }
 
   function bootEngine(retentionDays?: number, storage = memoryKV()): AnalyticsEngine {
@@ -102,7 +102,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
         catalogEndpoint: ep.restEndpoint,
         tokenVendor: staticTokenVendor(),
         familyMembersProvider: async () => [],
-        retention: retentionDays != null ? { ziva: { days: retentionDays } } : {},
+        retention: retentionDays != null ? { acme: { days: retentionDays } } : {},
       },
       {
         duckdbFactory: async () => {
@@ -115,7 +115,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
   }
 
   function attachCtx(tenantId: string): AttachContext {
-    return { brand: 'ziva', tenantScope: 'family', tenantId, userId: 'u1' }
+    return { brand: 'acme', tenantScope: 'family', tenantId, userId: 'u1' }
   }
 
   /**
@@ -148,7 +148,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
       `INSERT INTO ${qualify(catalog, 'hrv')}
          (ts, brand, family_id, user_id, device_id, hrv_ms)
          VALUES ($ts::TIMESTAMP, $brand, $fam, $u, $d, $v)`,
-      { ts: tsIso, brand: 'ziva', fam: tenantId, u: userId, d: 'd1', v: hrvMs },
+      { ts: tsIso, brand: 'acme', fam: tenantId, u: userId, d: 'd1', v: hrvMs },
     )
   }
 
@@ -299,7 +299,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
            (ts, brand, family_id, user_id, device_id, hrv_ms)
          SELECT
            (now() - (day_offset * INTERVAL 1 DAY))::TIMESTAMP,
-           'ziva', $fam, 'u4', 'd-ret', 50
+           'acme', $fam, 'u4', 'd-ret', 50
          FROM generate_series(1, 100) AS t(day_offset)`,
         { fam: TENANT_A },
       )
@@ -357,7 +357,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
         `INSERT INTO ${localHrv}
            (ts, brand, family_id, user_id, device_id, hrv_ms)
          SELECT (now() - (day_offset * INTERVAL 1 DAY))::TIMESTAMP,
-                'ziva', $fam, 'u4b', 'd-ret', 50
+                'acme', $fam, 'u4b', 'd-ret', 50
          FROM generate_series(1, 10) AS t(day_offset)`,
         { fam: TENANT_A },
       )
@@ -401,7 +401,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
              (session_id, ts_start, ts_end, brand, family_id, user_id, device_id,
               total_minutes, deep_minutes, rem_minutes, light_minutes,
               awake_minutes, avg_confidence, night_of)
-             VALUES ($sid, $s::TIMESTAMP, $e::TIMESTAMP, 'ziva', $fam, $u, $d,
+             VALUES ($sid, $s::TIMESTAMP, $e::TIMESTAMP, 'acme', $fam, $u, $d,
                      $tot, $deep, $rem, $light, $awk, $conf, $night::DATE)`,
           {
             sid: `sess_u6_${i}`,
@@ -481,7 +481,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
              (device_id, brand, family_id, user_id, metric,
               interval_minutes, start_time, end_time, weeks,
               valid_from, valid_to)
-             VALUES ('d7', 'ziva', $fam, $u, $dt,
+             VALUES ('d7', 'acme', $fam, $u, $dt,
                      15, NULL, NULL, NULL,
                      $vf::TIMESTAMP, ${c.validTo === null ? 'NULL' : '$vt::TIMESTAMP'})`,
           c.validTo === null
@@ -556,7 +556,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
            'sess_u8_' || day_offset::VARCHAR,
            (now() - (day_offset * INTERVAL 1 DAY) - INTERVAL 7 HOUR)::TIMESTAMP,
            (now() - (day_offset * INTERVAL 1 DAY))::TIMESTAMP,
-           'ziva', $fam, 'u8', 'd8',
+           'acme', $fam, 'u8', 'd8',
            420, 90, 80, 180, 70, 0.9,
            (now() - (day_offset * INTERVAL 1 DAY))::DATE
          FROM generate_series(1, 100) AS t(day_offset)`,
@@ -618,7 +618,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
             valid_from, valid_to)
          SELECT
            'd9',
-           'ziva',
+           'acme',
            $fam,
            'u9',
            200 + dt,
@@ -735,7 +735,7 @@ describe('T-18 — MinIO + Iceberg REST integration', () => {
              (device_id, brand, family_id, user_id, metric,
               interval_minutes, start_time, end_time, weeks,
               valid_from, valid_to)
-             VALUES ('d10', 'ziva', $fam, $u, $dt,
+             VALUES ('d10', 'acme', $fam, $u, $dt,
                      15, NULL, NULL, NULL,
                      $vf::TIMESTAMP, NULL)`,
           { fam: TENANT_A, u: 'u10', dt, vf: validFrom },

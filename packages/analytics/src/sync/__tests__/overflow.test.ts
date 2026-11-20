@@ -17,7 +17,7 @@ function makeEntry(rows: number, seed = 0): BufferEntry {
   const rowArr = Array.from({ length: rows }, (_, i) => ({ i: seed + i }))
   return {
     rows: rowArr,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam_A',
     userId: 'u1',
     deviceId: 'dev1',

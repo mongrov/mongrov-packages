@@ -7,12 +7,17 @@
  * defaults, rules, tools, fixtures, docs or package metadata. This lists
  * every place one still appears.
  *
- * Two kinds of match:
+ * Three kinds of match:
  *   - BRANDS are matched as a case-insensitive substring of the raw line, so
  *     `ZivaOneTheme`, `jcring_v2` and `@zivaone/health` are all found.
  *   - WORDS are matched per identifier part (camelCase, snake_case, kebab,
  *     plain prose), plural-insensitive: `getHRV`, `heart_rate`,
  *     `SleepDeriver`, `nights` are found while `string` or `during` are not.
+ *   - COMPOUNDS are words that are generic alone and domain only in
+ *     combination: `step` joined to a counting part in one identifier
+ *     (`stepCount`, `step_count`, `STEP_GOAL`; the plural `dailySteps` is a
+ *     WORDS hit), and the skin / body temperature forms (`skinTemp`,
+ *     `body_temp`, `body-temp`, `skin temp`, `temp_c`).
  *
  * Modes:
  *   node scripts/no-domain-terms.mjs [--fail] [--json]
@@ -22,9 +27,10 @@
  *       Exempt by design (design.md "Guard"): `src/__tests__/packs/` — the
  *       test packs that stand in for a real domain pack.
  *       Exempt TEMPORARILY: the test files listed in
- *       `no-domain-terms.test-paths.json` (see that file). A listed file that
- *       no longer has a hit is reported as stale, and fails with --fail, so
- *       the list only shrinks.
+ *       `no-domain-terms.test-paths.json` (see that file) — from domain
+ *       WORDS and COMPOUNDS only. BRANDS are reported in those files like
+ *       anywhere else. A listed file that no longer has a domain-word hit is
+ *       reported as stale, and fails with --fail, so the list only shrinks.
  *
  *   node scripts/no-domain-terms.mjs --pack [<pkg-dir> ...] [--fail]
  *       Tarball mode, no path exemptions. For each publishable package
@@ -34,6 +40,12 @@
  *   node scripts/no-domain-terms.mjs --tarball <file.tgz> [...] [--fail]
  *       Tarball mode on packed tarballs: extracts each and scans every file
  *       in it, no path exemptions.
+ *
+ * File types (every mode): a file is scanned as text when its extension is
+ * in TEXT_EXTENSIONS or it has none (LICENSE). An extension in
+ * IGNORED_EXTENSIONS (images, fonts — reviewed, cannot carry a term as
+ * text) is skipped. Any other extension is a failure, so a new file type
+ * cannot slip past unscanned.
  *
  * Not domain terms, and so not reported (both modes):
  *   - `ring` followed by `buffer` (a ring buffer), `health` followed by
@@ -98,6 +110,12 @@ const WORDS = new Set([
   'glucose',
   'resting',
   'motion',
+  'ecg',
+  'ekg',
+  'cardio',
+  'fitness',
+  'respiration',
+  'respiratory',
   'night',
   'nightly',
   'overnight',
@@ -113,14 +131,44 @@ const WORDS = new Set([
   'viva',
 ])
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', 'coverage'])
-const EXTENSIONS = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|sql|md|json|toml|ya?ml|txt|map)$/i
+/** Scanned as text. */
+const TEXT_EXTENSIONS = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|sql|md|mdx|json|toml|ya?ml|txt|map|svg|html|css|snap|sh|xml)$/i
+/** Reviewed binary types: skipped (they cannot carry a term as text). Anything else fails. */
+const IGNORED_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|ico|ttf|otf|woff2?)$/i
+const HAS_EXTENSION = /\.[a-z0-9]+$/i
+/** `text` (scan), `ignored` (reviewed binary), or `unknown` (fail). */
+function fileKind(path) {
+  if (TEXT_EXTENSIONS.test(path) || !HAS_EXTENSION.test(path.split('/').pop()))
+    return 'text'
+  return IGNORED_EXTENSIONS.test(path) ? 'ignored' : 'unknown'
+}
 const NON_WORD_RE = /[^A-Z0-9]+/i
 const CAMEL_RE = /(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/
 /** Spelled-out forms the word split misses: `SpO2` splits as sp|o2, `temp_c` as temp|c. */
 const RAW_TERMS = [
   ['spo2', /spo2/i],
   ['temp_c', /\btemp_?c\b/i],
+  // skinTemp, skin_temp, bodyTemp, body-temp, BODY_TEMP, skin temperature
+  ['skin_temp', /(?:(?<![A-Za-z])(?:skin|body)|Skin|Body|SKIN|BODY)[ _-]?(?:temp|Temp|TEMP)/],
 ]
+/** Identifier tokens (letters, digits, `_`), for compound terms. */
+const IDENT_TOKEN_RE = /\w+/g
+/**
+ * A step count spelled as one identifier: `step` joined to a counting part
+ * (`stepCount`, `step_count`, `STEP_GOAL`, `stepLength`), reported as `steps`.
+ * The plural (`dailySteps`, `steps_total`) is already a WORDS hit. A bare
+ * `step` — a migration step, `StepResult`, `nextStep` — is not a domain term.
+ */
+const STEP_PARTNERS = new Set(['count', 'counts', 'counter', 'total', 'totals', 'goal', 'goals', 'length', 'cadence', 'rate', 'tracker', 'tracking', 'detector', 'detection'])
+function stepCompound(line) {
+  for (const token of line.match(IDENT_TOKEN_RE) ?? []) {
+    const parts = token.split('_').flatMap(t => t.split(CAMEL_RE)).map(w => w.toLowerCase()).filter(Boolean)
+    if (parts.includes('step') && parts.some(p => STEP_PARTNERS.has(p)))
+      return true
+  }
+  return false
+}
+
 /** Design.md: the test packs stand in for a real domain pack. */
 const SCOPE_RE = /^@[^/]+\//
 const PACKS_TEST_DIR = /^packages\/[^/]+\/src\/__tests__\/packs\//
@@ -213,18 +261,22 @@ function termsOf(line) {
     if (re.test(line))
       found.add(t)
   }
+  if (stepCompound(line))
+    found.add('steps')
   return [...found]
 }
+
+const BRAND_SET = new Set(BRANDS)
 
 /**
  * Scan one file. `rel` is the path used for reporting and the allow-list
  * (`packages/<pkg>/…`); `abs` is where to read it.
  */
-function scanFile(abs, rel, hits) {
+function scanFile(abs, rel, hits, only = () => true) {
   const lines = readFileSync(abs, 'utf8').split('\n')
   let n = 0
   lines.forEach((line, i) => {
-    const reported = termsOf(line).filter(t => !allowed(rel, line, t))
+    const reported = termsOf(line).filter(t => only(t) && !allowed(rel, line, t))
     if (reported.length > 0) {
       n++
       hits.push({ file: rel, line: i + 1, terms: reported, text: line.trim().slice(0, 160) })
@@ -244,6 +296,11 @@ function prefixFor(name) {
   return `packages/${name.replace(SCOPE_RE, '')}/`
 }
 
+/** A file whose type is neither scanned nor on the reviewed binary list. */
+function unknownType(rel) {
+  return { file: rel, line: 0, terms: ['unknown-type'], text: 'file type is neither scanned (TEXT_EXTENSIONS) nor reviewed binary (IGNORED_EXTENSIONS): add it to one' }
+}
+
 const hits = []
 const notes = []
 const scanned = []
@@ -259,10 +316,13 @@ if (packMode) {
     if (!files.some(f => f.startsWith('dist/')))
       throw new Error(`${manifest.name}: the tarball has no dist/ — build before --pack`)
     for (const f of files) {
-      if (EXTENSIONS.test(f) || !/\.[a-z0-9]+$/i.test(f))
+      const kind = fileKind(f)
+      if (kind === 'text')
         scanFile(join(dir, f), prefixFor(manifest.name) + f, hits)
+      else if (kind === 'ignored')
+        notes.push(`${manifest.name}: not scanned (reviewed binary type): ${f}`)
       else
-        notes.push(`${manifest.name}: not scanned (binary/unknown type): ${f}`)
+        hits.push(unknownType(prefixFor(manifest.name) + f))
     }
     scanned.push(`${manifest.name}@${manifest.version} (${files.length} files)`)
   }
@@ -279,12 +339,17 @@ else if (tarballMode) {
       let count = 0
       for (const abs of walk(base, new Set())) {
         count++
-        // A tarball file of an unscannable type is reported, not skipped silently.
-        if (!EXTENSIONS.test(abs) && /\.[a-z0-9]+$/i.test(abs)) {
-          notes.push(`${tgz}: not scanned (binary/unknown type): ${relative(base, abs)}`)
+        const rel = prefixFor(manifest.name) + relative(base, abs)
+        const kind = fileKind(abs)
+        if (kind === 'ignored') {
+          notes.push(`${tgz}: not scanned (reviewed binary type): ${relative(base, abs)}`)
           continue
         }
-        scanFile(abs, prefixFor(manifest.name) + relative(base, abs), hits)
+        if (kind === 'unknown') {
+          hits.push(unknownType(rel))
+          continue
+        }
+        scanFile(abs, rel, hits)
       }
       scanned.push(`${manifest.name}@${manifest.version} (${count} files) ← ${tgz}`)
     }
@@ -298,13 +363,20 @@ else {
   const testHits = new Map()
   for (const dir of dirs) {
     for (const abs of walk(dir)) {
-      if (!EXTENSIONS.test(abs))
-        continue
       const rel = relative(ROOT, abs)
+      const kind = fileKind(abs)
+      if (kind === 'ignored')
+        continue
+      if (kind === 'unknown') {
+        hits.push(unknownType(rel))
+        continue
+      }
       if (PACKS_TEST_DIR.test(rel))
         continue
       if (TEST_PATHS.has(rel)) {
-        testHits.set(rel, scanFile(abs, rel, []))
+        // Exempt from domain words only: a brand is reported here too.
+        testHits.set(rel, scanFile(abs, rel, [], t => !BRAND_SET.has(t)))
+        scanFile(abs, rel, hits, t => BRAND_SET.has(t))
         continue
       }
       scanFile(abs, rel, hits)
@@ -318,7 +390,7 @@ else {
       else if (testHits.get(p) === 0)
         hits.push({ file: 'scripts/no-domain-terms.test-paths.json', line: 0, terms: ['stale'], text: `listed test path has no domain term any more — remove it from the list: ${p}` })
     }
-    notes.push(`${TEST_PATHS.size} test files temporarily exempt (scripts/no-domain-terms.test-paths.json); src/__tests__/packs/ exempt by design.`)
+    notes.push(`${TEST_PATHS.size} test files temporarily exempt from domain words, not brands (scripts/no-domain-terms.test-paths.json); src/__tests__/packs/ exempt by design.`)
   }
 }
 

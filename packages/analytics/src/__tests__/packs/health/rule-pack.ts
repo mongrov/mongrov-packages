@@ -188,7 +188,7 @@ export const healthRules: RulePack = {
     valueType: key => (KV_KEY_REGISTRY as Record<string, { valueType?: string }>)[key]?.valueType,
     range: key => (KV_KEY_REGISTRY as Record<string, { range?: readonly [number, number] }>)[key]?.range,
     readableKeys: () => ruleReadableKvKeys(),
-    registryName: 'KV_KEY_REGISTRY in @mongrov/types/kv-keys',
+    registryName: 'KV_KEY_REGISTRY in @zivaone/health',
   },
-  defaultBrand: 'ziva',
+  defaultBrand: 'acme',
 }

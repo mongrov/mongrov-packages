@@ -33,7 +33,7 @@ const COL_ORDER: Record<string, readonly string[]> = {
 function makeBatch(table: string, rows: Record<string, unknown>[]): SensorBatch {
   return {
     table,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam',
     userId: 'u',
     deviceId: 'd',

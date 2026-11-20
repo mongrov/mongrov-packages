@@ -16,7 +16,7 @@ import { generateViewDdl } from '../../core/schemas'
 import { BASELINE_OFFSET_PARAM, compileRule } from '../compiler'
 import { RuleSchema } from '../schema'
 
-const BRAND = 'ziva'
+const BRAND = 'acme'
 const FAMILY = 'fam_1'
 const USER = 'alice'
 
@@ -169,7 +169,7 @@ describe('baseline_offset compilation', () => {
   })
 
   it('casts every parameter — the react-native-duckdb prepare path', () => {
-    // zivaone_app#70/#72: a bare param in a projection or arithmetic
+    // app#70/#72: a bare param in a projection or arithmetic
     // expression has no type context at prepare time and throws
     // ParameterNotResolvedException on device. New SQL must not reintroduce
     // it, whatever the older branches still do.

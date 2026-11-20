@@ -128,10 +128,10 @@ describe('defineMutation (T-04)', () => {
       input: z.object({ id: z.string() }),
       output: z.object({ ok: z.boolean() }),
       exec: async () => ({ ok: true }),
-      invalidates: ['hrv:*'],
+      invalidates: ['orders:*'],
     })
     expect(m.__kind).toBe('mutation')
-    expect(m.config.invalidates).toEqual(['hrv:*'])
+    expect(m.config.invalidates).toEqual(['orders:*'])
   })
 
   it('requires an exec function', () => {

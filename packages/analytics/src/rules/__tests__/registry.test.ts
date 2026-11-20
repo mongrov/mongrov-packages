@@ -81,7 +81,7 @@ describe('createRulesRegistry', () => {
       rule, // no brand — inherits
       { ...secondRule, brand: 'other' },
     ])
-    expect(registry.getByBrand('ziva')).toHaveLength(1)
+    expect(registry.getByBrand('acme')).toHaveLength(1)
     expect(registry.getByBrand('other')).toHaveLength(1)
   })
 

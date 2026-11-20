@@ -48,7 +48,7 @@ async function harness() {
     throttle,
     emitter,
     analytics,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam1',
     familyMembersProvider,
     clock,
@@ -103,7 +103,7 @@ describe('createEvaluator', () => {
       expect(call.sql).toContain('$familyId')
       expect(call.params).toMatchObject({
         userId: 'user-a',
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
       })
       expect(call.sql).not.toContain('\'user-a\'')
@@ -128,7 +128,7 @@ describe('createEvaluator', () => {
         ruleId: 'test.hrv.drop',
         userId: 'u1',
         familyId: 'fam1',
-        brand: 'ziva',
+        brand: 'acme',
         observedValue: 25,
         thresholdValue: 40,
         severity: 'warn',
@@ -178,7 +178,7 @@ describe('createEvaluator', () => {
         throttle,
         emitter,
         analytics,
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
         familyMembersProvider: async () => ['u1'],
         clock,
@@ -206,7 +206,7 @@ describe('createEvaluator', () => {
         throttle: createThrottleStore({ storage, clock }),
         emitter: createEmitter(),
         analytics,
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
         familyMembersProvider: async () => ['u1', 'u2'],
         clock,
@@ -234,7 +234,7 @@ describe('createEvaluator', () => {
       h.analytics.__setResult([])
       await h.evaluator.evaluateScheduled()
       expect(h.familyMembersProvider).toHaveBeenCalledWith({
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
       })
       expect(h.analytics.__calls).toHaveLength(2) // one per member
@@ -262,7 +262,7 @@ describe('createEvaluator', () => {
         throttle,
         emitter,
         analytics,
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
         familyMembersProvider: async () => { throw new Error('rxdb offline') },
         clock,
@@ -319,7 +319,7 @@ describe('createEvaluator', () => {
       expect(insert!.sql).toContain(`'threshold'`)
       expect(insert!.params).toMatchObject({
         userId: 'u1',
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
         ruleId: 'test.spo2.critical',
         metric: 'spo2',
@@ -348,7 +348,7 @@ describe('createEvaluator', () => {
         throttle: createThrottleStore({ storage, clock }),
         emitter: createEmitter(),
         analytics,
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
         familyMembersProvider: async () => ['u1'],
         clock,
@@ -404,7 +404,7 @@ describe('createEvaluator', () => {
         throttle: createThrottleStore({ storage, clock }),
         emitter,
         analytics,
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
         familyMembersProvider: async () => ['u1'],
         clock,
@@ -467,7 +467,7 @@ describe('createEvaluator', () => {
         throttle: createThrottleStore({ storage, clock }),
         emitter: createEmitter(),
         analytics,
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam1',
         familyMembersProvider: async () => ['u1'],
         clock,
@@ -514,7 +514,7 @@ describe('minDays rules count LOCAL days, so they bind the user zone (QA #108)',
       throttle: createThrottleStore({ storage, clock }),
       emitter: createEmitter(),
       analytics,
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam1',
       familyMembersProvider: vi.fn(async () => ['u1']),
       clock,
@@ -556,7 +556,7 @@ describe('throttle store failures', () => {
       },
       emitter,
       analytics,
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam1',
       familyMembersProvider: async () => ['u1'],
       clock,

@@ -4,7 +4,7 @@
  * Every catch in this package logged `(err as Error).message`. When the thing
  * being logged is an `AnalyticsError`, that message is the wrapper's own text
  * and the real DuckDB error — the binder message, the offending column, the
- * SQL position — lives in `.cause` and never reached the log. zivaone_app#70
+ * SQL position — lives in `.cause` and never reached the log. app#70
  * is exactly that: four rules reported "execute failed" and nothing else, so
  * the root cause could not be read off the report at all.
  *
@@ -17,7 +17,7 @@ import { AnalyticsError, describeError } from '../errors'
 describe('describeError', () => {
   it('keeps the underlying cause of a wrapped AnalyticsError', () => {
     const duck = new Error(
-      'Binder Error: Referenced column "spo2" not found in FROM clause!',
+      'Binder Error: Referenced column "amount" not found in FROM clause!',
     )
     const wrapped = new AnalyticsError('query_failed', 'execute failed', duck)
 
@@ -27,7 +27,7 @@ describe('describeError', () => {
     expect(out).toContain('execute failed')
     expect(out).toContain('query_failed')
     // This is the part that used to be lost.
-    expect(out).toContain('Referenced column "spo2" not found')
+    expect(out).toContain('Referenced column "amount" not found')
   })
 
   it('walks a multi-level chain deepest-last', () => {

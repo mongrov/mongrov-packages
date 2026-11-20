@@ -43,9 +43,9 @@ describe('disabled by default (measurement gate)', () => {
     const cache = createWatermarkCache()
     const load = vi.fn(async () => WM)
 
-    await cache.get('ziva', 'fam1', 'spo2', load)
-    await cache.get('ziva', 'fam1', 'spo2', load)
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
 
     expect(cache.enabled).toBe(false)
     expect(load).toHaveBeenCalledTimes(3)
@@ -56,7 +56,7 @@ describe('disabled by default (measurement gate)', () => {
     // We need latency data BEFORE deciding whether to enable the cache.
     let clock = 0
     const cache = createWatermarkCache({ now: () => clock })
-    await cache.get('ziva', 'fam1', 'spo2', async () => {
+    await cache.get('acme', 'fam1', 'spo2', async () => {
       clock += 30
       return WM
     })
@@ -72,8 +72,8 @@ describe('enabled', () => {
     const cache = createWatermarkCache({ enabled: true })
     const load = vi.fn(async () => WM)
 
-    expect(await cache.get('ziva', 'fam1', 'spo2', load)).toEqual(WM)
-    expect(await cache.get('ziva', 'fam1', 'spo2', load)).toEqual(WM)
+    expect(await cache.get('acme', 'fam1', 'spo2', load)).toEqual(WM)
+    expect(await cache.get('acme', 'fam1', 'spo2', load)).toEqual(WM)
 
     expect(load).toHaveBeenCalledTimes(1)
     expect(cache.stats()).toMatchObject({ hits: 1, misses: 1 })
@@ -83,10 +83,10 @@ describe('enabled', () => {
     const cache = createWatermarkCache({ enabled: true })
     const load = vi.fn(async () => WM)
 
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
     await cache.get('viva', 'fam1', 'spo2', load) // different brand
-    await cache.get('ziva', 'fam2', 'spo2', load) // different family
-    await cache.get('ziva', 'fam1', 'hrv', load) // different table
+    await cache.get('acme', 'fam2', 'spo2', load) // different family
+    await cache.get('acme', 'fam1', 'hrv', load) // different table
 
     expect(load).toHaveBeenCalledTimes(4)
     expect(cache.stats().hits).toBe(0)
@@ -97,13 +97,13 @@ describe('enabled', () => {
     const cache = createWatermarkCache({ enabled: true, now: () => clock })
     const load = vi.fn(async () => WM)
 
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
     clock += WATERMARK_CACHE_TTL_MS - 1
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
     expect(load).toHaveBeenCalledTimes(1)
 
     clock += 2 // now past the TTL
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
     expect(load).toHaveBeenCalledTimes(2)
     expect(cache.stats().expirations).toBe(1)
   })
@@ -114,8 +114,8 @@ describe('enabled', () => {
     const cache = createWatermarkCache({ enabled: true })
     const load = vi.fn(async () => null)
 
-    expect(await cache.get('ziva', 'fam1', 'spo2', load)).toBeNull()
-    expect(await cache.get('ziva', 'fam1', 'spo2', load)).toBeNull()
+    expect(await cache.get('acme', 'fam1', 'spo2', load)).toBeNull()
+    expect(await cache.get('acme', 'fam1', 'spo2', load)).toBeNull()
     expect(load).toHaveBeenCalledTimes(1)
   })
 })
@@ -126,9 +126,9 @@ describe('invalidation', () => {
     const cache = createWatermarkCache({ enabled: true, eventBus: bus })
     const load = vi.fn(async () => WM)
 
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
     bus.emit('spo2:sync_complete', {})
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
 
     // A push advanced the watermark, so the cached value is wrong and must
     // not be served.
@@ -141,12 +141,12 @@ describe('invalidation', () => {
     const cache = createWatermarkCache({ enabled: true, eventBus: bus })
     const load = vi.fn(async () => WM)
 
-    await cache.get('ziva', 'fam1', 'spo2', load)
-    await cache.get('ziva', 'fam2', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam2', 'spo2', load)
     bus.emit('spo2:sync_complete', {})
 
-    await cache.get('ziva', 'fam1', 'spo2', load)
-    await cache.get('ziva', 'fam2', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam2', 'spo2', load)
     expect(load).toHaveBeenCalledTimes(4)
   })
 
@@ -155,11 +155,11 @@ describe('invalidation', () => {
     const cache = createWatermarkCache({ enabled: true, eventBus: bus })
     const load = vi.fn(async () => WM)
 
-    await cache.get('ziva', 'fam1', 'spo2', load)
-    await cache.get('ziva', 'fam1', 'hrv', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'hrv', load)
     bus.emit('spo2:sync_complete', {})
 
-    await cache.get('ziva', 'fam1', 'hrv', load)
+    await cache.get('acme', 'fam1', 'hrv', load)
     expect(load).toHaveBeenCalledTimes(2) // hrv still cached
   })
 
@@ -175,9 +175,9 @@ describe('invalidation', () => {
     const cache = createWatermarkCache({ enabled: true })
     const load = vi.fn(async () => WM)
 
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
     cache.clear()
-    await cache.get('ziva', 'fam1', 'spo2', load)
+    await cache.get('acme', 'fam1', 'spo2', load)
     expect(load).toHaveBeenCalledTimes(2)
   })
 
@@ -196,7 +196,7 @@ describe('instrumentation', () => {
     const cache = createWatermarkCache({ now: () => clock })
 
     for (const ms of [1, 2, 3, 4, 100]) {
-      await cache.get('ziva', 'fam1', `t${ms}`, async () => {
+      await cache.get('acme', 'fam1', `t${ms}`, async () => {
         clock += ms
         return WM
       })

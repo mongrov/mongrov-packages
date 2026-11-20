@@ -24,7 +24,7 @@ const COL_ORDER = { hrv: ['ts', 'hrv_ms'], hr: ['ts', 'bpm'] }
 function batch(table: string, count: number): SensorBatch {
   return {
     table,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'f',
     userId: 'u',
     deviceId: 'd',

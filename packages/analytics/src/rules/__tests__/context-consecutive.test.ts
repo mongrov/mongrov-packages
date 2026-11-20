@@ -233,10 +233,10 @@ describe('T-21 — validator', () => {
     }))).toThrow(/already a per-session measure/)
   })
 
-  it('accepts the two shipped Ziva SpO₂ rules', async () => {
-    const { zivaDefaults } = await import('../../__tests__/packs/health/rules')
-    for (const id of ['ziva.spo2-safe-level', 'ziva.spo2-desaturation-asleep']) {
-      const r = zivaDefaults.find(x => x.id === id)!
+  it('accepts the two shipped SpO₂ default rules', async () => {
+    const { primaryDefaults } = await import('../../__tests__/packs/health/rules')
+    for (const id of ['acme.spo2-safe-level', 'acme.spo2-desaturation-asleep']) {
+      const r = primaryDefaults.find(x => x.id === id)!
       expect(() => validateRule(r)).not.toThrow()
       expect(() => compileRule(r)).not.toThrow()
     }
@@ -303,9 +303,9 @@ describe('T-42 — user_setting keys must be in the KVStore registry', () => {
     expect(() => validateRule(rule({}))).not.toThrow()
   })
 
-  it('the shipped Ziva safe-level rule uses a registered key', async () => {
-    const { zivaDefaults } = await import('../../__tests__/packs/health/rules')
-    const r = zivaDefaults.find(x => x.id === 'ziva.spo2-safe-level')!
+  it('the shipped safe-level default rule uses a registered key', async () => {
+    const { primaryDefaults } = await import('../../__tests__/packs/health/rules')
+    const r = primaryDefaults.find(x => x.id === 'acme.spo2-safe-level')!
     expect(r.target).toMatchObject({ key: 'user:spo2SafeLevel' })
     expect(() => validateRule(r)).not.toThrow()
   })

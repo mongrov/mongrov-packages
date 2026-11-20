@@ -19,7 +19,7 @@ import { generateViewDdl } from '../../core/schemas'
 import { compileRule } from '../compiler'
 import { RuleSchema } from '../schema'
 
-const BRAND = 'ziva'
+const BRAND = 'acme'
 const FAMILY = 'fam_1'
 const USER = 'alice'
 const TZ = 'America/Los_Angeles'

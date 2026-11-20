@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { DataAccessProvider, defineQuery, useAppQuery } from '../index'
 
 function makeCtx(): RequestContext {
-  return { userId: 'u1', brand: 'zivaone', familyId: 'f1', timezone: 'UTC', now: () => new Date(0) }
+  return { userId: 'u1', brand: 'acme', familyId: 'f1', timezone: 'UTC', now: () => new Date(0) }
 }
 
 function makeLogger() {

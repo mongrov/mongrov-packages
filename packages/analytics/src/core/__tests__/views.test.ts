@@ -18,7 +18,7 @@ import { createViews, dropViews } from '../warehouse'
 import { createFakeDuckDB } from './__fakes__/fake-duckdb'
 
 const CTX = {
-  brand: 'ziva',
+  brand: 'acme',
   familyId: 'fam123',
   localCatalog: 'memory',
   remoteCatalog: 'zone_fam123',
@@ -92,7 +92,7 @@ describe('generateViewDdl', () => {
 
   it('scopes the watermark lookup to the attach tenant', () => {
     const sql = generateViewDdl('spo2', CTX)
-    expect(sql).toContain(`brand = 'ziva'`)
+    expect(sql).toContain(`brand = 'acme'`)
     expect(sql).toContain(`family_id = 'fam123'`)
   })
 
@@ -109,7 +109,7 @@ describe('generateViewDdl', () => {
 
   it('emits a local-only view with no UNION in local mode', () => {
     const sql = generateViewDdl('spo2', {
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam123',
       localCatalog: 'memory',
     })

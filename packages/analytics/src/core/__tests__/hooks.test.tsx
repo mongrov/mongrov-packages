@@ -196,10 +196,10 @@ describe('useInsight', () => {
       brand: 'brandA',
       familyId: 'fam123',
       userId: 'user-1',
-      metric: 'hrv_ms',
+      metric: 'metric_a',
       kind: 'threshold',
       severity: 'info',
-      title: 'HRV below baseline',
+      title: 'Metric below baseline',
     }
     fake.setExecuteImpl(async () => [row])
 

@@ -26,8 +26,8 @@
  *   - `insight`          → 90 days
  *   - `tool_call_audit`  → 30 days
  *
- * Tables without a retention semantic (`device_config`, `sync_watermark`)
- * are skipped.
+ * Tables declared with `retention: null` (an SCD-2 configuration table,
+ * `sync_watermark`) are skipped.
  */
 
 import type { AppSchema } from './app-schema'

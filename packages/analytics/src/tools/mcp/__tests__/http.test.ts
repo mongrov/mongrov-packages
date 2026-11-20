@@ -32,7 +32,7 @@ afterAll(() => {
 
 const baseCtx: ToolContext = {
   requesterUserId: 'alice',
-  brand: 'zivaone',
+  brand: 'acme',
   familyId: 'fam-1',
 }
 

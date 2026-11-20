@@ -12,14 +12,13 @@ import { describe, expect, it } from 'vitest'
 
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { LOCAL_SCHEMAS } from '../../__tests__/packs/legacy-tables'
-import { computeNightOf } from '../../__tests__/packs/ring/mapper/time'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { HybridDuckDB } from '../../core/engine'
 import { SensorBuffer } from '../buffer'
 import { BatchFlusher } from '../flusher'
 import { OverflowStore } from '../overflow'
 
-const TENANT = { brand: 'ziva', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
+const TENANT = { brand: 'acme', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
 
 async function rig() {
   const db = new HybridDuckDB(() => createRealDuckDB([]))
@@ -71,7 +70,7 @@ describe('self-keyed tables flush idempotently', () => {
   })
 })
 
-describe('rows inserted vs rows drained (zivaone_app#460 P17)', () => {
+describe('rows inserted vs rows drained (app#460 P17)', () => {
   it('reports 0 inserted for a re-sync of a row already held, and leaves it out of insertedTables', async () => {
     const r = await rig()
     const night = new Date(Date.UTC(2026, 5, 17))
@@ -93,17 +92,18 @@ describe('rows inserted vs rows drained (zivaone_app#460 P17)', () => {
   })
 })
 
-describe('night_of survives the write as the local evening date', () => {
-  // 01:30 IST on Jun 18 is 20:00 UTC on Jun 17: the night of Jun 17.
+describe('a DATE column keeps the calendar date it was given', () => {
+  // The flusher writes a JS Date bound for a DATE column as that UTC date,
+  // whatever the process zone: no shift across midnight, month or year.
   it.each([
-    ['Asia/Kolkata', '2026-06-17T20:00:00Z'],
-    ['America/Los_Angeles', '2026-06-18T08:30:00Z'],
-    ['UTC', '2026-06-18T01:30:00Z'],
-  ])('%s', async (tz, iso) => {
+    [Date.UTC(2026, 5, 17), '2026-06-17'],
+    [Date.UTC(2026, 0, 1), '2026-01-01'],
+    [Date.UTC(2025, 11, 31), '2025-12-31'],
+  ])('%s → %s', async (ms, expected) => {
     const r = await rig()
-    await flushOne(r, session(`n_${tz}`, iso, computeNightOf(new Date(iso), tz)))
+    await flushOne(r, session(`d_${expected}`, '2026-06-17T20:00:00Z', new Date(ms)))
     const rows = await r.db.execute<{ d: string }>(`SELECT CAST(night_of AS VARCHAR) AS d FROM sleep_session`)
-    expect(rows.map(x => x.d)).toEqual(['2026-06-17'])
+    expect(rows.map(x => x.d)).toEqual([expected])
     await r.db.close()
   })
 })

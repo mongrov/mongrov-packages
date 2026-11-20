@@ -138,7 +138,7 @@ describe('validateRule — minDays (QA #108)', () => {
   })
 })
 
-describe('validateRule — day-cadence window must hold the run (zivaone_app#55)', () => {
+describe('validateRule — day-cadence window must hold the run (app#55)', () => {
   const temp = (o: Record<string, unknown> = {}) => make({
     metric: 'temp_c',
     aggregation: 'max',

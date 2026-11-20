@@ -45,7 +45,7 @@ function build() {
   const engine = createRulesEngine({
     analytics,
     storage,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam1',
     familyMembersProvider: async () => ['u1'],
     clock,

@@ -1,7 +1,7 @@
 /**
- * ZivaOne registry SQL ↔ real schema (first execution, 2026-08-07).
+ * App registry SQL ↔ real schema (first execution, 2026-08-07).
  *
- * The SpO₂ registry SQL in `apps/zivaone/src/data/queries.ts` has never
+ * The SpO₂ registry SQL in an app's `src/data/queries.ts` has never
  * been run against a real database. Until today the app's `duckdb` engine
  * adapter routed to Timon — which has none of these tables — and mapped
  * every query error to `[]`, so a broken query was indistinguishable from
@@ -25,7 +25,7 @@ import { createRealDuckDB } from '../../__integration__/setup/real-engine'
 import { LOCAL_SCHEMAS, TABLE_NAMES, VIEWED_TABLES } from '../../__tests__/packs/legacy-tables'
 import { generateViewDdl } from '../schemas'
 
-const BRAND = 'ziva'
+const BRAND = 'acme'
 const FAMILY = 'fam_1'
 const USER = 'alice'
 const TZ = 'America/Los_Angeles'
@@ -92,7 +92,7 @@ async function seed(db: Awaited<ReturnType<typeof bootWarehouse>>) {
        (insight_id, ts, brand, family_id, user_id, rule_id, metric, kind,
         severity, title, body, evidence, acknowledged_at, dismissed_at)
      VALUES ('i1', now() - INTERVAL 2 HOUR, $brand, $fam, $user,
-             'ziva.spo2-safe-level', 'spo2', 'threshold', 'warn',
+             'acme.spo2-safe-level', 'spo2', 'threshold', 'warn',
              'Worth a look', NULL, NULL, NULL, NULL)`,
     { brand: BRAND, fam: FAMILY, user: USER },
   )
@@ -109,7 +109,7 @@ const TENANT = { userId: USER, brand: BRAND, familyId: FAMILY, tz: TZ }
 /** What the dispatcher now binds: only placeholders the SQL references. */
 const NO_TZ = { userId: USER, brand: BRAND, familyId: FAMILY }
 
-describe('ZivaOne registry SQL against the real schema', () => {
+describe('App registry SQL against the real schema', () => {
   it('spo2.compareBaseline — reads user_baseline, no transform needed', async () => {
     const db = await bootWarehouse()
     try {

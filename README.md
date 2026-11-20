@@ -6,14 +6,17 @@ Shared npm packages for Mongrov React Native / Expo apps.
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`@mongrov/types`](./packages/types) | 0.3.0 | Shared TypeScript type definitions |
-| [`@mongrov/core`](./packages/core) | 0.4.0 | Structured logging framework |
-| [`@mongrov/theme`](./packages/theme) | 0.3.0 | Theme contract and color scheme management |
-| [`@mongrov/auth`](./packages/auth) | 0.5.1 | Auth lifecycle, token management, biometric, social auth |
-| [`@mongrov/db`](./packages/db) | 0.2.3 | Database utilities (KVStore + RxDB) |
-| [`@mongrov/collab`](./packages/collab) | 0.2.1 | Collaboration adapter for messaging |
-| [`@mongrov/ui`](./packages/ui) | 0.4.1 | Shared UI primitives for React Native |
-| [`@mongrov/ai`](./packages/ai) | 0.2.0 | AI chat hooks with XState integration |
+| [`@mongrov/types`](./packages/types) | 0.20.1 | Shared TypeScript type definitions |
+| [`@mongrov/core`](./packages/core) | 0.10.1 | Structured logging (ring buffer, file and webhook transports) |
+| [`@mongrov/theme`](./packages/theme) | 0.4.0 | Theme contract and color scheme management |
+| [`@mongrov/auth`](./packages/auth) | 0.12.1 | Auth lifecycle, token management, biometric gate, auth adapters |
+| [`@mongrov/db`](./packages/db) | 0.6.0 | KVStore, RxDB documents and timeseries |
+| [`@mongrov/collab`](./packages/collab) | 0.4.1 | Collaboration adapter for real-time messaging |
+| [`@mongrov/ui`](./packages/ui) | 0.5.1 | Shared UI primitives for React Native |
+| [`@mongrov/ai`](./packages/ai) | 0.5.1 | AI chat and completion hooks with XState |
+| [`@mongrov/analytics`](./packages/analytics) | 0.61.0 | DuckDB + R2 Iceberg local analytics engine; domains plug in as packs |
+| [`@mongrov/data-access`](./packages/data-access) | 0.9.1 | Named query / mutation / event registry with engine dispatch |
+| [`@mongrov/device`](./packages/device) | 0.2.5 | Headless BLE device transport: adapter contract, ports, lifecycle events |
 
 ## Installation
 
@@ -59,15 +62,12 @@ pnpm --filter @mongrov/ui run test:watch
 ```
 @mongrov/types (base types - no dependencies)
     ↓
-@mongrov/core (logging - depends on types)
+@mongrov/collab, @mongrov/ui, @mongrov/device (depend on types)
+@mongrov/analytics (depends on types, db)
     ↓
-@mongrov/collab (collaboration - depends on types)
+@mongrov/data-access (depends on types, db, analytics)
 
-@mongrov/theme (theming - standalone)
-@mongrov/db (database - standalone)
-@mongrov/ui (UI components - standalone)
-@mongrov/auth (authentication - standalone)
-@mongrov/ai (AI chat - standalone)
+@mongrov/core, @mongrov/theme, @mongrov/db, @mongrov/auth, @mongrov/ai (standalone)
 ```
 
 ## Publishing
@@ -110,16 +110,19 @@ has two modes:
   SQL, docs, CHANGELOG/UPGRADING, `package.json`, fakes, mocks and tests.
   `src/__tests__/packs/` is exempt by design (the test packs stand in for a
   domain pack); the test files listed in
-  `scripts/no-domain-terms.test-paths.json` are exempt temporarily, one by
-  one, and a listed file that becomes clean fails the run until it is
-  removed from the list.
+  `scripts/no-domain-terms.test-paths.json` are exempt temporarily from
+  domain words — never from brand names — one by one, and a listed file
+  that becomes clean fails the run until it is removed from the list.
 - **tarball** (`pnpm domain-terms:pack`, `--pack <dir>`, `--tarball <tgz>`):
   exactly what `npm pack` publishes, no exemptions.
 
 Brand and vendor names match as case-insensitive substrings; domain words
-match per identifier part. `scripts/no-domain-terms.allow.json` lists the
-few generic uses (a ring buffer, a focus ring, migration steps, the AI
-sampling temperature, …), each with a reason.
+match per identifier part; a few words generic on their own are matched only
+in compounds (`stepCount`, `skin_temp`). Every file is either scanned as
+text or on a reviewed list of binary types (images, fonts); any other file
+type fails the run. `scripts/no-domain-terms.allow.json` lists the few
+generic uses (a ring buffer, a focus ring, migration steps, the AI sampling
+temperature, …), each narrowed to a line pattern and with a reason.
 
 ## License
 

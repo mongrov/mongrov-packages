@@ -29,8 +29,8 @@ import { assertRegistrable, validateRule } from '../validator'
  * unremarkable for another, which is the whole of decision D3.
  */
 const HRV_V3_ABSOLUTE_FLAG = {
-  id: 'ziva.hrv-below-35',
-  brand: 'ziva',
+  id: 'acme.hrv-below-35',
+  brand: 'acme',
   name: 'Low HRV',
   description: 'HRV below 35 ms',
   metric: 'hrv_ms',
@@ -84,11 +84,11 @@ describe('T-19 — HRV v3 absolute flag is refused admission', () => {
   })
 
   it('admits the relative form the guard points authors towards', () => {
-    // The guard must not be a wall. `ziva.hrv-drop-30` — the shipped default —
+    // The guard must not be a wall. `acme.hrv-drop-30` — the shipped default —
     // expresses the same intent relatively and has to pass.
     const relative = {
       ...HRV_V3_ABSOLUTE_FLAG,
-      id: 'ziva.hrv-drop-30',
+      id: 'acme.hrv-drop-30',
       target: { type: 'baseline_percent', windowDays: 7, percent: 70 },
     }
     expect(() => assertRegistrable(relative as never)).not.toThrow()
@@ -99,7 +99,7 @@ describe('T-19 — HRV v3 absolute flag is refused admission', () => {
     // by nature, and a guard that caught them would be wrong.
     const sleep = {
       ...HRV_V3_ABSOLUTE_FLAG,
-      id: 'ziva.sleep-short',
+      id: 'acme.sleep-short',
       metric: 'sleep_minutes',
       target: { type: 'absolute', value: 300 },
     }

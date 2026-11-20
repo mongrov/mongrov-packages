@@ -1,5 +1,5 @@
 /**
- * LuminX brand default rules. Sidecar: `luminx.toml`.
+ * LuminX brand default rules — a test fixture copy (inline TOML, no sidecar).
  */
 
 import type { Rule } from '../../../../rules/schema'
@@ -11,8 +11,7 @@ const TOML = `
 # LuminX rules are asset-side: battery low, prolonged disconnect, and
 # firmware/status. All three run against the \`device_event\` table, whose
 # metric proxy \`device_battery\` gates evaluation on batch.
-#
-# See \`luminx.ts\` — this file is the source of truth.
+
 
 [[rule]]
 id = "luminx.battery-low"

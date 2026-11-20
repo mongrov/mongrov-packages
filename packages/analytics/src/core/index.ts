@@ -149,6 +149,8 @@ export type {
   TokenVendor,
   Unsubscribe,
 } from './types'
+// The KVStore key a user's rule setting is read from (`analytics:<userId>:<key>`).
+export { userSettingKey } from './user-setting-key'
 // Watermark cache. Disabled by default — measurement-gated
 // on pilot p95 latency; the instrument runs regardless.
 export {

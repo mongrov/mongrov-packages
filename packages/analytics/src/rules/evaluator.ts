@@ -32,13 +32,15 @@ import { executeBounded } from '../core/bounded-read'
 import { AnalyticsError, describeError } from '../core/errors'
 import { tailId } from '../core/logger'
 import { metricDefinition } from '../core/metrics'
+import { userSettingKey } from '../core/user-setting-key'
 import { BAND_SCALE_PARAM, BASELINE_OFFSET_PARAM, USER_SETTING_PARAM } from './compiler'
 
 export interface EvaluatorConfig {
   registry: RulesRegistry
   /**
    * KVStore for `target.type: 'user_setting'` threshold resolution
-   * (Sprint 5 T-23). Keys are `analytics:{userId}:{rule.target.key}`.
+   * (Sprint 5 T-23). Keys are `userSettingKey(userId, rule.target.key)`
+   * (`analytics:{userId}:{key}`).
    */
   storage?: KVStore
   cache: CompilerCache
@@ -166,7 +168,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     let value = defaultValue
     if (storage) {
       try {
-        const stored = await storage.get<unknown>(`analytics:${userId}:${key}`)
+        const stored = await storage.get<unknown>(userSettingKey(userId, key))
         const parsed = typeof stored === 'string' ? Number(stored) : stored
         if (typeof parsed === 'number' && Number.isFinite(parsed))
           value = parsed
@@ -191,7 +193,7 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     if (!storage || compiled.bandScaleKey === undefined)
       return fallback
     try {
-      const stored = await storage.get<unknown>(`analytics:${userId}:${compiled.bandScaleKey}`)
+      const stored = await storage.get<unknown>(userSettingKey(userId, compiled.bandScaleKey))
       // The app stores the bare name; tolerate a JSON-quoted one.
       const name = typeof stored === 'string' ? stored.replace(JSON_QUOTES_RE, '') : undefined
       const scale = name !== undefined ? scales[name] : undefined

@@ -1,5 +1,5 @@
 /**
- * Guards the untyped-bound-parameter class (zivaone_app#70, #72) in the
+ * Guards the untyped-bound-parameter class (app#70, #72) in the
  * platform's own tool impls.
  *
  * react-native-duckdb prepares a statement with NO values and executes with
@@ -16,7 +16,7 @@
  * is the shape of the SQL.
  *
  * The same guard over a domain pack's baseline SQL and tool impls lives with
- * the pack (zivaone_app `@zivaone/health`, `src/__tests__/param-casts.test.ts`).
+ * the pack (the app's own pack, `src/__tests__/param-casts.test.ts`).
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'

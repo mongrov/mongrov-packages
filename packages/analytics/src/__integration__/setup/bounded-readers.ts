@@ -1,20 +1,20 @@
 /*
- * Shared harness for the bounded-readers equivalence suites
- * (mongrov-packages#44): `bounded-readers-*.test.ts`.
+ * Shared harness for the bounded-readers equivalence suite
+ * (mongrov-packages#44): `bounded-readers-rules-synthetic.test.ts`.
  *
- * Those suites prove that every reader switched to a bounded macro — the
- * compiled rules, the HR phase bands, the AI tools — passes bounds that COVER
- * what its own WHERE selects, by running both forms and comparing every row.
- * The macros themselves are proven equal to their views filtered to `[lo, hi)`
- * by `bounded-quality-equivalence.test.ts`; this is the step after that.
+ * It proves that every compiled rule shape switched to a bounded macro passes
+ * bounds that COVER what its own WHERE selects, by running both forms and
+ * comparing every row. The macros themselves are proven equal to their views
+ * filtered to `[lo, hi)` by `bounded-quality-equivalence.test.ts`; this is the
+ * step after that. (The equivalence suites for a pack's own readers — its
+ * default rules, baselines, phase bands and tools — live with the pack.)
  *
  * ## Clocks
  *
- * Readers anchor on `now()`. Each suite runs them at several clocks by
+ * Readers anchor on `now()`. The suite runs them at several clocks by
  * substituting a fixed instant for `now()` in BOTH forms, so the window start
  * lands at different offsets into the fixture's daily pattern: on the warm-up
- * onset after a gap, inside a step burst, next to a spike, at midnight. One
- * pass also runs on the real `now()` against data shifted to it.
+ * onset after a gap, inside a step burst, next to a spike, at midnight.
  *
  * ## Fixture — the bounded-quality fixture, stretched to weeks
  *
@@ -31,31 +31,10 @@
  * little. Each rule also runs with its thresholds pushed to both extremes,
  * which makes its HAVING pass and exposes the raw aggregate, run extreme or
  * day value to the comparison.
- *
- * ## Mutation
- *
- * `tighten` moves every bounded `lo` later, INSIDE the reader's window once
- * the spare day is spent; `seedSentinels` puts a burst of extreme readings
- * just inside each window start so that every reader's answer depends on
- * those rows. The mutation suite requires each reader to notice.
  */
-import type { BaselineWindowDays } from '../../__tests__/packs/health/metrics'
-import type { AnalyticsEngine } from '../../core/types'
 import type { Rule } from '../../rules/schema'
 import type { CompiledRule } from '../../rules/types'
-import type { ToolImpl } from '../../tools/types'
 import { expect } from 'vitest'
-import { baselineHasBoundedForm, buildBaselineSql } from '../../__tests__/packs/health/baselines'
-import { buildHrPhaseBandsSql } from '../../__tests__/packs/health/hr-phase-bands'
-import { getBaselineMetricIds } from '../../__tests__/packs/health/metrics'
-import { luminxDefaults, vivaDefaults, yogaringDefaults, zivaDefaults } from '../../__tests__/packs/health/rules'
-import { detectAnomaly } from '../../__tests__/packs/health/tools/impls/anomaly'
-import { compareTrend } from '../../__tests__/packs/health/tools/impls/compare'
-import { getHeartRate } from '../../__tests__/packs/health/tools/impls/heart-rate'
-import { getHRV } from '../../__tests__/packs/health/tools/impls/hrv'
-import { getSpO2 } from '../../__tests__/packs/health/tools/impls/spo2'
-import { getStress } from '../../__tests__/packs/health/tools/impls/stress'
-import { getTemperature } from '../../__tests__/packs/health/tools/impls/temperature'
 import { LOCAL_SCHEMAS, TABLE_NAMES } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../../core/engine'
 import { createViews } from '../../core/warehouse'
@@ -64,7 +43,7 @@ import { RuleSchema } from '../../rules/schema'
 import { validateRule } from '../../rules/validator'
 import { createRealDuckDB } from './real-engine'
 
-export const B = 'ziva'
+export const B = 'acme'
 export const F = 'fam_1'
 export const U = 'u1'
 const U2 = 'u2'
@@ -89,16 +68,9 @@ export const CLOCK_MINUTES = [0, 151, 7 * 60 + 13, 15 * 60 + 2, 1440 + 23 * 60 +
 export const clockAt = (minutes: number) => iso(END + minutes * 60_000)
 
 const NOW_RE = /\bnow\(\)/gi
-const BOUNDED_LO_RE = /_between\(timezone\('UTC', now\(\)\) - /g
-
 /** Replace `now()` with a fixed UTC instant, in either form alike. */
 export function atClock(sql: string, clock: string | undefined): string {
   return clock === undefined ? sql : sql.replace(NOW_RE, `CAST('${clock}+00' AS TIMESTAMPTZ)`)
-}
-
-/** Move every bounded `lo` later by `hours` — the "bound too tight" mutation. */
-export function tighten(sql: string, hours: number): string {
-  return sql.replace(BOUNDED_LO_RE, `_between(timezone('UTC', now()) + INTERVAL ${hours} HOUR - `)
 }
 
 export type Db = HybridDuckDB
@@ -221,87 +193,6 @@ export interface Tally {
 }
 export const tally = (): Tally => ({ compared: 0, differ: [], differIds: new Set(), nonEmpty: new Set() })
 
-// ── sentinels, for the mutation suite ──────────────────────────────────────
-
-/**
- * Per table: the window starts (hours back from now) the readers of that
- * table can have, its reading cadence in minutes (`sampling_minutes`), and
- * per column the clean extremes beyond anything the fixture holds —
- * plausible, and on-wrist for temperature — walked toward normal by `step`.
- */
-const SENTINELS = [
-  { table: 'heart_rate', cadence: 10, offsets: [1, 6, 24, 168, 720], columns: [{ column: 'bpm', low: 30, high: 220, step: 1 }] },
-  {
-    table: 'hrv',
-    cadence: 60,
-    offsets: [6, 24, 72, 168, 192, 336, 504, 720],
-    columns: [
-      { column: 'hrv_ms', low: 5, high: 200, step: 1 },
-      { column: 'stress', low: 0, high: 100, step: 1 },
-    ],
-  },
-  { table: 'spo2', cadence: 30, offsets: [24, 168], columns: [{ column: 'spo2', low: 70, high: 100, step: 1 }] },
-  { table: 'temperature', cadence: 30, offsets: [24, 168, 336, 720], columns: [{ column: 'temp_c', low: 30.0, high: 43.0, step: 0.1 }] },
-] as const
-
-const BLOCK_SLOTS = 4
-const BURST_ROWS = 40
-
-/**
- * Extreme readings just inside every window start a reader can have at
- * `clock`, so a bound cut 2 hours too tight drops rows the answer depends on.
- * Per window start, two parts:
- *
- *   burst  40 readings at +5..+9 minutes: enough weight to move a DAILY mean
- *          (day-cadence rules), however dense the fixture is.
- *   block  one reading per cadence slot for 4 slots from the first slot
- *          boundary after +20 minutes, with the fixture's own readings in
- *          those slots removed — a run `consecutive` rules can see, since
- *          runs are keyed on slots and the 5-minute fixture puts several
- *          readings in most of them.
- *
- * MONOTONE in age, both across window starts and within one: the burst and
- * the block's first reading are the most extreme values of their window
- * start, the rest of the block one `step` closer to normal, and an older
- * window start is more extreme than every younger one. A window always holds
- * the younger sentinels too, so equal values would let its MIN or MAX — or a
- * run's — survive losing its own oldest rows; this way they cannot.
- *
- * One side at a time (`low` or `high`): a mix would average out of a mean.
- * Removes fixture rows, so each call wants a freshly opened engine.
- */
-export async function seedSentinels(db: Db, clockMs: number, side: 'low' | 'high'): Promise<void> {
-  for (const spec of SENTINELS) {
-    // `n` steps from the extreme toward normal.
-    const level = (col: typeof spec.columns[number], n: number) => {
-      const v = side === 'low' ? col.low + n * col.step : col.high - n * col.step
-      return Math.round(v * 10) / 10
-    }
-    const rows: string[] = []
-    for (const [idx, h] of spec.offsets.entries()) {
-      // The oldest window start (largest offset, last index) is 0 steps out.
-      const rank = 2 * (spec.offsets.length - 1 - idx)
-      const extreme = spec.columns.map(c => level(c, rank))
-      const nearer = spec.columns.map(c => level(c, rank + 1))
-      const start = clockMs - h * 3_600_000
-      for (let i = 0; i < BURST_ROWS; i++) {
-        const t = start + 5 * 60_000 + Math.floor(i / 10) * 60_000 + (5 + (i % 10) * 5) * 1000
-        rows.push(`(TIMESTAMP '${iso(t)}', '${B}','${F}','${U}','ring_1', ${extreme.join(', ')})`)
-      }
-      const slotMs = spec.cadence * 60_000
-      const first = Math.ceil((start + 20 * 60_000) / slotMs) * slotMs
-      await db.execute(`DELETE FROM ${spec.table} WHERE user_id = '${U}'
-        AND ts >= TIMESTAMP '${iso(first)}' AND ts < TIMESTAMP '${iso(first + BLOCK_SLOTS * slotMs)}'`)
-      for (let k = 0; k < BLOCK_SLOTS; k++) {
-        const values = k === 0 ? extreme : nearer
-        rows.push(`(TIMESTAMP '${iso(first + k * slotMs + 5000)}', '${B}','${F}','${U}','ring_1', ${values.join(', ')})`)
-      }
-    }
-    const cols = spec.columns.map(c => c.column).join(', ')
-    await db.execute(`INSERT INTO ${spec.table} (ts, brand, family_id, user_id, device_id, ${cols}) VALUES ${rows.join(',')}`)
-  }
-}
-
 // ── rules ──────────────────────────────────────────────────────────────────
 
 function synthetic(raw: Record<string, unknown>): Rule {
@@ -326,9 +217,6 @@ export const SYNTHETIC: Rule[] = [
   synthetic({ id: 's.last-3d', metric: 'stress', window: '3d', aggregation: 'last', compare: 'greater_than', target: { type: 'absolute', value: 30 } }),
   synthetic({ id: 's.count-resting-30d', metric: 'temp_c', window: '30d', aggregation: 'count', compare: 'greater_than', context: 'resting', target: { type: 'absolute', value: 10 } }),
 ]
-
-export const DEFAULT_RULES: Rule[] = [...zivaDefaults, ...luminxDefaults, ...vivaDefaults, ...yogaringDefaults]
-const RULES: Rule[] = [...DEFAULT_RULES, ...SYNTHETIC]
 
 const refs = (sql: string, name: string) => new RegExp(`\\$${name}\\b`).test(sql)
 
@@ -383,11 +271,8 @@ function paramSets(c: CompiledRule, extremesOnly = false): Record<string, unknow
   return out
 }
 
-export const COMPILED = RULES.filter(r => !r.rawSql).map(r => compileRule(r))
-export const BOUNDED_RULES = COMPILED.filter(c => c.boundedSql !== undefined)
-const DEFAULT_IDS = new Set(DEFAULT_RULES.map(r => r.id))
-export const BOUNDED_DEFAULTS = BOUNDED_RULES.filter(c => DEFAULT_IDS.has(c.ruleId))
-export const BOUNDED_SYNTHETIC = BOUNDED_RULES.filter(c => !DEFAULT_IDS.has(c.ruleId))
+export const COMPILED = SYNTHETIC.map(r => compileRule(r))
+export const BOUNDED_SYNTHETIC = COMPILED.filter(c => c.boundedSql !== undefined)
 
 interface CompareOpts {
   mutate?: (sql: string) => string
@@ -410,170 +295,6 @@ export async function compareRules(db: Db, rules: CompiledRule[], clock: string 
       if (canon(view) !== canon(bounded)) {
         t.differ.push(`${c.ruleId} @${clock} ${JSON.stringify(params)}: ${canon(view)} vs ${canon(bounded)}`)
         t.differIds.add(c.ruleId)
-      }
-    }
-  }
-}
-
-// ── hr phase bands ─────────────────────────────────────────────────────────
-
-export async function comparePhaseBands(
-  db: Db,
-  clock: string | undefined,
-  t: Tally,
-  opts: CompareOpts & { windows?: number[], zones?: string[] } = {},
-): Promise<void> {
-  const mutate = opts.mutate ?? (s => s)
-  for (const windowDays of opts.windows ?? [7, 30, 90]) {
-    for (const tz of opts.zones ?? ['UTC', 'Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
-      const params = { userId: U, brand: B, familyId: F, tz, windowDays }
-      const view = await db.execute(atClock(buildHrPhaseBandsSql(), clock), params)
-      const bounded = await db.execute(atClock(mutate(buildHrPhaseBandsSql({ bounded: true })), clock), params)
-      t.compared += 1
-      if (view.length > 0)
-        t.nonEmpty.add(`${windowDays}`)
-      if (canon(view) !== canon(bounded)) {
-        t.differ.push(`phase-bands ${windowDays}d ${tz} @${clock}`)
-        t.differIds.add(`${windowDays}`)
-      }
-    }
-  }
-}
-
-// ── baselines ──────────────────────────────────────────────────────────────
-
-/**
- * Two baseline results equal up to float summation order: every number within
- * 1e-9 relative. `canon`'s 12 significant digits are not enough here: the
- * VIEW form alone varies run to run in the 15th digit of `mean` / `stddev`
- * (DuckDB's parallel aggregation sums in varying order), and two such values
- * either side of a rounding boundary differ at the 12th. A lost or extra day
- * moves a percentile or `sample_count` far more than 1e-9.
- */
-function sameBaseline(a: unknown[], b: unknown[]): boolean {
-  if (a.length !== b.length)
-    return false
-  return a.every((row, i) => {
-    const x = row as Record<string, unknown>
-    const y = b[i] as Record<string, unknown>
-    const keys = Object.keys(x)
-    if (keys.length !== Object.keys(y).length)
-      return false
-    return keys.every((k) => {
-      const [p, q] = [x[k], y[k]]
-      if (typeof p === 'number' && typeof q === 'number')
-        return Math.abs(p - q) <= 1e-9 * Math.max(1, Math.abs(p), Math.abs(q))
-      return String(p) === String(q)
-    })
-  })
-}
-
-/** Every metric whose baseline reads a clean view, so has a bounded form. */
-export const BOUNDED_BASELINE_METRICS = getBaselineMetricIds().filter(baselineHasBoundedForm)
-
-export async function compareBaselines(
-  db: Db,
-  clock: string | undefined,
-  t: Tally,
-  opts: CompareOpts & { windows?: BaselineWindowDays[], zones?: string[] } = {},
-): Promise<void> {
-  const mutate = opts.mutate ?? (s => s)
-  for (const metric of BOUNDED_BASELINE_METRICS) {
-    for (const windowDays of opts.windows ?? [7, 30, 90] as BaselineWindowDays[]) {
-      for (const tz of opts.zones ?? ['UTC', 'Asia/Kolkata', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
-        const params = { userId: U, brand: B, familyId: F, tz, windowDays }
-        const view = await db.execute(atClock(buildBaselineSql(metric, windowDays), clock), params)
-        const bounded = await db.execute(atClock(mutate(buildBaselineSql(metric, windowDays, { bounded: true })), clock), params)
-        t.compared += 1
-        const id = `${metric}/${windowDays}`
-        if (view.length > 0)
-          t.nonEmpty.add(id)
-        if (!sameBaseline(view, bounded)) {
-          t.differ.push(`baseline ${id} ${tz} @${clock}`)
-          t.differIds.add(id)
-        }
-      }
-    }
-  }
-}
-
-// ── tools ──────────────────────────────────────────────────────────────────
-
-/**
- * The engine a tool sees. Bounded: reports the capability, and a bounded
- * statement that fails is an ERROR here (`reportBoundedReadFailure` throws), so
- * the run-time fallback can never hide a broken bound from the comparison.
- * `failBounded` instead makes every bounded statement throw, to test that
- * fallback; the failures are counted in `failures`.
- */
-function engine(db: Db, clock: string | undefined, boundedReads: boolean, mutate: (s: string) => string, failures?: { n: number }): AnalyticsEngine {
-  return {
-    boundedReads,
-    reportBoundedReadFailure: () => {
-      if (failures === undefined)
-        throw new Error('a bounded statement failed in the equivalence harness')
-      failures.n += 1
-    },
-    execute: (sql: string, params?: Record<string, unknown>) => {
-      if (failures !== undefined && sql.includes('_between('))
-        return Promise.reject(new Error('Binder Error: native only'))
-      return db.execute(atClock(boundedReads ? mutate(sql) : sql, clock), params)
-    },
-  } as unknown as AnalyticsEngine
-}
-
-const TOOL_CASES: [string, ToolImpl<never>, Record<string, unknown>][] = [
-  ...[1, 7, 30].map(days => ['getHRV', getHRV, { userId: U, days }] as [string, ToolImpl<never>, Record<string, unknown>]),
-  ...[1, 7, 30].map(days => ['getHeartRate', getHeartRate, { userId: U, days }] as [string, ToolImpl<never>, Record<string, unknown>]),
-  ...[1, 7].map(days => ['getStress', getStress, { userId: U, days }] as [string, ToolImpl<never>, Record<string, unknown>]),
-  ...[1, 14].map(days => ['getTemperature', getTemperature, { userId: U, days }] as [string, ToolImpl<never>, Record<string, unknown>]),
-  ...[1, 7].map(days => ['getSpO2', getSpO2, { userId: U, days }] as [string, ToolImpl<never>, Record<string, unknown>]),
-  ['detectAnomaly', detectAnomaly, { userId: U, metric: 'hrv_ms', lookbackDays: 14, stddevThreshold: 1 }],
-  ['compareTrend', compareTrend, { userId: U, metric: 'hrv_ms', currentWindowDays: 1, priorWindowDays: 7 }],
-  ['compareTrend', compareTrend, { userId: U, metric: 'hrv_ms', currentWindowDays: 7, priorWindowDays: 14 }],
-]
-
-export const TOOL_NAMES = [...new Set(TOOL_CASES.map(([name]) => name))].sort()
-
-export async function compareTools(
-  db: Db,
-  clock: string | undefined,
-  t: Tally,
-  opts: CompareOpts & { failBounded?: { n: number, warned: string[] }, zones?: string[] } = {},
-): Promise<void> {
-  const mutate = opts.mutate ?? (s => s)
-  const fail = opts.failBounded
-  // One zone per clock, alternating, so local days east of UTC are covered
-  // without doubling every call.
-  const zone = clock === undefined || Number(clock.slice(14, 16)) % 2 === 0 ? 'UTC' : 'Asia/Kolkata'
-  for (const timezone of opts.zones ?? [zone]) {
-    for (const [name, impl, input] of TOOL_CASES) {
-      if (opts.skipDiffered && t.differIds.has(name))
-        continue
-      const ctx = (bounded: boolean) => ({
-        requesterUserId: U,
-        brand: B,
-        familyId: F,
-        timezone,
-        analytics: engine(db, clock, bounded, mutate, bounded ? fail : undefined),
-        logger: {
-          debug() {},
-          info() {},
-          warn: (message: string, meta?: Record<string, unknown>) => {
-            if (message === 'tools.bounded_failed')
-              fail?.warned.push(String(meta?.tool))
-          },
-          error() {},
-        },
-      })
-      const view = await impl(input as never, ctx(false))
-      const bounded = await impl(input as never, ctx(true))
-      t.compared += 1
-      if (view.rowCount > 0)
-        t.nonEmpty.add(name)
-      if (view.text !== bounded.text) {
-        t.differ.push(`${name} ${JSON.stringify(input)} ${timezone} @${clock}:\n${view.text}\n---\n${bounded.text}`)
-        t.differIds.add(name)
       }
     }
   }

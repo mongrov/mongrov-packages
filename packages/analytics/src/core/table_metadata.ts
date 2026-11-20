@@ -1,19 +1,19 @@
 /**
- * Sync/query metadata per warehouse table.
+ * Sync/query metadata per warehouse table, read from the table's pack
+ * declaration (`PackTable`) or the app's `appSchema`.
  *
- * Complements `TABLE_RETENTION` in `retention.ts` — that registry owns the
- * retention timestamp column and sweep policy; this one owns the *push/fetch*
+ * Complements `PackTable.retention` (the retention timestamp column and
+ * sweep policy, applied in `retention.ts`); this one owns the *push/fetch*
  * watermark column and syncability flag.
  *
  * `timeColumn` — the monotonic column R2Pusher/R2Fetcher use to bound their
- * delta queries. Most tables use `ts`; a session table may use its start column
- * (matches its `day(ts_start)` partition); `device_config` (SCD-2) uses
+ * delta queries. Most tables use `ts`; a session table may use its start
+ * column (matching a `day(<start>)` partition); an SCD-2 table its
  * `valid_from`.
  *
  * `syncable` — `false` for pure-local tables (`sync_watermark`,
- * `tool_call_audit`). v0.2.0 consumers still pass explicit `tables` lists
- * to `pushAll`/fetcher; this flag exists so future callers can filter
- * without hard-coding.
+ * `tool_call_audit`). Callers still pass explicit `tables` lists to
+ * `pushAll` / the fetcher; this flag lets them filter without hard-coding.
  */
 
 import type { AppSchema } from './app-schema'

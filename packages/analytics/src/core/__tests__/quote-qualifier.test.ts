@@ -2,11 +2,11 @@
  * Catalog identifier quoting.
  *
  * The catalog name comes from the database filename, so
- * `zivaone-analytics.duckdb` yields the catalog `zivaone-analytics`. A bare
+ * `acme-analytics.duckdb` yields the catalog `acme-analytics`. A bare
  * hyphen is a syntax error in an identifier position, which failed every
  * migration on device:
  *
- *   CREATE TABLE IF NOT EXISTS zivaone-analytics.hrv (...)
+ *   CREATE TABLE IF NOT EXISTS acme-analytics.hrv (...)
  *                                      ^ syntax error at or near "-"
  */
 import { describe, expect, it } from 'vitest'
@@ -22,13 +22,13 @@ describe('quoteQualifier', () => {
   })
 
   it('quotes names a bare identifier cannot express', () => {
-    expect(quoteQualifier('zivaone-analytics')).toBe('"zivaone-analytics"')
+    expect(quoteQualifier('acme-analytics')).toBe('"acme-analytics"')
     expect(quoteQualifier('has space')).toBe('"has space"')
     expect(quoteQualifier('9starts-with-digit')).toBe('"9starts-with-digit"')
   })
 
   it('quotes each dotted part independently', () => {
-    expect(quoteQualifier('zivaone-analytics.main')).toBe('"zivaone-analytics".main')
+    expect(quoteQualifier('acme-analytics.main')).toBe('"acme-analytics".main')
   })
 
   it('leaves already-quoted parts alone', () => {
@@ -42,8 +42,8 @@ describe('quoteQualifier', () => {
 
 describe('qualifyDdl with a hyphenated catalog', () => {
   it('emits parseable DDL — the on-device failure', () => {
-    const ddl = qualifyDdl(LOCAL_SCHEMAS.hrv, 'hrv', 'zivaone-analytics')
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "zivaone-analytics".hrv')
-    expect(ddl).not.toContain('NOT EXISTS zivaone-analytics.hrv')
+    const ddl = qualifyDdl(LOCAL_SCHEMAS.hrv, 'hrv', 'acme-analytics')
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS "acme-analytics".hrv')
+    expect(ddl).not.toContain('NOT EXISTS acme-analytics.hrv')
   })
 })

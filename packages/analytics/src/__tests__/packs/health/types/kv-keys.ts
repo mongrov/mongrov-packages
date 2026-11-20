@@ -314,7 +314,7 @@ export const KV_KEY_REGISTRY = {
   /**
    * The ring-battery alerts' notify switch (zivaone_app#248).
    *
-   * The two battery rails live in `ziva.toml` as `ziva.battery-low` and
+   * The two battery rails live in `rules/ziva.ts` as `ziva.battery-low` and
    * `ziva.battery-critical`, and the app's notification bridge gates every
    * metric on a key from this registry. Battery had none, so it passed on a
    * separate always-on list. This is the entry that lets it answer to a

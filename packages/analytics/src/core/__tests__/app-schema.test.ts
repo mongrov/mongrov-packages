@@ -37,8 +37,8 @@ const NOTE: AppTable = {
 }
 
 const SCHEMA: AppSchema = { namespace: 'testapp', tables: { app_note: NOTE } }
-const TENANT = { brand: 'ziva', familyId: 'fam_A', userId: 'u1' }
-const CTX = { brand: 'ziva', tenantScope: 'family' as const, tenantId: 'fam_A', userId: 'u1' }
+const TENANT = { brand: 'acme', familyId: 'fam_A', userId: 'u1' }
+const CTX = { brand: 'acme', tenantScope: 'family' as const, tenantId: 'fam_A', userId: 'u1' }
 
 function rejects(schema: AppSchema, message: RegExp): void {
   let caught: unknown
@@ -122,7 +122,7 @@ describe('app tables on attach (real DuckDB)', () => {
   it('creates the table locally with its own key, so a re-write is a no-op', async () => {
     const { kv } = createFakeKV()
     const analytics = await bootLocal(kv, SCHEMA)
-    const insert = `INSERT INTO app_note VALUES ('n1', 'ziva', 'fam_A', 'u1', TIMESTAMP '2026-11-01 08:00:00', 'hi')
+    const insert = `INSERT INTO app_note VALUES ('n1', 'acme', 'fam_A', 'u1', TIMESTAMP '2026-11-01 08:00:00', 'hi')
       ON CONFLICT (note_id) DO NOTHING`
     await analytics.execute(insert)
     await analytics.execute(insert)
@@ -139,18 +139,18 @@ describe('app tables on attach (real DuckDB)', () => {
     } }
     await bootLocal(kv, { ...SCHEMA, migrations: [step1] })
     expect(ran).toEqual(['1'])
-    expect(store.get(appSchemaVersionKey('testapp', 'ziva', 'fam_A'))).toBe(1)
+    expect(store.get(appSchemaVersionKey('testapp', 'acme', 'fam_A'))).toBe(1)
 
     // A later release adds step 2; only step 2 runs on the next attach. The
     // next boot is a fresh in-memory database, so forget the PACKAGE version
     // (its tables must be created again) and keep the app's.
-    store.delete(schemaVersionKey('ziva', 'fam_A'))
+    store.delete(schemaVersionKey('acme', 'fam_A'))
     const step2 = { version: 2, name: 'noop', up: async () => {
       ran.push('2')
     } }
     const again = await bootLocal(kv, { ...SCHEMA, migrations: [step1, step2] })
     expect(ran).toEqual(['1', '2'])
-    expect(store.get(appSchemaVersionKey('testapp', 'ziva', 'fam_A'))).toBe(2)
+    expect(store.get(appSchemaVersionKey('testapp', 'acme', 'fam_A'))).toBe(2)
     // Step 1 did not re-run: on this fresh database only its ALTER could
     // have added the column.
     const cols = await again.execute(`SELECT column_name FROM information_schema.columns WHERE table_name = 'app_note'`) as Array<{ column_name: string }>
@@ -164,7 +164,7 @@ describe('ensureAppSchema DDL', () => {
     const db = new HybridDuckDB(fake.factory)
     await db.open()
     const { kv } = createFakeKV()
-    await ensureAppSchema(db, kv, { brand: 'ziva', tenantId: 'fam_A' }, { local: 'zivaone-analytics', remote: 'zone_fam_A' }, {
+    await ensureAppSchema(db, kv, { brand: 'acme', tenantId: 'fam_A' }, { local: 'acme-analytics', remote: 'zone_fam_A' }, {
       namespace: 'testapp',
       tables: { app_note: table },
     })
@@ -173,7 +173,7 @@ describe('ensureAppSchema DDL', () => {
 
   it('local without PARTITIONED BY, remote as declared under the Iceberg namespace', async () => {
     const [local, remote] = await ddl(NOTE)
-    expect(local).toMatch(/^CREATE TABLE IF NOT EXISTS "zivaone-analytics"\.app_note \(/)
+    expect(local).toMatch(/^CREATE TABLE IF NOT EXISTS "acme-analytics"\.app_note \(/)
     expect(local).not.toContain('PARTITIONED BY')
     expect(remote).toMatch(/^CREATE TABLE IF NOT EXISTS zone_fam_A\.default\.app_note \(/)
     expect(remote).toContain('PARTITIONED BY (day(written_at))')

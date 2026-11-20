@@ -5,7 +5,7 @@
  *             why, and the rule evaluator then runs the view form.
  *   run time  a bounded statement that THROWS is retried as the view form in
  *             the same call (`executeBounded`), the connection's possible
- *             aborted transaction is absorbed first (zivaone_app#195), and a
+ *             aborted transaction is absorbed first (app#195), and a
  *             few such failures turn `boundedReads` off for the attach.
  */
 import type { DuckDBInstance } from '../engine'
@@ -102,7 +102,7 @@ async function boot(factory: () => Promise<DuckDBInstance>, logger?: AnalyticsLo
       if (analytics.lastError) { clearInterval(t); reject(analytics.lastError) }
     }, 10)
   })
-  await analytics.attach({ brand: 'ziva', tenantScope: 'family', tenantId: 'u1', userId: 'u1' })
+  await analytics.attach({ brand: 'acme', tenantScope: 'family', tenantId: 'u1', userId: 'u1' })
   return analytics
 }
 
@@ -137,13 +137,13 @@ describe('a real engine', () => {
     expect(JSON.stringify(off?.meta?.errors)).toContain('ParameterNotResolvedException')
 
     await analytics.execute(`INSERT INTO spo2 (ts, brand, family_id, user_id, device_id, spo2)
-      VALUES (CAST(now() AS TIMESTAMP) - INTERVAL 1 HOUR, 'ziva', 'u1', 'u1', 'ring', 85)`)
+      VALUES (CAST(now() AS TIMESTAMP) - INTERVAL 1 HOUR, 'acme', 'u1', 'u1', 'ring', 85)`)
     const execute = vi.spyOn(analytics, 'execute')
     const rules = createRulesEngine({
       analytics,
       storage: createFakeKV().kv,
       familyMembersProvider: async () => ['u1'],
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'u1',
     })
     await rules.register([SPO2_RULE as never])
@@ -166,7 +166,7 @@ describe('a real engine', () => {
     expect(lines.some(l => l.message === 'analytics.bounded_reads_downgraded')).toBe(true)
 
     await analytics.detach()
-    await analytics.attach({ brand: 'ziva', tenantScope: 'family', tenantId: 'u1', userId: 'u1' })
+    await analytics.attach({ brand: 'acme', tenantScope: 'family', tenantId: 'u1', userId: 'u1' })
     expect(analytics.boundedReads).toBe(true)
     await analytics.close()
   }, 60_000)
@@ -175,7 +175,7 @@ describe('a real engine', () => {
     const { logger: analyticsLogger } = recordingLogger()
     const analytics = await boot(() => createRealDuckDB(['icu']), analyticsLogger)
     await analytics.execute(`INSERT INTO spo2 (ts, brand, family_id, user_id, device_id, spo2)
-      VALUES (CAST(now() AS TIMESTAMP) - INTERVAL 1 HOUR, 'ziva', 'u1', 'u1', 'ring', 85)`)
+      VALUES (CAST(now() AS TIMESTAMP) - INTERVAL 1 HOUR, 'acme', 'u1', 'u1', 'ring', 85)`)
     // Every bounded statement fails at run time, as a shape the device's
     // build rejects would.
     const real = analytics.execute.bind(analytics)
@@ -187,7 +187,7 @@ describe('a real engine', () => {
       analytics,
       storage: createFakeKV().kv,
       familyMembersProvider: async () => ['u1'],
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'u1',
       logger: { debug() {}, info() {}, warn: (message, meta) => warns.push({ message, meta }), error() {} },
     })
