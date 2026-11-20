@@ -49,7 +49,7 @@ async function evaluatedSql(boundedReads: boolean | undefined): Promise<string> 
     throttle: createThrottleStore({ storage, clock }),
     emitter: createEmitter(),
     analytics,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam1',
     familyMembersProvider: vi.fn(async () => ['u1']),
     clock,
@@ -94,11 +94,11 @@ describe('bounded rule reads', () => {
       }, 10)
     })
     expect(analytics.boundedReads).toBe(false)
-    await analytics.attach({ brand: 'ziva', tenantScope: 'family', tenantId: 'u1', userId: 'u1' })
+    await analytics.attach({ brand: 'acme', tenantScope: 'family', tenantId: 'u1', userId: 'u1' })
     expect(analytics.boundedReads).toBe(true)
     // And the bounded statement actually executes on it.
     const c = compileRule(spo2Rule)
-    await expect(analytics.execute(c.boundedSql!, { userId: 'u1', brand: 'ziva', familyId: 'u1', threshold_absolute: 40 }))
+    await expect(analytics.execute(c.boundedSql!, { userId: 'u1', brand: 'acme', familyId: 'u1', threshold_absolute: 40 }))
       .resolves
       .toEqual([])
     await analytics.detach()

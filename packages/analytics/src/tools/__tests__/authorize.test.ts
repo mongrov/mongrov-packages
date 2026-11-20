@@ -4,7 +4,7 @@ import { familyScopeAuthorize, orgScopeAuthorize } from '../authorize'
 
 const baseCtx = {
   requesterUserId: 'alice',
-  brand: 'zivaone',
+  brand: 'acme',
   familyId: 'fam-1',
 }
 
@@ -151,7 +151,7 @@ describe('familyScopeAuthorize with familyMembersProvider', () => {
       familyMembersProvider: provider,
     })
     await auth('getHRV', { userId: 'bob' }, baseCtx)
-    expect(received).toEqual([{ brand: 'zivaone', familyId: 'fam-1' }])
+    expect(received).toEqual([{ brand: 'acme', familyId: 'fam-1' }])
   })
 })
 

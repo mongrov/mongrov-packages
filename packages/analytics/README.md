@@ -11,8 +11,9 @@ The engine is **domain-free**. It knows only its own platform tables; every
 domain table, view, ingest adapter, rule context and tool arrives as a
 **pack** you register (see [Packs](#packs)).
 
-Status: **0.60.x**. Upgrade notes: [UPGRADING.md](./UPGRADING.md); changes:
-[CHANGELOG.md](./CHANGELOG.md).
+Status: **0.61.x**. Upgrade notes: [UPGRADING.md](./UPGRADING.md) (ships
+with the package); changes: [CHANGELOG.md](https://github.com/mongrov/mongrov-packages/blob/master/packages/analytics/CHANGELOG.md) (in the
+repository).
 
 ## Subpaths
 
@@ -23,6 +24,7 @@ Status: **0.60.x**. Upgrade notes: [UPGRADING.md](./UPGRADING.md); changes:
 | `@mongrov/analytics/rules` | rule schema, validator, compiler, rules engine, hooks |
 | `@mongrov/analytics/tools` | tool framework (authorize, rate limit, output budget, audit) |
 | `@mongrov/analytics/tools/mcp` | Model Context Protocol dev server over the same tools |
+| `@mongrov/analytics/testing` | the pure modules (pack registry, DDL helpers, platform tables, errors) for an app's test double of this package — see [Testing your app](#testing-your-app) |
 | `@mongrov/analytics/ui` | reserved |
 
 ## Install
@@ -43,6 +45,8 @@ opening an engine without one fails with `AnalyticsError('engine_open_failed')`.
 ```tsx
 import type { AnalyticsConfig } from '@mongrov/analytics'
 import { AnalyticsProvider, createAnalytics, useAnalytics } from '@mongrov/analytics'
+import { useEffect } from 'react'
+import { Text } from 'react-native'
 import { weatherPack } from './weather-pack' // see "Packs" below
 
 const config: AnalyticsConfig = {
@@ -53,7 +57,12 @@ const config: AnalyticsConfig = {
   tokenVendor: {
     async fetch({ brand, tenantScope, tenantId }) {
       const res = await api.getWarehouseToken({ brand, tenantScope, tenantId })
-      return { token: res.token, expiresAt: new Date(res.expiresAt) }
+      return {
+        token: res.token,
+        expiresAt: new Date(res.expiresAt),
+        // What the token grants; the engine checks it against the attach.
+        scopeClaims: { brand, tenantScope, tenantId, permissions: res.permissions },
+      }
     },
   },
   familyMembersProvider: ({ brand, familyId }) => api.listFamilyMembers({ brand, familyId }),
@@ -73,11 +82,12 @@ function App() {
 }
 
 function Dashboard() {
-  const { state, attach, isAttached } = useAnalytics()
+  // State only: attach and detach are on the engine itself.
+  const { state, isReady, isAttached } = useAnalytics()
   useEffect(() => {
-    if (!isAttached)
-      attach({ brand: 'acme', tenantScope: 'family', tenantId: 'fam_123', userId: 'user_1' })
-  }, [isAttached, attach])
+    if (isReady && !isAttached)
+      void engine.attach({ brand: 'acme', tenantScope: 'family', tenantId: 'fam_123', userId: 'user_1' })
+  }, [isReady, isAttached])
   return <Text>State: {state}</Text>
 }
 ```
@@ -374,20 +384,31 @@ bypasses the constraints.
 
 ## Rules (`@mongrov/analytics/rules`)
 
-See [`src/rules/README.md`](./src/rules/README.md). `RuleSchema`,
+See [`src/rules/README.md`](https://github.com/mongrov/mongrov-packages/blob/master/packages/analytics/src/rules/README.md). `RuleSchema`,
 `validateRule`, `compileRule`, `createRulesEngine`, `parseCatalog` (TOML
 catalogs), `useRuleViolations`, `useRuleRegistry`.
+
+A `user_setting` target's threshold (and a `phase_band` rule's scale) is read
+from the app's `KVStore` under `userSettingKey(userId, key)`
+(`analytics:<userId>:<key>`; exported from the root and `/rules`). Write the
+setting under the same key:
+
+```ts
+import { userSettingKey } from '@mongrov/analytics'
+
+await kv.set(userSettingKey(userId, 'user:windAlertKph'), 45)
+```
 
 ## AI tools (`@mongrov/analytics/tools`)
 
 `createAnalyticsTools({ analytics, ... })` wraps every registered pack's
 tools plus the platform's `getInsights` in a `rate → authorize → execute →
 budget → audit` chain and returns an AI SDK tool map. See
-[`src/tools/README.md`](./src/tools/README.md).
+[`src/tools/README.md`](https://github.com/mongrov/mongrov-packages/blob/master/packages/analytics/src/tools/README.md).
 
 `@mongrov/analytics/tools/mcp` exposes the same tools over Model Context
 Protocol (stdio or HTTP with a bearer token), dev-only behind
-`shouldStartMcpServer()`. See [`src/tools/mcp/README.md`](./src/tools/mcp/README.md).
+`shouldStartMcpServer()`. See [`src/tools/mcp/README.md`](https://github.com/mongrov/mongrov-packages/blob/master/packages/analytics/src/tools/mcp/README.md).
 
 ## Testing
 
@@ -400,8 +421,46 @@ pnpm test:integration   # live MinIO + Iceberg REST stack (docker)
 
 The package's suites run the engine with test packs
 (`src/__tests__/packs/`). The integration stack is described in
-[`infra/analytics-minio/README.md`](./infra/analytics-minio/README.md).
-`@duckdb/node-api` is a devDependency only.
+[`infra/analytics-minio/README.md`](https://github.com/mongrov/mongrov-packages/blob/master/packages/analytics/infra/analytics-minio/README.md)
+(repository only). `@duckdb/node-api` is a devDependency only.
+
+## Testing your app
+
+A jest or vitest mock of `@mongrov/analytics` stubs what needs the native
+engine (`createAnalytics`, the provider and hooks, `createSyncManager`) but
+still needs the real pack registry: a domain pack calls `definePack` /
+`registerPack` and builds its DDL with the helpers when it loads.
+`@mongrov/analytics/testing` exports those pure modules — no native module,
+no React, no domain, no side effect on import — under the same names as the
+root and `/sync` exports, and the same module instances:
+
+```ts
+// __mocks__/@mongrov/analytics.ts
+export * from '@mongrov/analytics/testing'
+
+export const createAnalytics = jest.fn(() => ({ attach: jest.fn(), detach: jest.fn(), close: jest.fn(), state: 'ready' }))
+export const AnalyticsProvider = ({ children }: { children: React.ReactNode }) => children
+// …stubs for the rest of the surface your app uses
+```
+
+What it exports: the pack registry (`definePack`, `registerPack(s)`,
+`getPack(s)`, `packTable(s)`, `viewedTables`, `ingestAdapter`,
+`packExtensions`, and `resetPacks` for isolation between tests); DDL and
+schema helpers (`addIdentityKey`, `qualifyDdl`, `quoteQualifier`,
+`toLocalDdl`, `ensureSchemas`, `localDdlFor`, `hasLocalPrimaryKey`,
+`generateViewDdl`, `dropViewDdl`, `watermarkColumnFor`, `listColumns`,
+`REMOTE_NAMESPACE`); app schemas (`validateAppSchema`, `ensureAppSchema`,
+`appSchemaVersionKey`); the platform tables (`PLATFORM_TABLES`,
+`PLATFORM_SCHEMAS`, `PLATFORM_TABLE_NAMES`); metric and relation lookups
+(`metricDefinition`, `registeredMetricIds`, `exposedMetricIds`,
+`collectedOnlyColumns`, `samplingLabelFor`, `readRelation`, `cleanRelation`,
+`qualityRelation`, `hasQualityRelations`, `isSyncable`, `timeColumnFor`);
+bounded reads (`boundedRelation`, `executeBounded`, `executeBoundedRead`,
+`daysInterval`, `hoursInterval`, `FORWARD_DAYS`, `SPARE_DAYS`,
+`BOUNDED_FAILURE_LIMIT`); errors (`AnalyticsError`, `NotImplementedError`,
+`describeError`); `tailId`; `userSettingKey`; and from `/sync`
+`createBaselineRunner`, `DROPPED_ROWS_EVENT`, `DropTally`, `validateRows`,
+`mergeFlushResults`, `logError` — with their types.
 
 ## Boundaries
 

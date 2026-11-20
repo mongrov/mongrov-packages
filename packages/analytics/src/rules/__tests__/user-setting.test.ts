@@ -6,19 +6,19 @@
  * batch — no recompile, no per-user rule rows.
  *
  * T-27 (the two shipped SpO₂ catalog rules coexisting) lives with the catalog
- * in zivaone_app `@zivaone/health` (`rules/__tests__/spo2-rules-coexist.test.ts`).
+ * in the app's health pack (`rules/__tests__/spo2-rules-coexist.test.ts`).
  */
 
 import { describe, expect, it } from 'vitest'
 
-import { zivaDefaults } from '../../__tests__/packs/health/rules'
+import { primaryDefaults } from '../../__tests__/packs/health/rules'
 import { createFakeEngine } from '../__fakes__/fakeEngine'
 import { createFakeStorage } from '../__fakes__/fakeStorage'
 
 import { USER_SETTING_PARAM } from '../compiler'
 import { createRulesEngine } from '../factory'
 
-const CTX = { brand: 'ziva', familyId: 'fam1' }
+const CTX = { brand: 'acme', familyId: 'fam1' }
 const BATCH = { affectedUserIds: ['alice'], affectedTables: ['spo2'] as const }
 
 function setup(opts: { storedSafeLevel?: number } = {}) {
@@ -38,7 +38,7 @@ function setup(opts: { storedSafeLevel?: number } = {}) {
 }
 
 /** The safe-level rule, as actually shipped. */
-const safeLevelRule = zivaDefaults.find(r => r.id === 'ziva.spo2-safe-level')!
+const safeLevelRule = primaryDefaults.find(r => r.id === 'acme.spo2-safe-level')!
 
 describe('T-23 — threshold resolved from KVStore at eval time', () => {
   it('binds the stored value when the user has set one', async () => {

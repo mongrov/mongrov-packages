@@ -21,7 +21,7 @@ import { WatermarkStore } from '../watermark'
 import { createFakeSqlEngine } from './__fakes__/fake-sql-engine'
 
 const ctx: AttachContext = {
-  brand: 'ziva',
+  brand: 'acme',
   tenantScope: 'family',
   tenantId: 'fam_A',
   userId: 'u1',

@@ -6,7 +6,7 @@ import { createAuditWriter } from '../audit'
 function makeEntry(overrides: Partial<AuditEntry> = {}): AuditEntry {
   return {
     ts: new Date('2026-07-15T10:00:00Z'),
-    brand: 'zivaone',
+    brand: 'acme',
     familyId: 'fam-1',
     requesterUserId: 'alice',
     toolName: 'getHRV',
@@ -151,7 +151,7 @@ describe('createAuditWriter', () => {
     expect(sql).toContain('$p0_ts')
     expect(sql).toContain('$p0_error_message')
     expect(params).toMatchObject({
-      p0_brand: 'zivaone',
+      p0_brand: 'acme',
       p0_family_id: 'fam-1',
       p0_requester_user_id: 'alice',
       p0_tool_name: 'getHRV',

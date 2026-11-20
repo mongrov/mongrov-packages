@@ -501,7 +501,10 @@ export function registerPacks(packs: readonly AnalyticsPack[]): void {
   for (const p of packs) registerPack(p)
 }
 
-/** @internal Tests: drop every registered pack (defaults reload on next lookup). */
+/**
+ * Drop every registered pack (defaults set by `setDefaultPacks` reload on the
+ * next lookup), for test isolation. Public through `@mongrov/analytics/testing`.
+ */
 export function resetPacks(): void {
   registered.length = 0
   defaultsLoaded = false

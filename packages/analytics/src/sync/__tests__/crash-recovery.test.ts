@@ -1,6 +1,6 @@
 /**
  * A process killed mid-flush loses nothing that had reached the overflow
- * store (zivaone_app#54).
+ * store (app#54).
  *
  * The overflow store is the buffer's durable tail: rows that spilled past the
  * in-memory budget live in the KVStore (MMKV on device) and survive a kill.
@@ -38,7 +38,7 @@ function kvOver(store: Map<string, unknown>): KVStore {
 function batch(i: number): SensorBatch {
   return {
     table: 'hr',
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam',
     userId: 'u',
     deviceId: 'd',
@@ -56,7 +56,7 @@ function bufferOver(store: Map<string, unknown>) {
 
 class ProcessKilled extends Error {}
 
-describe('kill mid-flush (zivaone_app#54)', () => {
+describe('kill mid-flush (app#54)', () => {
   it('re-flushes, after restart, every row that was durable when the process died', async () => {
     // ── Life 1: rows arrive, spill to overflow, and a flush starts.
     const disk = new Map<string, unknown>()

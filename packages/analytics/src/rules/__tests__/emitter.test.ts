@@ -8,7 +8,7 @@ const sampleViolation: RuleViolation = {
   severity: 'warn',
   userId: 'u1',
   familyId: 'f1',
-  brand: 'ziva',
+  brand: 'acme',
   observedValue: 30,
   thresholdValue: 40,
   observedAt: new Date('2025-01-01T00:00:00Z'),

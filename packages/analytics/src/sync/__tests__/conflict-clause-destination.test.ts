@@ -19,7 +19,7 @@ import { LOCAL_SCHEMAS, SCHEMAS } from '../../__tests__/packs/legacy-tables'
 import { HybridDuckDB } from '../../core/engine'
 import { ensureSchemas } from '../../core/schemas'
 
-const ROW = `('2026-06-01 00:00:00', 'ziva', 'fam', 'user', 'dev', 50)`
+const ROW = `('2026-06-01 00:00:00', 'acme', 'fam', 'user', 'dev', 50)`
 const COLS = `(ts, brand, family_id, user_id, device_id, hrv_ms)`
 
 describe('conflictClause reads the destination schema', () => {

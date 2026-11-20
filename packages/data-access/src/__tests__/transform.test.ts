@@ -5,7 +5,7 @@
  * output parse", but the shipped 0.2.0 implementation treated the field as
  * inert registry metadata and the dispatcher parsed raw engine rows. That
  * made any query whose declared `output` contained derived fields
- * unsatisfiable by construction — the ZivaOne SpO₂ registry has five such
+ * unsatisfiable by construction — an app's SpO₂ registry has five such
  * queries, and each would have failed its own schema on first call.
  *
  * These tests pin the contract that resolves it: a callable `transform` is
@@ -24,7 +24,7 @@ import { DataAccessError } from '../errors'
 
 const ctx: RequestContext = {
   userId: 'u1',
-  brand: 'zivaone',
+  brand: 'acme',
   familyId: 'f1',
   timezone: 'America/New_York',
   now: () => new Date(1704067200000),
@@ -58,7 +58,7 @@ describe('transform runs between the engine and the parse', () => {
 
   it('fails the parse without a transform — the pre-0.3.0 bug, pinned', async () => {
     // Same query, transform removed. This is exactly what the shipped
-    // ZivaOne registry did, and why it could never have worked.
+    // an app's registry did, and why it could never have worked.
     const def = defineQuery({
       engine: 'duckdb',
       input: z.object({}),
@@ -164,7 +164,7 @@ describe('string transform stays accepted and inert', () => {
       input: z.object({}),
       output: z.array(z.object({ hour: z.number(), spo2: z.number() })),
       sql: 'SELECT 1',
-      transform: 'apps/zivaone/src/features/spo2/utils/derive-day.ts',
+      transform: 'apps/acme/src/features/spo2/utils/derive-day.ts',
     })
 
     expect(await executeQuery(def, {}, ctx, enginesReturning(rawRows)))

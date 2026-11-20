@@ -9,18 +9,15 @@
  *   5. `pushAll` returns per-table results even when one fails.
  */
 
-import type { RingConfigClose } from '../../__tests__/packs/ring/mapper/ring-config'
-
 import type { AttachContext } from '../../core/types'
 import { describe, expect, it, vi } from 'vitest'
-import { pushConfigCloses } from '../../__tests__/packs/ring/config-closes'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { R2Pusher } from '../pusher'
 import { WatermarkStore } from '../watermark'
 import { createFakeSqlEngine } from './__fakes__/fake-sql-engine'
 
 const ctx: AttachContext = {
-  brand: 'ziva',
+  brand: 'acme',
   tenantScope: 'family',
   tenantId: 'fam_A',
   userId: 'u1',
@@ -53,7 +50,7 @@ describe('R2Pusher.push', () => {
     // Second call: INSERT.
     expect(fake.calls[1]!.sql).toMatch(/INSERT INTO zone_fam_A.default.hrv SELECT \* FROM main\.hrv/)
     // Watermark advanced.
-    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:push')).toBe('2026-06-01T00:00:00.000Z')
+    expect(kvStore.get('analytics:watermark:acme:fam_A:hrv:push')).toBe('2026-06-01T00:00:00.000Z')
   })
 
   it('skips INSERT when there are no new rows', async () => {
@@ -87,7 +84,7 @@ describe('R2Pusher.push', () => {
     expect(result.ok).toBe(false)
     expect(result.error?.code).toBe('push_failed')
     // Watermark untouched.
-    expect(kvStore.has('analytics:watermark:ziva:fam_A:hrv:push')).toBe(false)
+    expect(kvStore.has('analytics:watermark:acme:fam_A:hrv:push')).toBe(false)
   })
 })
 
@@ -101,72 +98,55 @@ describe('R2Pusher time column resolution', () => {
     expect(fake.calls[0]!.sql).toMatch(/WHERE ts_start > \$watermark/)
     expect(fake.calls[1]!.sql).toMatch(/WHERE ts_start > \$watermark/)
   })
-
-  it('uses valid_from for device_config (SCD-2 time column)', async () => {
-    const { pusher, fake } = newPusher()
-    fake.mockNext([{ max_ts: '2026-06-01T00:00:00.000Z', row_count: 1 }])
-    fake.mockNext([])
-    await pusher.push('device_config', ctx)
-    expect(fake.calls[0]!.sql).toMatch(/SELECT MAX\(valid_from\)/)
-    expect(fake.calls[0]!.sql).toMatch(/WHERE valid_from > \$watermark/)
-    expect(fake.calls[1]!.sql).toMatch(/WHERE valid_from > \$watermark/)
-  })
 })
 
-/** The ring pack's SCD-2 closes, through the pusher's generic `pushRemote`. */
-function pushCloses(pusher: R2Pusher, closes: RingConfigClose[], c: typeof ctx) {
-  return pushConfigCloses((table, run) => pusher.pushRemote(table, c, run), closes, c)
-}
+/**
+ * `pushRemote`: arbitrary statements against one remote table (a pack's
+ * after-push step), with the push path's auth retry and error mapping.
+ */
+describe('R2Pusher.pushRemote', () => {
+  /** Two UPDATEs against the remote table; resolves with how many it ran. */
+  const run = async (remoteTable: string, execute: (sql: string, params?: Record<string, unknown>) => Promise<unknown>) => {
+    for (const id of ['a', 'b'])
+      await execute(`UPDATE ${remoteTable} SET closed = true WHERE id = $id`, { id })
+    return 2
+  }
 
-describe('R2Pusher.pushRemote (the ring pack\'s SCD-2 closes)', () => {
-  const NOW = new Date('2026-06-17T12:00:00Z')
-  const closes: RingConfigClose[] = [
-    { device_id: 'ring_1', metric: 'heart_rate', valid_to: NOW },
-    { device_id: 'ring_1', metric: 'spo2', valid_to: NOW },
-  ]
-
-  it('issues one UPDATE per close bound to (device_id, metric, family_id, valid_to IS NULL)', async () => {
+  it('hands the callback the tenant\'s remote table and an executor on the engine', async () => {
     const { pusher, fake } = newPusher()
     fake.mockNext([])
     fake.mockNext([])
-
-    const result = await pushCloses(pusher, closes, ctx)
-    expect(result).toEqual({ table: 'device_config', rowsPushed: 2, ok: true })
-    expect(fake.calls).toHaveLength(2)
-    for (const call of fake.calls) {
-      expect(call.sql).toMatch(/UPDATE zone_fam_A.default.device_config/)
-      expect(call.sql).toMatch(/valid_to IS NULL/)
-      expect(call.params?.family_id).toBe('fam_A')
-      expect(call.params?.valid_to).toBe(NOW.toISOString())
-    }
-    expect(fake.calls[0]!.params?.metric).toBe('heart_rate')
-    expect(fake.calls[1]!.params?.metric).toBe('spo2')
+    const result = await pusher.pushRemote('item', ctx, run)
+    expect(result).toEqual({ table: 'item', rowsPushed: 2, ok: true })
+    expect(fake.calls.map(c => [c.sql, c.params])).toEqual([
+      ['UPDATE zone_fam_A.default.item SET closed = true WHERE id = $id', { id: 'a' }],
+      ['UPDATE zone_fam_A.default.item SET closed = true WHERE id = $id', { id: 'b' }],
+    ])
   })
 
-  it('empty closes returns ok without issuing SQL', async () => {
+  it('a callback with nothing to do issues no SQL', async () => {
     const { pusher, fake } = newPusher()
-    const result = await pushCloses(pusher, [], ctx)
-    expect(result).toEqual({ table: 'device_config', rowsPushed: 0, ok: true })
+    const result = await pusher.pushRemote('item', ctx, async () => 0)
+    expect(result).toEqual({ table: 'item', rowsPushed: 0, ok: true })
     expect(fake.calls).toHaveLength(0)
   })
 
-  it('401 triggers refreshToken and retries once', async () => {
+  it('401 triggers refreshToken and reruns the callback once', async () => {
     const refreshToken = vi.fn().mockResolvedValue(undefined)
     const { pusher, fake } = newPusher(refreshToken)
     fake.throwNext(new Error('401 unauthorized'))
     fake.mockNext([])
     fake.mockNext([])
 
-    const result = await pushCloses(pusher, closes, ctx)
+    const result = await pusher.pushRemote('item', ctx, run)
     expect(refreshToken).toHaveBeenCalledTimes(1)
-    expect(result.ok).toBe(true)
-    expect(result.rowsPushed).toBe(2)
+    expect(result).toEqual({ table: 'item', rowsPushed: 2, ok: true })
   })
 
   it('non-401 error surfaces push_failed', async () => {
     const { pusher, fake } = newPusher()
     fake.throwNext(new Error('connection reset'))
-    const result = await pushCloses(pusher, closes, ctx)
+    const result = await pusher.pushRemote('item', ctx, run)
     expect(result.ok).toBe(false)
     expect(result.error?.code).toBe('push_failed')
   })

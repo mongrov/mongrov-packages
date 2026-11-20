@@ -5,7 +5,7 @@ import { createAnalyticsTools } from '../factory'
 
 const baseCtx: ToolContext = {
   requesterUserId: 'alice',
-  brand: 'zivaone',
+  brand: 'acme',
   familyId: 'fam-1',
 }
 
@@ -111,7 +111,7 @@ describe('createAnalyticsTools', () => {
       { userId: 'bob', days: 7 },
       {} as any,
     )
-    expect(provider).toHaveBeenCalledWith({ brand: 'zivaone', familyId: 'fam-1' })
+    expect(provider).toHaveBeenCalledWith({ brand: 'acme', familyId: 'fam-1' })
     // No SQL against family_member should have run (only the HRV query).
     const familyMemberCalls = engine.calls.filter(c =>
       c.sql.includes('FROM family_member'),

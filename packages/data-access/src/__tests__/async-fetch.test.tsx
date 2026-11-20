@@ -27,7 +27,7 @@ import {
 function makeCtx(): RequestContext {
   return {
     userId: 'u1',
-    brand: 'zivaone',
+    brand: 'acme',
     familyId: 'f1',
     timezone: 'UTC',
     now: () => new Date(0),

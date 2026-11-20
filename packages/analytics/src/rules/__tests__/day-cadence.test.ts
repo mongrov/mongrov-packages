@@ -18,7 +18,7 @@ import { compileRule, localDayExpr } from '../compiler'
 import { RuleSchema } from '../schema'
 import { validateRule } from '../validator'
 
-const BRAND = 'ziva'
+const BRAND = 'acme'
 const FAMILY = 'fam_1'
 const USER = 'alice'
 const TZ = 'America/Los_Angeles'
@@ -228,7 +228,7 @@ describe('day boundaries are the USER\'s, not UTC', () => {
     // 04:00 UTC is 21:00 the previous day in LA. This is the assertion that
     // distinguishes converting from labelling: `timezone($tz, ts)` on a naive
     // column LABELS the value with the zone instead of converting into it
-    // (zivaone_app#73), which leaves the reading on its UTC date.
+    // (app#73), which leaves the reading on its UTC date.
     //
     // Asserting the BUCKET rather than the run count is deliberate — an
     // earlier version of this test counted runs, and every reading shifted

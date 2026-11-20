@@ -18,7 +18,7 @@ import { OverflowStore } from '../overflow'
 function makeBatch(table: string, rows: number, seed = 0): SensorBatch {
   return {
     table,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam_A',
     userId: 'u1',
     deviceId: 'dev1',

@@ -23,7 +23,7 @@ import { generateViewDdl } from '../../core/schemas'
 import { compileRule, USER_SETTING_PARAM } from '../compiler'
 import { RuleSchema } from '../schema'
 
-const BRAND = 'ziva'
+const BRAND = 'acme'
 const FAMILY = 'fam_1'
 const USER = 'alice'
 const TZ = 'UTC'

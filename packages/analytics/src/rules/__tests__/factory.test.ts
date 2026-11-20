@@ -23,7 +23,7 @@ function build() {
   const engine = createRulesEngine({
     analytics,
     storage,
-    brand: 'ziva',
+    brand: 'acme',
     familyId: 'fam1',
     familyMembersProvider: async () => ['u1'],
     clock,
@@ -81,17 +81,17 @@ describe('createRulesEngine', () => {
   it('brand defaultBrand default is config.brand', async () => {
     const { engine, analytics } = build()
     // Register a rule with a different brand — should be excluded from
-    // getByBrand('ziva') filtering inside evaluator.
+    // getByBrand('acme') filtering inside evaluator.
     await engine.register([
       { ...rule, id: 'off.brand', brand: 'other' },
-      rule, // ziva default
+      rule, // acme default
     ])
     analytics.__setResult([])
     await engine.evaluateOnBatch({
       affectedUserIds: ['u1'],
       affectedTables: ['spo2'],
     })
-    // Only the ziva rule ran.
+    // Only the acme rule ran.
     expect(analytics.__calls).toHaveLength(1)
   })
 

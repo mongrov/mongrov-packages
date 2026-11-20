@@ -16,15 +16,17 @@
  * ```
  */
 
+// R2 — validator
+export { userSettingKey } from '../core/user-setting-key'
 // Compiler + cache
 export { compileRule, emitContextJoin, MIN_DAY_READINGS_FRACTION, minDayReadings, sanitizeIdent, USER_SETTING_PARAM, viewFor } from './compiler'
 export { type CompilerCache, createCompilerCache } from './compiler-cache'
-export { contextJoin, ruleContextNames } from './contexts'
 
-export { parseCatalog, type ParseCatalogOptions } from './defaults/loader'
+export { contextJoin, ruleContextNames } from './contexts'
 
 // TOML rule catalogs
 
+export { parseCatalog, type ParseCatalogOptions } from './defaults/loader'
 export {
   createEmitter,
   type CreateEmitterConfig,
@@ -32,11 +34,11 @@ export {
 } from './emitter'
 // Factory
 export { createRulesEngine } from './factory'
+
 export {
   useRuleRegistry,
   type UseRuleRegistryResult,
 } from './hooks/useRuleRegistry'
-
 // Hooks
 export {
   useRuleViolations,
@@ -50,6 +52,7 @@ export {
   createRulesRegistry,
   type RulesRegistry,
 } from './registry'
+
 // R1 — schema + types
 export {
   AGGREGATIONS,
@@ -77,7 +80,6 @@ export {
   createThrottleStore,
   type ThrottleStore,
 } from './throttle'
-
 export type {
   Clock,
   CompiledRule,
@@ -89,5 +91,4 @@ export type {
   RuleViolation,
   Unsubscribe,
 } from './types'
-// R2 — validator
 export { allowedWindowsFor, validateRule } from './validator'

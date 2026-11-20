@@ -1,5 +1,5 @@
 /**
- * Every bound param in compiled rule SQL is CAST at its use (zivaone_app#70).
+ * Every bound param in compiled rule SQL is CAST at its use (app#70).
  *
  * react-native-duckdb prepares with no values and binds afterwards, so a param
  * whose type cannot be resolved from SQL context throws

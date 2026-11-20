@@ -2,7 +2,7 @@
 
 /**
  * Phase 0A contract fixes — coverage for the bridge-contract gaps found
- * by type-checking apps/zivaone queries.ts against this package:
+ * by type-checking an app's queries.ts against this package:
  *
  *   DA-1 · `transform` metadata field on duckdb query configs
  *   DA-2 · MutationContext (kv / analytics / rxdb / emit) passed to exec
@@ -45,7 +45,7 @@ afterEach(() => {
 function makeCtx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
     userId: 'u1',
-    brand: 'zivaone',
+    brand: 'acme',
     familyId: 'f1',
     timezone: 'America/New_York',
     now: () => new Date(0),
@@ -100,11 +100,11 @@ describe('DA-1 · duckdb `transform` field', () => {
       input: z.object({ userId: z.string() }),
       output: z.object({ n: z.number() }),
       sql: 'SELECT 1 AS n',
-      transform: 'apps/zivaone/src/features/spo2/utils/derive-day.ts',
+      transform: 'apps/acme/src/features/spo2/utils/derive-day.ts',
     })
     const config = def.config as DuckdbQueryConfig<{ userId: string }, { n: number }>
     expect(config.transform).toBe(
-      'apps/zivaone/src/features/spo2/utils/derive-day.ts',
+      'apps/acme/src/features/spo2/utils/derive-day.ts',
     )
   })
 
@@ -343,7 +343,7 @@ describe('DA-3 · timezone auto-binding', () => {
       expect.stringContaining('timezone($tz, now())'),
       expect.objectContaining({
         userId: 'u1',
-        brand: 'zivaone',
+        brand: 'acme',
         familyId: 'f1',
         tz: 'America/New_York',
       }),

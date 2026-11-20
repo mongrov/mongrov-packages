@@ -93,7 +93,7 @@ describe('HybridDuckDB', () => {
     const db = new HybridDuckDB(fake.factory)
     await db.open()
 
-    const appender = db.createAppender('hrv')
+    const appender = db.createAppender('reading')
     appender.appendRow(['device-1', 1000, 50])
     appender.appendRow(['device-1', 2000, 55])
     appender.appendRow(['device-1', 3000, 60])
@@ -101,7 +101,7 @@ describe('HybridDuckDB', () => {
 
     expect(fake.appenders).toHaveLength(1)
     const [record] = fake.appenders
-    expect(record.table).toBe('hrv')
+    expect(record.table).toBe('reading')
     expect(record.rows).toEqual([
       ['device-1', 1000, 50],
       ['device-1', 2000, 55],

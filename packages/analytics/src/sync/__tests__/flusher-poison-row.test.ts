@@ -1,6 +1,6 @@
 /**
  * One unwritable value must not cost the whole table, forever
- * (zivaone_app#226).
+ * (app#226).
  *
  * A real ring sent a filler temperature sample read unsigned: 65378 * 0.1 =
  * 6537.8, which `temp_c DECIMAL(4,1)` cannot hold. The cast failed, the whole
@@ -24,7 +24,7 @@ import { SensorBuffer } from '../buffer'
 import { BatchFlusher, MAX_CONSECUTIVE_FAILURES } from '../flusher'
 import { OverflowStore } from '../overflow'
 
-const TENANT = { brand: 'ziva', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
+const TENANT = { brand: 'acme', familyId: 'fam_1', userId: 'u1', deviceId: 'ring_1' }
 
 async function rig() {
   const db = new HybridDuckDB(() => createRealDuckDB([]))

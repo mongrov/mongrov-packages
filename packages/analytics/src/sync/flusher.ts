@@ -172,8 +172,8 @@ interface TableRuntimeState {
 }
 
 /**
- * Whether the local table carries a PRIMARY KEY — its own (declared in its DDL,
- * `device_config`) or its pack-declared identity. Keyed tables must
+ * Whether the local table carries a PRIMARY KEY — its own (declared in its
+ * DDL) or its pack-declared identity. Keyed tables must
  * go through the staging + ON CONFLICT path; see `#write`.
  */
 function isKeyed(table: string): boolean {

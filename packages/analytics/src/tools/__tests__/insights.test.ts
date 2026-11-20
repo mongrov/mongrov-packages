@@ -4,7 +4,7 @@ import { getInsights } from '../impls/insights'
 
 const baseCtx = {
   requesterUserId: 'alice',
-  brand: 'zivaone',
+  brand: 'acme',
   familyId: 'fam-1',
 }
 

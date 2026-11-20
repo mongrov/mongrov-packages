@@ -27,7 +27,7 @@ describe('no-string-transform', () => {
       ],
       invalid: [
         {
-          code: `defineQuery({ transform: 'src/features/spo2/utils/derive-sensor.ts' })`,
+          code: `defineQuery({ transform: 'src/features/orders/utils/derive-sensor.ts' })`,
           errors: [{ messageId: 'stringTransform' }],
         },
         {

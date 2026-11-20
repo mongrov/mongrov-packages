@@ -16,13 +16,12 @@ import type { AnalyticsEngine, AttachContext } from '../../core/types'
 
 import type { EventBus } from '../events'
 import { describe, expect, it, vi } from 'vitest'
-import { DROPPED_ROWS_EVENT } from '../../__tests__/packs/health/plausibility'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 import { createSyncManager } from '../factory'
 import { createFakeEngine } from './__fakes__/fake-engine'
 
 const ctx: AttachContext = {
-  brand: 'ziva',
+  brand: 'acme',
   tenantScope: 'family',
   tenantId: 'fam_A',
   userId: 'u1',
@@ -69,36 +68,6 @@ describe('createSyncManager — validation', () => {
       flush: { maxRows: -1 },
     })).toThrow()
   })
-
-  it('accepts device_config with no ringConfigTranslator (Sprint 5 T-09/T-10)', () => {
-    // The translator requirement is gone: the mapper reads the vendor
-    // struct directly and owns the dataType -> metric translation, so a
-    // consumer-supplied bridge would only be a place to get it wrong.
-    expect(() => createSyncManager({
-      ...baseConfig(),
-      tables: ['hrv', 'device_config'],
-      columnOrder: {
-        hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms'] as const,
-        device_config: ['device_id', 'brand', 'family_id', 'user_id', 'metric', 'interval_minutes', 'start_time', 'end_time', 'weeks', 'valid_from', 'valid_to'] as const,
-      },
-    })).not.toThrow()
-  })
-
-  it('accepts device_config when ringConfigTranslator is provided', () => {
-    expect(() => createSyncManager({
-      ...baseConfig(),
-      tables: ['hrv', 'device_config'],
-      columnOrder: {
-        hrv: ['user_id', 'device_id', 'ts', 'rmssd_ms'] as const,
-        device_config: ['device_id', 'brand', 'family_id', 'user_id', 'metric', 'interval_minutes', 'start_time', 'end_time', 'weeks', 'valid_from', 'valid_to'] as const,
-      },
-      ringConfigTranslator: {
-        metricToDataType: () => 1,
-        dataTypeToMetric: () => 'hrv',
-        windowToSchemaFields: () => ({ start_time: null, end_time: null, weeks: null }),
-      },
-    })).not.toThrow()
-  })
 })
 
 describe('createSyncManager — assembly', () => {
@@ -132,7 +101,7 @@ describe('SensorSink', () => {
     const mgr = createSyncManager(baseConfig())
     await mgr.sink.push({
       table: 'hrv',
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
@@ -146,7 +115,7 @@ describe('SensorSink', () => {
     const mgr = createSyncManager(baseConfig())
     await mgr.sink.push({
       table: 'hrv',
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
@@ -160,7 +129,7 @@ describe('SensorSink', () => {
     const mgr = createSyncManager(baseConfig())
     await mgr.sink.push({
       table: 'hrv',
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
@@ -177,7 +146,7 @@ describe('event bus + progress', () => {
     const mgr = createSyncManager({ ...baseConfig(), eventBus: bus })
     await mgr.sink.push({
       table: 'hrv',
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
@@ -209,7 +178,7 @@ describe('rules-engine integration', () => {
     const mgr = createSyncManager({ ...baseConfig(), rulesEngine })
     await mgr.sink.push({
       table: 'hrv',
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
@@ -225,7 +194,7 @@ describe('rules-engine integration', () => {
     })
   })
 
-  it('skips rulesEngine when every row already existed (0 inserted, zivaone_app#460 P17)', async () => {
+  it('skips rulesEngine when every row already existed (0 inserted, app#460 P17)', async () => {
     const evaluateOnBatch = vi.fn().mockResolvedValue([])
     const rulesEngine = {
       register: vi.fn(),
@@ -246,7 +215,7 @@ describe('rules-engine integration', () => {
     const mgr = createSyncManager({ ...baseConfig(), analytics: fake.engine as unknown as AnalyticsEngine, rulesEngine })
     await mgr.sink.push({
       table: 'hrv',
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
@@ -340,7 +309,7 @@ describe('rules-engine integration', () => {
     })
     await mgr.sink.push({
       table: 'hrv',
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',
@@ -465,392 +434,6 @@ describe('wifi/charging gates by mode (#80)', () => {
   })
 })
 
-describe('device_config sink (SCD-2 close semantics)', () => {
-  const deviceConfigColumns = [
-    'device_id',
-    'brand',
-    'family_id',
-    'user_id',
-    'metric',
-    'interval_minutes',
-    'start_time',
-    'end_time',
-    'weeks',
-    'valid_from',
-    'valid_to',
-  ] as const
-
-  const ALL_DAYS = {
-    sunday: true,
-    monday: true,
-    Tuesday: true,
-    Wednesday: true,
-    Thursday: true,
-    Friday: true,
-    Saturday: true,
-  }
-  /** Vendor-shaped monitoring window (AutomaticMonitoring_J2301A). */
-  const window = (dataType: number, intervalTime: number, sh: number, eh: number) => ({
-    dataType,
-    intervalTime,
-    startTime_Hour: sh,
-    startTime_Minutes: 0,
-    endTime_Hour: eh,
-    endTime_Minutes: 0,
-    weeks: { ...ALL_DAYS },
-    mode: 1,
-  })
-
-  const emptyFirmware = {
-    heartrate: [],
-    hrv_table: [],
-    spo2: [],
-    temperature_table: [],
-    activitydetails: [],
-    sleep_processed: [],
-    battery_table: [],
-  }
-  const mapperCtx = {
-    brand: 'ziva',
-    familyId: 'fam_A',
-    userId: 'u1',
-    deviceId: 'ring_1',
-    userTimezone: 'UTC',
-  }
-
-  function makeMgr(fake: ReturnType<typeof createFakeEngine>) {
-    return createSyncManager({
-      ...baseConfig(),
-      analytics: fake.engine as unknown as AnalyticsEngine,
-      tables: ['device_config'],
-      columnOrder: { device_config: deviceConfigColumns },
-    })
-  }
-
-  it('first install: pushFirmware pre-fetches (empty) → no closes → new insert buffered', async () => {
-    const fake = createFakeEngine()
-    fake.mockExecuteNext([]) // SELECT returns no prior configs
-    const mgr = makeMgr(fake)
-
-    await mgr.sink.ingest('firmware', {
-      ...emptyFirmware,
-      ring: { automaticMonitoringData: [
-        window(4, 5, 22, 8),
-      ] },
-    }, mapperCtx)
-
-    // 1 SELECT + 0 UPDATEs (no prior).
-    expect(fake.executeCalls).toHaveLength(1)
-    expect(fake.executeCalls[0]!.sql).toMatch(/SELECT device_id, brand, family_id/)
-    expect(fake.executeCalls[0]!.sql).toMatch(/FROM memory\.main\.device_config/)
-    expect(fake.executeCalls[0]!.sql).toMatch(/valid_to IS NULL/)
-    expect(fake.executeCalls[0]!.params?.device_id).toBe('ring_1')
-
-    // Inserted row is now buffered.
-    expect(await mgr.sink.pendingRowCount('device_config')).toBe(1)
-  })
-
-  it('config change: SELECT returns prior → UPDATE issued for local close + new insert buffered', async () => {
-    const fake = createFakeEngine()
-    // SELECT returns one open HRV config.
-    fake.mockExecuteNext([{
-      device_id: 'ring_1',
-      brand: 'ziva',
-      family_id: 'fam_A',
-      user_id: 'u1',
-      metric: 'hrv',
-      interval_minutes: 10,
-      start_time: '22:00',
-      end_time: '08:00',
-      weeks: 0x7F,
-      valid_from: '2026-06-01T00:00:00.000Z',
-      valid_to: null,
-    }])
-    fake.mockExecuteNext([]) // UPDATE returns nothing.
-    const mgr = makeMgr(fake)
-
-    await mgr.sink.ingest('firmware', {
-      ...emptyFirmware,
-      ring: { automaticMonitoringData: [
-        window(4, 5, 22, 8),
-      ] },
-    }, mapperCtx)
-
-    // 1 SELECT + 1 UPDATE.
-    expect(fake.executeCalls).toHaveLength(2)
-    const update = fake.executeCalls[1]!
-    expect(update.sql).toMatch(/UPDATE memory\.main\.device_config/)
-    expect(update.sql).toMatch(/SET valid_to/)
-    expect(update.sql).toMatch(/valid_to IS NULL/)
-    expect(update.params?.metric).toBe('hrv')
-    expect(update.params?.device_id).toBe('ring_1')
-
-    // New insert is buffered.
-    expect(await mgr.sink.pendingRowCount('device_config')).toBe(1)
-  })
-
-  it('scheduler cycle drains pending closes via pushCloses UPDATE against remote', async () => {
-    const fake = createFakeEngine()
-    // 1. SELECT prior configs → returns one open HRV
-    fake.mockExecuteNext([{
-      device_id: 'ring_1',
-      brand: 'ziva',
-      family_id: 'fam_A',
-      user_id: 'u1',
-      metric: 'hrv',
-      interval_minutes: 10,
-      start_time: '22:00',
-      end_time: '08:00',
-      weeks: 0x7F,
-      valid_from: '2026-06-01T00:00:00.000Z',
-      valid_to: null,
-    }])
-    // 2. Local UPDATE returns nothing.
-    fake.mockExecuteNext([])
-    const mgr = makeMgr(fake)
-
-    // pushFirmware enqueues + local-UPDATEs.
-    await mgr.sink.ingest('firmware', {
-      ...emptyFirmware,
-      ring: { automaticMonitoringData: [
-        window(4, 5, 22, 8),
-      ] },
-    }, mapperCtx)
-
-    // 3. For the scheduler cycle:
-    //    - flushAll → 1 SELECT MAX(valid_from) + 1 INSERT (pusher.pushAll)
-    //    - Actually flushAll uses appender, not execute. pushAll runs SELECT+INSERT.
-    // Queue enough responses for pushAll's SELECT MAX/COUNT.
-    fake.mockExecuteNext([{ max_ts: null, row_count: 0 }]) // pushAll SELECT → no new rows
-    // 4. pushClosesForDeviceConfig → 1 UPDATE (remote)
-    fake.mockExecuteNext([])
-    // 5. fetchIncremental will call execute too.
-    fake.mockExecuteNext([{ max_ts: null, row_count: 0 }])
-    fake.mockExecuteNext([])
-
-    await mgr.triggerNow()
-
-    // Verify a remote UPDATE (zone_*) was issued for the pending close.
-    const remoteUpdate = fake.executeCalls.find(c =>
-      c.sql.includes('UPDATE zone_fam_A.default.device_config'),
-    )
-    expect(remoteUpdate).toBeDefined()
-    expect(remoteUpdate!.params?.family_id).toBe('fam_A')
-    expect(remoteUpdate!.params?.metric).toBe('hrv')
-  })
-})
-
-describe('ingest stores out-of-range readings, drops only malformed rows (S10, T-60)', () => {
-  // Spec §13 amendment 2026-11-12: a value outside the §13b clamps is stored
-  // and flagged `plausible = false` by `v_*_q`; only malformed rows (bad,
-  // future or pre-epoch timestamp, undecodable value) and the firmware's
-  // "no value" sentinel are dropped, counted once per flush by table and
-  // reason. HR 250 and SpO2 40 are the T-60 acceptance values.
-  const firmware = {
-    heartrate: [
-      { timestamp: '2026.10.28 08:00:00', singleHR: 62 },
-      { timestamp: '2026.10.28 08:05:00', singleHR: 0 },
-      { timestamp: '2026.10.28 08:07:00', singleHR: 250 },
-      { timestamp: '1970.01.01 00:00:00', singleHR: 70 },
-      { timestamp: '2026.10.28 08:10:00', singleHR: 64 },
-    ],
-    hrv_table: [],
-    spo2: [
-      { timestamp: '2026.10.28 08:00:00', automaticSpo2Data: 97 },
-      { timestamp: '2026.10.28 08:03:00', automaticSpo2Data: 40 },
-      { timestamp: '2026.10.28 08:05:00', automaticSpo2Data: 0 },
-    ],
-    temperature_table: [],
-    activitydetails: [],
-    sleep_processed: [],
-    battery_table: [],
-    ring: { automaticMonitoringData: [] },
-  }
-  const mapperCtx = { brand: 'ziva', familyId: 'fam_A', userId: 'u1', deviceId: 'ring_1', userTimezone: 'UTC' }
-
-  function makeMgr(fake: ReturnType<typeof createFakeEngine>, logger: ReturnType<typeof makeLogger>) {
-    return createSyncManager({
-      ...baseConfig(),
-      analytics: fake.engine as unknown as AnalyticsEngine,
-      tables: ['heart_rate', 'spo2'],
-      columnOrder: {
-        heart_rate: ['device_id', 'ts', 'bpm'] as const,
-        spo2: ['device_id', 'ts', 'spo2'] as const,
-      },
-      logger,
-    })
-  }
-  const makeLogger = () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() })
-  const written = (fake: ReturnType<typeof createFakeEngine>, table: string) => fake.appended
-    .filter(a => a.table === `${table}__stg`)
-    .map(a => [new Date(a.values[1] as string | Date).toISOString(), a.values[2]])
-  const dropLines = (logger: ReturnType<typeof makeLogger>) =>
-    [...logger.warn.mock.calls, ...logger.info.mock.calls].filter(([msg]) => msg === DROPPED_ROWS_EVENT)
-
-  it('pushFirmware: HR 250 and SpO2 40 land; the 1970 row and the 0 sentinels do not', async () => {
-    const fake = createFakeEngine()
-    const logger = makeLogger()
-    const mgr = makeMgr(fake, logger)
-
-    await mgr.sink.ingest('firmware', firmware, mapperCtx)
-    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(3)
-    expect(await mgr.sink.pendingRowCount('spo2')).toBe(2)
-
-    // The flusher appends into `<table>__stg` and merges from there: what
-    // is appended is exactly what the warehouse receives.
-    await mgr.sink.flush()
-    expect(written(fake, 'heart_rate')).toEqual([
-      ['2026-10-28T08:00:00.000Z', 62],
-      ['2026-10-28T08:07:00.000Z', 250],
-      ['2026-10-28T08:10:00.000Z', 64],
-    ])
-    expect(written(fake, 'spo2')).toEqual([
-      ['2026-10-28T08:00:00.000Z', 97],
-      ['2026-10-28T08:03:00.000Z', 40],
-    ])
-  })
-
-  it('logs one line per flush with dropped counts by table and reason, then resets', async () => {
-    const fake = createFakeEngine()
-    const logger = makeLogger()
-    const mgr = makeMgr(fake, logger)
-
-    await mgr.sink.ingest('firmware', firmware, mapperCtx)
-    // Nothing is logged per pushed chunk any more.
-    expect(dropLines(logger)).toHaveLength(0)
-
-    await mgr.sink.flush()
-    expect(dropLines(logger)).toEqual([[DROPPED_ROWS_EVENT, expect.objectContaining({
-      trigger: 'manual',
-      total: 3,
-      dropped: {
-        heart_rate: { no_value: 1, before_epoch: 1 },
-        spo2: { no_value: 1 },
-      },
-      nulled: {},
-    })]])
-    expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.anything())
-
-    // The counts belong to that flush: the next one has nothing to report.
-    await mgr.sink.flush()
-    expect(dropLines(logger)).toHaveLength(1)
-  })
-
-  it('the scheduled flush reports the same line', async () => {
-    const fake = createFakeEngine()
-    const logger = makeLogger()
-    const mgr = makeMgr(fake, logger)
-
-    await mgr.sink.ingest('firmware', firmware, mapperCtx)
-    await mgr.triggerNow()
-    expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({ trigger: 'scheduled', total: 3 }))
-  })
-
-  it('live sink.push applies the same rule and counts into the same line', async () => {
-    const fake = createFakeEngine()
-    const logger = makeLogger()
-    const mgr = makeMgr(fake, logger)
-    const batch = { table: 'heart_rate', brand: 'ziva', familyId: 'fam_A', userId: 'u1', deviceId: 'ring_1' }
-
-    await mgr.sink.push({
-      ...batch,
-      rows: [
-        { device_id: 'ring_1', ts: new Date('2026-10-28T08:00:00Z'), bpm: 250 },
-        { device_id: 'ring_1', ts: new Date(0), bpm: 60 },
-        { device_id: 'ring_1', ts: 'garbage', bpm: 60 },
-      ],
-    })
-    // A batch with nothing left is not buffered at all.
-    await mgr.sink.push({ ...batch, rows: [{ device_id: 'ring_1', ts: new Date(0), bpm: 60 }] })
-    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(1)
-
-    await mgr.sink.flush()
-    expect(written(fake, 'heart_rate')).toEqual([['2026-10-28T08:00:00.000Z', 250]])
-    expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({
-      total: 3,
-      dropped: { heart_rate: { before_epoch: 2, bad_timestamp: 1 } },
-    }))
-  })
-
-  // Spec §13b: plausibility is per vital. The canonical fixture
-  // (firmware-dirty-readings.json) says "10:00 HRV 0 is below the 5 ms clamp;
-  // its stress 35 stays clean". 0 is the firmware's "no value": NULL.
-  it('an HRV 0 row is kept with hrv_ms NULL and its stress; HRV 250 is stored; a 2019 HRV row is dropped', async () => {
-    const fake = createFakeEngine()
-    const logger = makeLogger()
-    const mgr = createSyncManager({
-      ...baseConfig(),
-      analytics: fake.engine as unknown as AnalyticsEngine,
-      tables: ['hrv'],
-      columnOrder: { hrv: ['device_id', 'ts', 'hrv_ms', 'stress'] as const },
-      logger,
-    })
-
-    await mgr.sink.ingest('firmware', {
-      ...firmware,
-      heartrate: [],
-      spo2: [],
-      hrv_table: [
-        { timestamp: '2026.10.28 10:00:00', hrv: 0, stress: 35 },
-        { timestamp: '2026.10.28 10:10:00', hrv: 50, stress: 30 },
-        { timestamp: '2026.10.28 10:20:00', hrv: 250, stress: 31 },
-        { timestamp: '2019.12.31 23:59:00', hrv: 48, stress: 25 },
-      ],
-    }, mapperCtx)
-    await mgr.sink.flush()
-
-    const rows = fake.appended
-      .filter(a => a.table === 'hrv__stg')
-      .map(a => [new Date(a.values[1] as string | Date).toISOString(), a.values[2], a.values[3]])
-    expect(rows).toEqual([
-      ['2026-10-28T10:00:00.000Z', null, 35],
-      ['2026-10-28T10:10:00.000Z', 50, 30],
-      ['2026-10-28T10:20:00.000Z', 250, 31],
-    ])
-    expect(logger.warn).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({
-      dropped: { hrv: { before_epoch: 1 } },
-      nulled: { hrv: 1 },
-    }))
-  })
-
-  it('only nulled sentinels: the line is info, not warn', async () => {
-    const fake = createFakeEngine()
-    const logger = makeLogger()
-    const mgr = createSyncManager({
-      ...baseConfig(),
-      analytics: fake.engine as unknown as AnalyticsEngine,
-      tables: ['hrv'],
-      columnOrder: { hrv: ['device_id', 'ts', 'hrv_ms', 'stress'] as const },
-      logger,
-    })
-    await mgr.sink.ingest('firmware', {
-      ...firmware,
-      heartrate: [],
-      spo2: [],
-      hrv_table: [{ timestamp: '2026.10.28 10:00:00', hrv: 0, stress: 35 }],
-    }, mapperCtx)
-    await mgr.sink.flush()
-    expect(logger.info).toHaveBeenCalledWith(DROPPED_ROWS_EVENT, expect.objectContaining({ total: 0, nulled: { hrv: 1 } }))
-    expect(logger.warn.mock.calls.filter(([msg]) => msg === DROPPED_ROWS_EVENT)).toHaveLength(0)
-  })
-
-  it('a clean export logs nothing', async () => {
-    const fake = createFakeEngine()
-    const logger = makeLogger()
-    const mgr = makeMgr(fake, logger)
-
-    await mgr.sink.ingest('firmware', {
-      ...firmware,
-      heartrate: [{ timestamp: '2026.10.28 08:00:00', singleHR: 62 }],
-      spo2: [{ timestamp: '2026.10.28 08:00:00', automaticSpo2Data: 97 }],
-    }, mapperCtx)
-    await mgr.sink.flush()
-
-    expect(await mgr.sink.pendingRowCount('heart_rate')).toBe(0)
-    expect(dropLines(logger)).toHaveLength(0)
-  })
-})
-
 describe('strictBatchOrdering (Sprint 5 item (a))', () => {
   const makeRules = () => {
     const evaluateOnBatch = vi.fn().mockResolvedValue([])
@@ -873,7 +456,7 @@ describe('strictBatchOrdering (Sprint 5 item (a))', () => {
   const pushRow = (mgr: ReturnType<typeof createSyncManager>, table: string, userId: string) =>
     mgr.sink.push({
       table,
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId,
       deviceId: 'ring',
@@ -949,7 +532,7 @@ describe('strictBatchOrdering (Sprint 5 item (a))', () => {
     expect(complete!.payload).toMatchObject({
       affectedTables: ['hrv'],
       affectedUserIds: ['u1'],
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       rowCounts: { hrv: 1 },
     })
@@ -982,7 +565,7 @@ describe('flush failures reach the logger', () => {
     })
     await mgr.sink.push({
       table: 'hrv',
-      brand: 'ziva',
+      brand: 'acme',
       familyId: 'fam_A',
       userId: 'u1',
       deviceId: 'ring',

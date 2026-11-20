@@ -20,7 +20,7 @@ import { WatermarkStore } from '../watermark'
 import { createFakeSqlEngine } from './__fakes__/fake-sql-engine'
 
 const ctx: AttachContext = {
-  brand: 'ziva',
+  brand: 'acme',
   tenantScope: 'family',
   tenantId: 'fam_A',
   userId: 'u1',
@@ -99,7 +99,7 @@ describe('R2Fetcher.fetchIncremental', () => {
 
     const results = await fetcher.fetchIncremental(ctx)
     expect(results[0]!).toMatchObject({ table: 'hrv', ok: true, rowsFetched: 4 })
-    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+    expect(kvStore.get('analytics:watermark:acme:fam_A:hrv:fetch'))
       .toBe('2026-06-01T00:00:00.000Z')
   })
 
@@ -148,7 +148,7 @@ describe('R2Fetcher.fetchOnDemand', () => {
     expect(fake.calls[0]!.sql).toContain('ON CONFLICT DO NOTHING')
     // Un-truncated → the full range was covered → watermark = `until`
     // (must be after default watermark to move).
-    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+    expect(kvStore.get('analytics:watermark:acme:fam_A:hrv:fetch'))
       .toBe('2026-06-15T00:00:00.000Z')
   })
 
@@ -167,7 +167,7 @@ describe('R2Fetcher.fetchOnDemand', () => {
     expect(result).toEqual({ table: 'hrv', rowsFetched: 50, ok: true })
     // NOT `until` — rows in (max_ts, until] were never inserted and must
     // stay visible to fetchIncremental.
-    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+    expect(kvStore.get('analytics:watermark:acme:fam_A:hrv:fetch'))
       .toBe('2026-06-05T00:00:00.000Z')
   })
 
@@ -211,7 +211,7 @@ describe('R2Fetcher.fetchOnDemand', () => {
     expect(result).toEqual({ table: 'hrv', rowsFetched: 0, ok: true })
     // Zero rows below the limit → range fully covered (it's just empty);
     // advancing to `until` prevents refetching the empty range.
-    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+    expect(kvStore.get('analytics:watermark:acme:fam_A:hrv:fetch'))
       .toBe('2026-06-15T00:00:00.000Z')
   })
 
@@ -229,7 +229,7 @@ describe('R2Fetcher.fetchOnDemand', () => {
     })
     expect(result.ok).toBe(true)
     // Nothing to anchor to — watermark untouched.
-    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+    expect(kvStore.get('analytics:watermark:acme:fam_A:hrv:fetch'))
       .toBeUndefined()
   })
 
@@ -242,7 +242,7 @@ describe('R2Fetcher.fetchOnDemand', () => {
       table: 'hrv',
       since: new Date('2026-05-25T00:00:00Z'),
     })
-    expect(kvStore.get('analytics:watermark:ziva:fam_A:hrv:fetch'))
+    expect(kvStore.get('analytics:watermark:acme:fam_A:hrv:fetch'))
       .toBe(now().toISOString())
   })
 })

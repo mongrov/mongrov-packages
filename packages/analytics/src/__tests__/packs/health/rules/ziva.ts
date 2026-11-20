@@ -1,9 +1,7 @@
 /**
- * Ziva brand default rules.
- *
- * The template string below is a verbatim copy of `ziva.toml`. Edit the
- * TOML sidecar, then either run `scripts/sync-toml.mjs` or copy-paste
- * back into this literal. Metro/tsup do not read `.toml` files directly.
+ * Ziva brand default rules — a test fixture copy of the catalog the app's
+ * health pack ships. The inline TOML below is the whole source here (no
+ * sidecar file); the maintained catalog lives with the pack.
  */
 
 import type { Rule } from '../../../../rules/schema'
@@ -11,9 +9,6 @@ import { parseCatalog } from '../../../../rules/defaults/loader'
 
 const TOML = `
 # Ziva brand default rules.
-#
-# Copied verbatim into \`ziva.ts\` as an inline template string. Do NOT edit
-# the wrapper file directly — treat this .toml as the source of truth.
 #
 # Rules cover the core Ziva health surface: HRV drop, sleep deprivation,
 # elevated stress, and low weekly activity. Verbatim from

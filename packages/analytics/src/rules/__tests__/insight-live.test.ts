@@ -14,13 +14,13 @@ import type { AnalyticsEngine, EventBus } from '../../core/types'
 import type { RulesEngine } from '../index'
 import { describe, expect, it, vi } from 'vitest'
 import { createRealDuckDB } from '../../__integration__/setup/real-engine'
-import { luminxDefaults } from '../../__tests__/packs/health/rules'
+import { secondaryDefaults } from '../../__tests__/packs/health/rules'
 import { createFakeKV } from '../../core/__tests__/__fakes__/fake-kv'
 
 import { createAnalytics } from '../../core/factory'
 import { createRulesEngine } from '../index'
 
-const BRAND = 'luminx'
+const BRAND = 'globex'
 const USER = 'user_asset_1'
 
 interface MockBus extends EventBus {
@@ -69,7 +69,7 @@ async function bootLive(eventBus?: EventBus): Promise<{
     familyId: USER,
     eventBus,
   })
-  await rules.register([...luminxDefaults])
+  await rules.register([...secondaryDefaults])
   return { analytics, rules }
 }
 
@@ -108,14 +108,14 @@ describe('rules → insight table + app bus against a live local engine', () => 
 
       const violations = await rules.evaluateScheduled()
       expect(violations.map(v => v.ruleId).sort())
-        .toEqual(['luminx.battery-critical', 'luminx.battery-low'])
+        .toEqual(['globex.battery-critical', 'globex.battery-low'])
 
       const rows = await analytics.execute<InsightRow>(
         `SELECT * FROM insight ORDER BY rule_id`,
       )
       expect(rows).toHaveLength(2)
 
-      const critical = rows.find(r => r.rule_id === 'luminx.battery-critical')!
+      const critical = rows.find(r => r.rule_id === 'globex.battery-critical')!
       expect(critical.insight_id).toHaveLength(24)
       expect(critical.kind).toBe('threshold')
       expect(critical.metric).toBe('device_battery')
@@ -131,7 +131,7 @@ describe('rules → insight table + app bus against a live local engine', () => 
         observedValue: 3,
       })
 
-      const low = rows.find(r => r.rule_id === 'luminx.battery-low')!
+      const low = rows.find(r => r.rule_id === 'globex.battery-low')!
       expect(low.severity).toBe('warn')
     }
     finally {
@@ -176,7 +176,7 @@ describe('rules → insight table + app bus against a live local engine', () => 
       const violationEvt = events.find(([name]) => name === 'threshold:violation')
       const insertEvt = events.find(([name]) => name === 'insight:insert')
       expect(violationEvt?.[1]).toMatchObject({
-        ruleId: 'luminx.battery-low',
+        ruleId: 'globex.battery-low',
         userId: USER,
         metric: 'device_battery',
         severity: 'warn',

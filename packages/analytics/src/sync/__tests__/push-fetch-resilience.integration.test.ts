@@ -1,5 +1,5 @@
 /**
- * R2 push/fetch resilience against MinIO + Iceberg REST (zivaone_app#53).
+ * R2 push/fetch resilience against MinIO + Iceberg REST (app#53).
  *
  * `push-fetch.integration.test.ts` proves a byte-equal round trip once. #53
  * asks what happens on the SECOND and later cycles, which is where a sync
@@ -45,7 +45,7 @@ const TEN_YEARS_MS = 10 * 365 * 24 * 60 * 60 * 1000
 let ep: Endpoints
 
 function ctx(userId = 'u1'): AttachContext {
-  return { brand: 'ziva', tenantScope: 'family', tenantId: TENANT, userId }
+  return { brand: 'acme', tenantScope: 'family', tenantId: TENANT, userId }
 }
 
 function bootEngine(): AnalyticsEngine {
@@ -94,7 +94,7 @@ async function seed(
     const when = at ? at(i) : new Date(Date.UTC(2025, 5, 1, 0, startMin + i, 0))
     await engine.execute(
       `INSERT INTO ${target} (ts, brand, family_id, user_id, device_id, hrv_ms)
-       VALUES ($ts::TIMESTAMP, 'ziva', $f, $u, 'd1', $v)`,
+       VALUES ($ts::TIMESTAMP, 'acme', $f, $u, 'd1', $v)`,
       { ts: when.toISOString().replace('T', ' ').replace('Z', ''), f: family, u: user, v: 40 + (i % 30) },
     )
   }
@@ -145,7 +145,7 @@ async function twoDevices<T>(run: (a: AnalyticsEngine, b: AnalyticsEngine) => Pr
   }
 }
 
-describe('R2 push/fetch resilience (MinIO, zivaone_app#53)', () => {
+describe('R2 push/fetch resilience (MinIO, app#53)', () => {
   beforeAll(async () => {
     ep = endpoints()
     await ensureNamespace(ep.restEndpoint, NAMESPACE)
@@ -240,7 +240,7 @@ describe('R2 push/fetch resilience (MinIO, zivaone_app#53)', () => {
    * them), so a reading whose ts is older than the watermark reaches the
    * local table AFTER the watermark has passed it — and no later push ever
    * selects it. Every other device on the account never sees it
-   * (zivaone_app#111's scenario). The fetch watermark has the same shape.
+   * (app#111's scenario). The fetch watermark has the same shape.
    *
    * Fixing it needs an ingestion-order cursor (or an anti-join against the
    * remote), which is a schema/design decision — not made here

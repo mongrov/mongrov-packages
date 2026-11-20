@@ -2,7 +2,7 @@
  * Every SQL builder must survive a catalog name that is not a bare identifier.
  *
  * The catalog comes from the database filename, so a real install yields
- * `zivaone-analytics`. That broke, one reload at a time:
+ * `acme-analytics`. That broke, one reload at a time:
  *   0.8.4 — ensureSchemas / qualifyDdl
  *   0.8.5 — all 15 interpolations in migrations.ts
  *   0.8.6 — generateViewDdl
@@ -18,7 +18,7 @@ import { LOCAL_SCHEMAS, TABLE_NAMES, VIEWED_TABLES } from '../../__tests__/packs
 import { buildDeleteSql } from '../retention'
 import { generateViewDdl, insightIndexDdl, qualifyDdl } from '../schemas'
 
-const HOSTILE = 'zivaone-analytics'
+const HOSTILE = 'acme-analytics'
 
 /** Any occurrence of the catalog NOT wrapped in double quotes. */
 function hasUnquoted(sql: string): boolean {
@@ -36,7 +36,7 @@ describe('catalog quoting across every SQL builder', () => {
   it('generateViewDdl — local mode, all viewed tables', () => {
     for (const table of VIEWED_TABLES) {
       const sql = generateViewDdl(table, {
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam_1',
         localCatalog: HOSTILE,
       })
@@ -47,7 +47,7 @@ describe('catalog quoting across every SQL builder', () => {
   it('generateViewDdl — union mode quotes both catalogs', () => {
     for (const table of VIEWED_TABLES) {
       const sql = generateViewDdl(table, {
-        brand: 'ziva',
+        brand: 'acme',
         familyId: 'fam_1',
         localCatalog: HOSTILE,
         remoteCatalog: 'remote-warehouse',
@@ -64,7 +64,7 @@ describe('catalog quoting across every SQL builder', () => {
   it('buildDeleteSql', () => {
     const sql = buildDeleteSql({
       catalog: HOSTILE,
-      table: 'hrv',
+      table: 'reading',
       cutoffDays: 30,
       tenantColumns: ['brand', 'family_id', 'user_id'],
     } as never)

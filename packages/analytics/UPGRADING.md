@@ -1,8 +1,29 @@
 # Upgrading
 
-Notes for releases before 0.60 are kept in the repository, not in the
-package: `docs/history/analytics-UPGRADING-pre-0.60.md` in
-[mongrov-packages](https://github.com/mongrov/mongrov-packages).
+Notes for releases before 0.60 ship in those versions' own
+`UPGRADING.md` (and stay in the repository's git history).
+
+## 0.60.x → 0.61.0
+
+Additive; nothing to change. Two new exports:
+
+- **`@mongrov/analytics/testing`** — the pure modules (pack registry, DDL
+  helpers, platform tables, errors, …) a test double of this package needs.
+  A jest mock that deep-imports `node_modules/@mongrov/analytics/dist/…`
+  files can re-export the subpath instead:
+
+  ```ts
+  // __mocks__/@mongrov/analytics.ts
+  export * from '@mongrov/analytics/testing'
+  // …your stubs for createAnalytics, AnalyticsProvider, the hooks, createSyncManager
+  ```
+
+  The names match the root and `/sync` exports; `resetPacks()` (testing
+  only) clears registered packs between tests. See the README, "Testing your
+  app", for the full list.
+- **`userSettingKey(userId, key)`** — build the `KVStore` key of a user
+  setting a rule reads (`user_setting` targets, `phase_band` scales) instead
+  of writing `` `analytics:${userId}:${key}` `` by hand.
 
 ## 0.60.0 → 0.60.1
 
@@ -22,7 +43,7 @@ database older than the platform ledger) no longer skips the platform
 migrations on the next attach — the platform's adopted starting version is
 now persisted even when it is 0.
 
-See `CHANGELOG.md` for the full list.
+See the repository's `CHANGELOG.md` for the full list.
 
 ## 0.52.x → 0.60.0 — the engine is domain-free; a domain arrives as a pack
 

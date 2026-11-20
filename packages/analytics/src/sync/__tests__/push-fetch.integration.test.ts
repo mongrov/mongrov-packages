@@ -44,7 +44,7 @@ const LOCAL_QUALIFIED = `memory.main.${TABLE}`
 const REMOTE_QUALIFIED = `${CATALOG}.${NAMESPACE}.${TABLE}`
 
 function ctx(): AttachContext {
-  return { brand: 'ziva', tenantScope: 'family', tenantId: TENANT, userId: 'u1' }
+  return { brand: 'acme', tenantScope: 'family', tenantId: TENANT, userId: 'u1' }
 }
 
 function bootEngine(): AnalyticsEngine {
@@ -133,7 +133,7 @@ async function seedLocal(engine: AnalyticsEngine, n: number): Promise<void> {
     await engine.execute(
       `INSERT INTO ${LOCAL_QUALIFIED}
          (ts, brand, family_id, user_id, device_id, hrv_ms)
-         VALUES ($ts::TIMESTAMP, 'ziva', $f, 'u1', 'd1', $v)`,
+         VALUES ($ts::TIMESTAMP, 'acme', $f, 'u1', 'd1', $v)`,
       { ts, f: TENANT, v: 60 + i },
     )
   }
@@ -220,7 +220,7 @@ async function seedLocalSleep(engine: AnalyticsEngine, n: number): Promise<void>
          (session_id, ts_start, ts_end, brand, family_id, user_id, device_id,
           total_minutes, deep_minutes, rem_minutes, light_minutes,
           awake_minutes, avg_confidence, night_of)
-         VALUES ($sid, $s::TIMESTAMP, $e::TIMESTAMP, 'ziva', $f, 'u1', 'd1',
+         VALUES ($sid, $s::TIMESTAMP, $e::TIMESTAMP, 'acme', $f, 'u1', 'd1',
                  420, 90, 80, 180, 70, 0.92, $night::DATE)`,
       { sid: `sess_${i}`, s: start, e: end, f: TENANT, night: nightOf },
     )
@@ -282,7 +282,7 @@ async function seedLocalConfig(engine: AnalyticsEngine, n: number): Promise<void
          (device_id, brand, family_id, user_id, metric,
           interval_minutes, start_time, end_time, weeks,
           valid_from, valid_to)
-         VALUES ('d1', 'ziva', $f, 'u1', $dt,
+         VALUES ('d1', 'acme', $f, 'u1', $dt,
                  15, NULL, NULL, NULL,
                  $vf::TIMESTAMP, NULL)`,
       { f: TENANT, dt: 300 + i, vf: validFrom },
@@ -356,7 +356,7 @@ describe('T-28 — R2 push/fetch byte-equal round trip (MinIO)', () => {
       expect(await symmetricDiff(push, LOCAL_QUALIFIED, REMOTE_QUALIFIED)).toBe(0n)
 
       // Watermark advanced to the max ts we pushed.
-      const advanced = await wm.get('ziva', TENANT, TABLE, 'push')
+      const advanced = await wm.get('acme', TENANT, TABLE, 'push')
       expect(advanced.getTime()).toBeGreaterThan(0)
 
       await push.detach()

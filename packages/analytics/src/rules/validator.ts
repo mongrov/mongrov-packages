@@ -102,19 +102,6 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
 }
 
 /**
- * T-21 — `consecutive x effective_sampling_minutes` must fit the window.
- *
- * A rule asking for 3 consecutive samples (60-min cadence) inside a 1h
- * window is unsatisfiable: the window holds at most one sample, so the
- * rule can never fire and the author gets silence instead of an error.
- *
- * `effective` sampling comes from `device_config.interval_minutes` at eval
- * time when a row exists (principle 22); at register time only the
- * `metric_metadata` fallback is known, so this check uses the fallback and
- * is deliberately permissive — a denser real device only makes a rule MORE
- * satisfiable, never less.
- */
-/**
  * Admission policy, checked at REGISTRATION rather than inside
  * `validateRule`: `validateRule` answers "is this rule well-formed?", a
  * structural question; this answers "may this rule enter the system?", a
@@ -196,6 +183,18 @@ function consecutiveKeyMax(key: string): number | undefined {
   return settings()?.range?.(key)?.[1]
 }
 
+/**
+ * T-21 — `consecutive x sampling_minutes` must fit the window.
+ *
+ * A rule asking for 3 consecutive samples (60-min cadence) inside a 1h
+ * window is unsatisfiable: the window holds at most one sample, so the
+ * rule can never fire and the author gets silence instead of an error.
+ *
+ * The cadence is the metric's declared `sampling_minutes` (its pack's
+ * `MetricDefinition`), the coarsest a source of that metric reports. A
+ * device sampling more densely only makes a rule MORE satisfiable, never
+ * less, so the check is deliberately permissive.
+ */
 function validateConsecutive(rule: Rule): void {
   const n = rule.consecutive
   if (n === undefined || n <= 1)

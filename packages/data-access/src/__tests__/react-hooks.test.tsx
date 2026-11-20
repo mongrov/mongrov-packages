@@ -20,7 +20,7 @@ const noEngines: EngineAdapters = {}
 function makeCtx(overrides: Partial<RequestContext> = {}): RequestContext {
   return {
     userId: 'u1',
-    brand: 'zivaone',
+    brand: 'acme',
     familyId: 'f1',
     timezone: 'UTC',
     now: () => new Date(0),
@@ -74,12 +74,12 @@ describe('T-16 · DataAccessProvider', () => {
       <DataAccessProvider
         registry={emptyRegistry}
         engines={noEngines}
-        context={() => makeCtx({ brand: 'ziva-two' })}
+        context={() => makeCtx({ brand: 'acme-two' })}
       >
         <BrandProbe />
       </DataAccessProvider>,
     )
-    expect(getByTestId('brand').textContent).toBe('ziva-two')
+    expect(getByTestId('brand').textContent).toBe('acme-two')
   })
 
   it('throws when a hook is used outside the provider', () => {
@@ -102,7 +102,7 @@ describe('T-17 · useRequestContext', () => {
       wrapper: wrapperWith({ context: () => makeCtx({ familyId: 'famX' }) }),
     })
     expect(result.current.familyId).toBe('famX')
-    expect(result.current.brand).toBe('zivaone')
+    expect(result.current.brand).toBe('acme')
     expect(result.current.userId).toBe('u1')
     // Deprecated alias stays populated for pre-rename consumers.
     expect(result.current.requesterUserId).toBe('u1')

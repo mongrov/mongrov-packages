@@ -5,7 +5,7 @@
  * internals. Given a zod-4 schema it emits `type: "None"`, and OpenAI rejects
  * the entire request:
  *
- *   Invalid schema for function 'getSpO2': schema must be a JSON Schema of
+ *   Invalid schema for function 'getMetric': schema must be a JSON Schema of
  *   'type: "object"', got 'type: "None"'.
  *
  * Tools are sent on every request, so one bad schema broke all chat — a plain

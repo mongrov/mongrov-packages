@@ -42,12 +42,11 @@ export interface SyncCoordinator {
   /** Per-table results; failed tables are named in the cycle summary. */
   pushAll: (tables: string[], ctx: AttachContext) => Promise<StepResult[]>
   /**
-   * SCD-2 close directives (`device_config.valid_to = now()`) pending
-   * against the remote Iceberg zone. Drained + pushed between `pushAll`
-   * and `fetchIncremental` so the fetch step sees consistent closes.
-   * Optional — only wired when `tables` includes `'device_config'`.
+   * Packs' after-push steps (`PackSyncHooks.afterPush`, e.g. replaying
+   * SCD-2 closes against the remote zone), between `pushAll` and
+   * `fetchIncremental` so the fetch sees their writes. Optional: unset in
+   * local mode and when no pack declares one.
    */
-  /** Packs' after-push steps (e.g. replaying SCD-2 closes), before the fetch. */
   afterPush?: (ctx: AttachContext) => Promise<void>
   fetchIncremental: (ctx: AttachContext) => Promise<StepResult[]>
   /**

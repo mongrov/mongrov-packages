@@ -24,8 +24,7 @@ setup/
 └── seed.ts             Test-side helpers: ensureNamespace/dropNamespace
                         (Iceberg REST v1), ensureS3Secret (DuckDB TYPE
                         S3 for MinIO), staticTokenVendor,
-                        refreshingTokenVendor, memoryKV, seedHrvRows,
-                        seedSleepSessionRows, seedDeviceConfigRows.
+                        refreshingTokenVendor, memoryKV.
 ```
 
 ## Architecture

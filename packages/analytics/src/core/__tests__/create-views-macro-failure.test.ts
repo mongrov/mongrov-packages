@@ -1,5 +1,5 @@
 /*
- * A bounded macro that fails to create must not fail attach (zivaone_app#191).
+ * A bounded macro that fails to create must not fail attach (app#191).
  *
  * Attach gates writes as well as reads: the ring handoff and the sync cursors
  * reject with "execute requires an attached engine" when it errors. So when a
@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { fallbackMacroDdl, qualityMacroDdls } from '../../__tests__/packs/health/reading-quality'
 import { createViews } from '../warehouse'
 
-const ctx = { brand: 'ziva', familyId: 'f', localCatalog: 'memory' }
+const ctx = { brand: 'acme', familyId: 'f', localCatalog: 'memory' }
 
 function fakeDb(failOn: (sql: string) => boolean) {
   const executed: string[] = []
