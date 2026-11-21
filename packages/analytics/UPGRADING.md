@@ -3,6 +3,37 @@
 Notes for releases before 0.60 ship in those versions' own
 `UPGRADING.md` (and stay in the repository's git history).
 
+## 0.61.0 → 0.61.1
+
+Nothing to change for a correct caller. What a caller may notice:
+
+- **Arguments are now validated.** A call whose arguments break the tool's
+  schema no longer reaches the tool: it returns
+  `Invalid arguments: <field> must be ... (got ...).` and an `error` audit row
+  whose message starts `invalid_args:`. A caller that relied on an omitted
+  defaulted field arriving as `undefined` now gets the default.
+- **Defaulted fields are optional in the advertised schema** (`required` no
+  longer lists them). A strict client that always sent them still works.
+- **Copy guards run on every tool**, so a host tool wrapped with
+  `handle.wrap` and every pack tool is checked even if its impl does not call
+  the guard itself.
+- **Truncation keeps the newest rows.** Text over the budget loses its
+  oldest dated lines first; check any test that pinned the old `[truncated]`
+  tail.
+- **MCP sets `isError`** on refusals and failures; a client that treated
+  every text result as data will now see them flagged.
+
+To give a host tool the same safety layer:
+
+```ts
+const handle = createAnalyticsTools({ analytics })
+const myTool = handle.wrap('getThingDay', {
+  description: 'One day of a thing, as its screen shows it.',
+  inputSchema: z.object({ userId: z.string(), day: z.string().optional() }),
+  impl: async (input, ctx) => ({ text, rowCount: 1, bytes: text.length }),
+})
+```
+
 ## 0.60.x → 0.61.0
 
 Additive; nothing to change. Two new exports:
