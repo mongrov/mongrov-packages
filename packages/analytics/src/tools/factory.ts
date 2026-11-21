@@ -28,6 +28,7 @@ import type {
   OutputBudget,
   ToolContext,
 } from './types'
+import { AnalyticsError } from '../core/errors'
 import { packExtensions } from '../core/packs'
 import { createAuditWriter } from './audit'
 import { familyScopeAuthorize } from './authorize'
@@ -43,6 +44,17 @@ export type AnalyticsToolMap = Record<string, ReturnType<typeof makeTool<any>>>
 
 export interface AnalyticsToolsHandle {
   tools: AnalyticsToolMap
+  /**
+   * Wrap a host's own tool in the same chain as the pack tools: argument
+   * validation, the shared rate limiter, authorization, every pack's copy
+   * guard, the output budget and the same audit writer, under the context
+   * set by `setContext`. For tools a host builds from its own code (they
+   * need something a pack cannot reach), so the model's every tool runs
+   * through one safety layer. The tool is returned, not added to `tools`.
+   * Throws `invalid_config` for a name a pack tool already uses: the two
+   * would share rate-limit buckets and be indistinguishable in the audit.
+   */
+  wrap: (name: string, def: PackTool) => ReturnType<typeof makeTool<any>>
   setContext: (ctx: ToolContext | null) => void
   auditWriter: AuditWriter
   close: () => Promise<void>
@@ -109,6 +121,17 @@ export function createAnalyticsTools(
 
   return {
     tools,
+    wrap(name, def) {
+      if (Object.prototype.hasOwnProperty.call(tools, name))
+        throw new AnalyticsError('invalid_config', `tool "${name}" is already a pack tool`)
+      return makeTool({
+        ...shared,
+        name,
+        description: def.description,
+        inputSchema: def.inputSchema,
+        impl: def.impl,
+      })
+    },
     setContext(ctx) {
       currentCtx = ctx
     },

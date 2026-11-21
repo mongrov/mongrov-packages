@@ -4,9 +4,15 @@ The AI tool framework over the analytics warehouse. It ships one tool of its
 own — `getInsights`, over the platform `insight` table — and wraps every tool
 the registered packs declare (`pack.tools`, `PackTool`).
 
-Every tool runs through the same chain: **rate limit → authorize → execute →
-output budget → audit**. Every call — success, rejected, rate-limited,
-errored — is recorded in the `tool_call_audit` table.
+Every tool runs through the same chain: **validate → rate limit → authorize →
+execute → copy guard → output budget → audit**. Every call — success,
+refused arguments, rejected, rate-limited, errored — is recorded in the
+`tool_call_audit` table.
+
+A host's own tool (one built from host code a pack cannot reach) goes
+through the same chain with `handle.wrap(name, { description, inputSchema,
+impl })`, which returns the wrapped tool and shares the handle's rate
+limiter, audit writer and context.
 
 The MCP subpath lives at `./mcp/` — see [`./mcp/README.md`](./mcp/README.md).
 
@@ -108,7 +114,7 @@ export const dailyRain: PackTool = {
 | `audit.enabled` | `boolean` | `true` | `false` makes `record()` a no-op. |
 | `audit.batchSize` | `number` | `10` | Flush when the buffer reaches this many entries. |
 | `audit.flushIntervalMs` | `number` | `1000` | Flush timer cadence. |
-| `outputBudget` | `Partial<OutputBudget>` | `DEFAULT_OUTPUT_BUDGET` | Text over `maxBytes` is truncated UTF-8-safely with `\n[truncated]`. |
+| `outputBudget` | `Partial<OutputBudget>` | `DEFAULT_OUTPUT_BUDGET` | Text over `maxBytes` loses its oldest dated rows first (see Output budget). |
 | `logger` | `ToolsLogger` | — | Warn / error hook. |
 | `familyMembersProvider` | `FamilyMembersProvider` | — | Membership for the default authorize hook; otherwise `analytics.getFamilyMembers()`. |
 | `clock` | `() => number` | `Date.now` | Injectable for tests. |
@@ -123,6 +129,21 @@ export const dailyRain: PackTool = {
 
 Or pass any `AuthorizeFn = (toolName, args, ctx) => Promise<boolean>`.
 
+### Argument validation
+
+Every call's arguments are parsed with the tool's Zod schema before anything
+else runs: `.default()`s apply and every bound is enforced, whatever the
+caller checked (the AI SDK's `jsonSchema()` validates nothing, and on-device
+bridges may drop bounds). A refused call returns
+`Invalid arguments: days must be a whole number from 1 to 90 (got 0).` and is
+audited as `error` with an `invalid_args:` message. The JSON Schema handed to
+the model is the input view, so a field with a default is optional.
+
+### Copy guard
+
+Every registered pack's `copyGuard` runs over every tool's text, a pack's or
+one wrapped with `handle.wrap`. A guard that throws fails the call.
+
 ### Rate limiting
 
 Three in-process token buckets per `(toolName, userId)`. A call is refused
@@ -131,14 +152,18 @@ without spending when any bucket is empty. Runs before authorize.
 ### Audit
 
 Each wrapper outcome (`success`, `rate_limited`, `authorized_reject`,
-`error`) writes one `tool_call_audit` row. Writes are batched, non-blocking
+`error`) writes one `tool_call_audit` row; refused arguments are `error`. Writes are batched, non-blocking
 and retried; after repeated failures a batch is dropped rather than growing
 without bound. Retention: 30 days.
 
 ### Output budget
 
-`applyOutputBudget` cuts `result.text` at a UTF-8-safe byte boundary and
-appends `\n[truncated]`.
+`applyOutputBudget` drops dated rows (`  2026-11-20: ...`), oldest first by
+date, until the text fits, and puts one `[truncated: N earlier rows left
+out]` line where they were; header and summary lines are always kept. Only
+text that has no dated rows, or does not fit even without them, is cut at a
+UTF-8-safe byte boundary with `\n[truncated]`. `trimOldestRows` is the same
+rule for a host's own cap.
 
 ## Wiring with `@mongrov/ai`
 

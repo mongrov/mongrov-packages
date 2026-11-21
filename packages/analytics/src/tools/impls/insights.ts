@@ -2,6 +2,7 @@ import type { ToolImpl, ToolResult } from '../types'
 import { z } from 'zod'
 import { packExtensions } from '../../core/packs'
 import { formatBytes } from '../formatters/text'
+import { tzParam } from '../local-day'
 
 export const getInsightsInputSchema = z.object({
   userId: z.string(),
@@ -25,6 +26,7 @@ export const getInsights: ToolImpl<GetInsightsInput> = async (input, ctx) => {
     brand: ctx.brand,
     familyId: ctx.familyId,
     days: input.days,
+    tz: tzParam(ctx, '$tz').tz,
   }
   let severityClause = ''
   if (input.severity) {
@@ -34,8 +36,14 @@ export const getInsights: ToolImpl<GetInsightsInput> = async (input, ctx) => {
 
   // dismissed_at IS NULL — dismissed insights are filtered from queries by
   // default (principle 51); rows are preserved for restore/audit only.
+  // `ts` is stored naive UTC; it is shown in the user's zone, converted
+  // here in the query (principle 67), in the same `YYYY-MM-DD HH:MM:SS`
+  // form. It used to be printed as UTC with no zone marker, so a 08:42
+  // alert in Kolkata read as 03:12.
   const rows = await ctx.analytics.execute<Row>(
-    `SELECT insight_id, ts::VARCHAR AS ts, severity, title, body
+    `SELECT insight_id,
+            CAST(timezone(CAST($tz AS VARCHAR), timezone('UTC', ts)) AS VARCHAR) AS ts,
+            severity, title, body
      FROM insight
      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
        AND dismissed_at IS NULL

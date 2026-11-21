@@ -9,15 +9,19 @@
  * rate → auth → execute → budget → audit chain — so the adapter is
  * a thin translation layer, not a second wrapper.
  *
- * The Zod parameter schemas are converted to JSON Schema draft-7 via
- * `zod-to-json-schema` (drops `$schema` and `additionalProperties`
- * so MCP clients get a compact tool descriptor). `.default()` values
- * survive the conversion (asserted in the tests) so LLMs see the
- * documented defaults on `detectAnomaly.stddevThreshold` and
- * `getInsights.days`.
+ * The input schema is the JSON Schema `makeTool` already built (the
+ * input view: a `.default()` field is optional and carries its default),
+ * minus the `$schema` marker.
+ *
+ * `isError` is set whenever the call did not succeed: refused arguments,
+ * rate limited, not authorized, no context, or a failed execution. The
+ * text is unchanged; the result is read from the wrapper (`toolCallResult`)
+ * rather than matched against message strings. MCP 2025-11-25 reports
+ * argument errors this way too, so the client's model can correct them.
  */
 
 import type { AnalyticsToolsHandle } from '../factory'
+import { toolCallResult } from '../wrap'
 
 export interface McpTool {
   name: string
@@ -64,12 +68,15 @@ export function toMcpTools(handle: AnalyticsToolsHandle): McpTool[] {
             isError: true,
           }
         }
-        const text = await tool.execute(args as never, {
+        const options = {
           toolCallId: `mcp:${String(name)}`,
           messages: [],
-        })
+        }
+        const text = await tool.execute(args as never, options)
+        const result = toolCallResult(options)
         return {
           content: [{ type: 'text' as const, text: String(text) }],
+          ...(result !== undefined && result !== 'success' ? { isError: true } : {}),
         }
       },
     }

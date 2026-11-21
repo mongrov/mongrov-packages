@@ -1,13 +1,17 @@
 /**
  * `makeTool` — compose an AI SDK `tool()` from a raw impl plus the
- * rate → auth → execute → budget → audit chain.
+ * validate → rate → auth → execute → copy guard → budget → audit chain.
  *
  * The chain order is load-bearing:
+ *   0. Validate    → parse the arguments with the tool's Zod schema, so
+ *                    defaults apply and bounds hold whatever the caller
+ *                    checked (no runtime on any path validates them first).
  *   1. Rate limit  → cheap, no I/O; short-circuits abusive callers.
  *   2. Authorize   → may hit SQL/provider; runs after rate cap.
  *   3. Execute     → real tool work.
- *   4. Budget      → truncate oversized text before returning.
- *   5. Audit       → record every terminal state (success / reject
+ *   4. Copy guard  → every registered pack's `copyGuard` over the text.
+ *   5. Budget      → trim oversized text before returning.
+ *   6. Audit       → record every terminal state (success / reject
  *                    / rate-limited / error).
  *
  * Every branch records exactly one audit entry. The wrapper never
@@ -22,6 +26,7 @@ import type { ZodTypeAny } from 'zod'
 import type { AnalyticsEngine } from '../core/types'
 import type { RateLimiter } from './rate-limit'
 import type {
+  AuditEntry,
   AuditWriter,
   AuthorizeFn,
   OutputBudget,
@@ -31,12 +36,30 @@ import type {
 } from './types'
 import { jsonSchema, tool } from 'ai'
 import { describeError } from '../core/errors'
+import { packExtensions } from '../core/packs'
 import { applyOutputBudget } from './budget'
+import { describeInvalidArgs } from './validate'
 
 const RATE_LIMIT_MESSAGE = 'Rate limit exceeded. Try again shortly.'
 const AUTHZ_MESSAGE = 'Not authorized to access that user\'s data.'
 const ERROR_MESSAGE = 'Tool call failed.'
 const NO_CONTEXT_MESSAGE = 'Tool call failed: request context not set.'
+
+/** How one call ended — what `tool_call_audit.outcome` records, plus a refusal of its arguments. */
+export type ToolCallResult = 'success' | 'invalid_args' | 'rate_limited' | 'authorized_reject' | 'error'
+
+/**
+ * @internal The result of a call, keyed by the options object handed to
+ * `execute`. The AI SDK sees only the text; the MCP adapter passes its own
+ * options object and reads this back to set `isError`, without the text
+ * changing shape.
+ */
+const callResults = new WeakMap<object, ToolCallResult>()
+
+/** @internal How the call made with `options` ended; `undefined` if it never ran. */
+export function toolCallResult(options: object): ToolCallResult | undefined {
+  return callResults.get(options)
+}
 
 export interface MakeToolConfig<Input> {
   name: string
@@ -82,143 +105,135 @@ export interface MakeToolConfig<Input> {
  * version is not ours to pick. Converting here and passing `jsonSchema()`
  * removes the coupling entirely: the SDK gets a finished JSON Schema and
  * never inspects a Zod object.
+ *
+ * The schema describes the INPUT side (`io: 'input'`): a field with a
+ * `.default()` is optional to the caller, because `makeTool` applies the
+ * default. zod 4's default (output) view lists it in `required`, which made
+ * every strict caller, Apple's on-device model among them, supply it.
  */
-function toJsonSchema(schema: ZodTypeAny): ReturnType<typeof jsonSchema> {
+export function toJsonSchemaObject(schema: ZodTypeAny): Record<string, unknown> {
   // zod 4 ships its own converter; zod 3 needs the companion package.
   const z4 = (schema as unknown as { _zod?: unknown })._zod
   if (z4 !== undefined) {
-    const zod = require('zod') as { toJSONSchema: (s: unknown) => object }
-    return jsonSchema(zod.toJSONSchema(schema) as never)
+    // `require('zod')` only, as before: a bundler resolves every literal
+    // require, and a consumer on zod 3 has no zod 4 subpath to resolve.
+    const zod = require('zod') as {
+      toJSONSchema: (s: unknown, params?: { io?: 'input' | 'output' }) => Record<string, unknown>
+    }
+    const input = zod.toJSONSchema(schema, { io: 'input' })
+    // The input view leaves out `additionalProperties: false`; keep the
+    // object closed, as the output view (and every earlier release) had it.
+    const closed = zod.toJSONSchema(schema).additionalProperties === false
+    return closed ? { ...input, additionalProperties: false } : input
   }
 
+  // zod-to-json-schema already treats a `.default()` field as optional.
   const { zodToJsonSchema } = require('zod-to-json-schema') as {
-    zodToJsonSchema: (s: unknown) => object
+    zodToJsonSchema: (s: unknown) => Record<string, unknown>
   }
-  return jsonSchema(zodToJsonSchema(schema) as never)
+  return zodToJsonSchema(schema)
 }
 
 export function makeTool<Input>(cfg: MakeToolConfig<Input>) {
   const clock = cfg.clock ?? Date.now
+  const parameters = toJsonSchemaObject(cfg.inputSchema)
 
   return tool({
     description: cfg.description,
-    parameters: toJsonSchema(cfg.inputSchema),
-    execute: async (rawInput: unknown): Promise<string> => {
-      // Validated against the JSON Schema by the SDK before we see it.
-      const input = rawInput as Input
+    parameters: jsonSchema(parameters as never),
+    execute: async (rawInput: unknown, options?: unknown): Promise<string> => {
       const startMs = clock()
       const ctx = cfg.ctxProvider()
+      let args = (rawInput ?? {}) as Record<string, unknown>
+
+      const finish = (
+        result: ToolCallResult,
+        text: string,
+        entry: Partial<Pick<AuditEntry, 'resultBytes' | 'resultRowCount' | 'errorMessage'>> = {},
+      ): string => {
+        cfg.audit.record({
+          ts: new Date(clock()),
+          brand: ctx?.brand ?? '',
+          familyId: ctx?.familyId ?? '',
+          requesterUserId: ctx?.requesterUserId ?? '',
+          toolName: cfg.name,
+          args,
+          resultBytes: entry.resultBytes ?? null,
+          resultRowCount: entry.resultRowCount ?? null,
+          latencyMs: clock() - startMs,
+          // A refused argument list is an error to the audit: the outcome
+          // column keeps its four values, and the message says which.
+          outcome: result === 'invalid_args' ? 'error' : result,
+          errorMessage: entry.errorMessage ?? null,
+        })
+        if (options !== null && typeof options === 'object')
+          callResults.set(options, result)
+        return text
+      }
 
       // 0. Ctx guard — audit as error, no rate/auth/execute performed.
       if (!ctx) {
-        cfg.audit.record({
-          ts: new Date(clock()),
-          brand: '',
-          familyId: '',
-          requesterUserId: '',
-          toolName: cfg.name,
-          args: input as Record<string, unknown>,
-          resultBytes: null,
-          resultRowCount: null,
-          latencyMs: clock() - startMs,
-          outcome: 'error',
-          errorMessage: 'context not set',
-        })
         cfg.logger?.warn('tool invoked without context', { toolName: cfg.name })
-        return NO_CONTEXT_MESSAGE
+        return finish('error', NO_CONTEXT_MESSAGE, { errorMessage: 'context not set' })
       }
 
-      // 1. Rate limit.
+      // 1. Validate. No runtime validates before us: the AI SDK's
+      // `jsonSchema()` has no validator, Apple's bridge parses without one
+      // (and keeps only one numeric bound), and MCP passes arguments
+      // straight through. Parsing applies `.default()`s and enforces every
+      // bound, so `days: 0` is refused rather than read as "no data".
+      const parsed = cfg.inputSchema.safeParse(rawInput ?? {})
+      if (!parsed.success) {
+        const message = describeInvalidArgs(parsed.error, parameters, rawInput ?? {})
+        cfg.logger?.warn('tool arguments rejected', { toolName: cfg.name, message })
+        return finish('invalid_args', message, { errorMessage: `invalid_args: ${message}` })
+      }
+      args = parsed.data as Record<string, unknown>
+      const input = parsed.data as Input
+
+      // 2. Rate limit.
       if (cfg.rateLimiter && !cfg.rateLimiter.check(cfg.name, ctx.requesterUserId)) {
-        cfg.audit.record({
-          ts: new Date(clock()),
-          brand: ctx.brand,
-          familyId: ctx.familyId,
-          requesterUserId: ctx.requesterUserId,
-          toolName: cfg.name,
-          args: input as Record<string, unknown>,
-          resultBytes: null,
-          resultRowCount: null,
-          latencyMs: clock() - startMs,
-          outcome: 'rate_limited',
-          errorMessage: null,
-        })
         cfg.logger?.warn('tool rate limited', { toolName: cfg.name })
-        return RATE_LIMIT_MESSAGE
+        return finish('rate_limited', RATE_LIMIT_MESSAGE)
       }
 
-      // 2. Authorize.
+      // 3. Authorize.
       if (cfg.authorize) {
-        const ok = await cfg.authorize(
-          cfg.name,
-          input as Record<string, unknown>,
-          ctx,
-        )
+        const ok = await cfg.authorize(cfg.name, args, ctx)
         if (!ok) {
-          cfg.audit.record({
-            ts: new Date(clock()),
-            brand: ctx.brand,
-            familyId: ctx.familyId,
-            requesterUserId: ctx.requesterUserId,
-            toolName: cfg.name,
-            args: input as Record<string, unknown>,
-            resultBytes: null,
-            resultRowCount: null,
-            latencyMs: clock() - startMs,
-            outcome: 'authorized_reject',
-            errorMessage: null,
-          })
           cfg.logger?.warn('tool authorization rejected', { toolName: cfg.name })
-          return AUTHZ_MESSAGE
+          return finish('authorized_reject', AUTHZ_MESSAGE)
         }
       }
 
-      // 3. Execute + 4. Budget + 5. Audit success/error.
+      // 4. Execute + copy guard + budget + audit success/error.
       try {
         const raw = await cfg.impl(input, {
           ...ctx,
           analytics: cfg.analytics,
           logger: cfg.logger,
         })
+        // principle 37: every tool's text, a pack's or one wrapped by the
+        // host, passes every registered copy guard. A guard throws, and the
+        // call fails like any other error.
+        for (const guard of packExtensions<(text: string, source: string) => void>('copyGuard'))
+          guard(raw.text, cfg.name)
         const capped = applyOutputBudget(raw, cfg.budget)
-        cfg.audit.record({
-          ts: new Date(clock()),
-          brand: ctx.brand,
-          familyId: ctx.familyId,
-          requesterUserId: ctx.requesterUserId,
-          toolName: cfg.name,
-          args: input as Record<string, unknown>,
+        return finish('success', capped.text, {
           resultBytes: capped.bytes,
           resultRowCount: capped.rowCount,
-          latencyMs: clock() - startMs,
-          outcome: 'success',
-          errorMessage: null,
         })
-        return capped.text
       }
       catch (err) {
         // The audit row keeps the bare message (a stored column); the log
         // line gets the full cause chain.
         const errorMessage = err instanceof Error ? err.message : String(err)
-        cfg.audit.record({
-          ts: new Date(clock()),
-          brand: ctx.brand,
-          familyId: ctx.familyId,
-          requesterUserId: ctx.requesterUserId,
-          toolName: cfg.name,
-          args: input as Record<string, unknown>,
-          resultBytes: null,
-          resultRowCount: null,
-          latencyMs: clock() - startMs,
-          outcome: 'error',
-          errorMessage,
-        })
         // `error`: the impl threw, and the model got a generic apology.
         cfg.logger?.error('tool execution failed', {
           toolName: cfg.name,
           err: describeError(err),
         })
-        return ERROR_MESSAGE
+        return finish('error', ERROR_MESSAGE, { errorMessage })
       }
     },
   })
