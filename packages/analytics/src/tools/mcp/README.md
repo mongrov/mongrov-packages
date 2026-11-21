@@ -7,7 +7,7 @@ Inspector, an internal Node CLI) over stdio or HTTP.
 
 The server wraps the same `AnalyticsToolsHandle` used by the AI SDK
 integration, so every MCP call runs the identical
-**rate → auth → execute → budget → audit** chain and writes the
+**validate → rate → auth → execute → copy guard → budget → audit** chain and writes the
 same `tool_call_audit` rows. There is no parallel wrapper.
 
 Intended as a **dev-time** surface — the guard + `sideEffects: false`
@@ -197,9 +197,12 @@ not gate anything at runtime; `assertMcpAllowed()` does.
 
 Lower-level adapter used internally by `createMcpServer`. Converts
 each wrapped AI SDK tool into
-`{ name, description, inputSchema (JSON Schema draft-7), handler }`.
-`.default()` values on Zod fields survive the conversion. Exposed
-for callers wiring a custom MCP server layout.
+`{ name, description, inputSchema (JSON Schema), handler }`. The
+schema is the input view `makeTool` built: a `.default()` field is
+optional and carries its default. The handler sets `isError: true` for
+every call that did not succeed (refused arguments, rate limited, not
+authorized, no context, failed), with the wrapper's text unchanged.
+Exposed for callers wiring a custom MCP server layout.
 
 ## Design notes
 

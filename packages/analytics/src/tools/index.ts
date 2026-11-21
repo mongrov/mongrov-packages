@@ -21,4 +21,4 @@ export { localDay, tzParam } from './local-day'
 export * from './rate-limit'
 export * from './types'
 
-export * from './wrap'
+export { makeTool, type MakeToolConfig } from './wrap'

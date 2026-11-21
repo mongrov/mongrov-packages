@@ -149,8 +149,9 @@ describe('createMcpServer', () => {
     })
     const content = res.content as { type: string, text: string }[]
     expect(content[0].text).toContain('context not set')
-    // Wrapper wrote a text result (not a JSON-RPC error) — isError falsy.
-    expect(res.isError).toBeFalsy()
+    // Still a text result (not a JSON-RPC error), now flagged as an error
+    // so an MCP client can tell it from data.
+    expect(res.isError).toBe(true)
   })
 })
 

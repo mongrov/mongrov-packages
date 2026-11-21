@@ -113,9 +113,9 @@ export interface AuditWriter {
 
 /**
  * Per-tool output ceiling enforced by `applyOutputBudget`. Text
- * exceeding `maxBytes` is UTF-8-safely truncated with a
- * `\n[truncated]` suffix. `maxRows` is informational — impls limit
- * row count via SQL.
+ * exceeding `maxBytes` loses its oldest dated rows first; only text
+ * that still does not fit is cut UTF-8-safely with a `\n[truncated]`
+ * suffix. `maxRows` is informational — impls limit row count via SQL.
  */
 export interface OutputBudget {
   maxBytes: number
