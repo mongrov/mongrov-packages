@@ -70,10 +70,20 @@ const STEP7_COUNT = 1
  * the rebuilds are skipped — one statement each.
  */
 const STEP8_COUNT = 2
+/**
+ * Platform step 3 (tool_call_audit v3, 0.62.0) probes `listColumns` for
+ * `tool_call_audit`. The fake returns no columns, so the table reads as
+ * absent and nothing is altered — one statement. An install that already ran
+ * platform steps 1-2 (any install from before 0.62.0) runs this step, and
+ * only this step, on its next attach.
+ */
+const AUDIT_V3_COUNT = 1
+/** The platform ledger's version after every step. */
+const PLATFORM_VERSION = 3
 /** Health steps 2-8 (3 and 4 issue nothing). */
 const HEALTH_UPGRADE_COUNT = STEP2_COUNT + STEP5_COUNT + STEP6_COUNT + STEP7_COUNT + STEP8_COUNT
-/** Both platform steps. */
-const PLATFORM_ALL_COUNT = PLATFORM_BASELINE_COUNT + INSIGHT_V2_COUNT
+/** Every platform step. */
+const PLATFORM_ALL_COUNT = PLATFORM_BASELINE_COUNT + INSIGHT_V2_COUNT + AUDIT_V3_COUNT
 const FRESH_COUNT = HEALTH_BASELINE_COUNT + HEALTH_UPGRADE_COUNT + PLATFORM_ALL_COUNT
 
 const CTX = { brand: 'brandA', tenantId: 'fam123' }
@@ -109,8 +119,15 @@ describe('ensureMigrations', () => {
     const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
     expect(result).toEqual({ from: CURRENT_VERSION, to: CURRENT_VERSION })
-    expect(fake.calls).toHaveLength(0)
+    // An install from before 0.62.0: the platform ledger adopts 2, so only
+    // platform step 3's column probe runs, and it issues no DDL here.
+    expect(fake.calls).toHaveLength(AUDIT_V3_COUNT)
+    expect(fake.calls[0].sql).toContain('tool_call_audit')
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
+
+    fake.calls.length = 0
+    await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
+    expect(fake.calls).toHaveLength(0)
   })
 
   it('per-family isolation: familyA at v1 does not affect familyB at v0', async () => {
@@ -236,7 +253,8 @@ describe('legacy key migration (T-23)', () => {
     expect(result).toEqual({ from: CURRENT_VERSION, to: CURRENT_VERSION })
     expect(store.get(KEY)).toBe(CURRENT_VERSION)
     expect(store.get(LEGACY_KEY)).toBeUndefined()
-    expect(fake.calls).toHaveLength(0)
+    // Only platform step 3's probe (see the same-version rerun).
+    expect(fake.calls).toHaveLength(AUDIT_V3_COUNT)
   })
 
   it('canonical key wins over legacy when both are present (legacy left untouched by ensureMigrations)', async () => {
@@ -391,9 +409,9 @@ describe('platform pack ledger (package-separation S-02)', () => {
     const result = await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
     expect(result).toEqual({ from: 4, to: CURRENT_VERSION })
-    expect(store.get(PLATFORM_KEY)).toBe(2)
-    // Health steps 5-8 only; no platform DDL.
-    expect(fake.calls).toHaveLength(STEP5_COUNT + STEP6_COUNT + STEP7_COUNT + STEP8_COUNT)
+    expect(store.get(PLATFORM_KEY)).toBe(PLATFORM_VERSION)
+    // Health steps 5-8, then platform step 3's probe; no platform DDL.
+    expect(fake.calls).toHaveLength(STEP5_COUNT + STEP6_COUNT + STEP7_COUNT + STEP8_COUNT + AUDIT_V3_COUNT)
     expect(fake.calls.some(c => c.sql.includes('insight'))).toBe(false)
   })
 
@@ -404,7 +422,7 @@ describe('platform pack ledger (package-separation S-02)', () => {
 
     await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
-    expect(store.get(PLATFORM_KEY)).toBe(2)
+    expect(store.get(PLATFORM_KEY)).toBe(PLATFORM_VERSION)
   })
 
   it('persists the adopted platform version 0 before any pack runs (pre-step-4 install)', async () => {
@@ -433,7 +451,7 @@ describe('platform pack ledger (package-separation S-02)', () => {
     fake.calls.length = 0
     await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
-    expect(store.get(PLATFORM_KEY)).toBe(2)
+    expect(store.get(PLATFORM_KEY)).toBe(PLATFORM_VERSION)
     expect(fake.calls.some(c => c.sql.includes('CREATE TABLE IF NOT EXISTS memory.insight'))).toBe(true)
     expect(fake.calls).toHaveLength(PLATFORM_ALL_COUNT)
   })
@@ -449,7 +467,7 @@ describe('platform pack ledger (package-separation S-02)', () => {
     fake.calls.length = 0
     await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
-    expect(store.get(PLATFORM_KEY)).toBe(2)
+    expect(store.get(PLATFORM_KEY)).toBe(PLATFORM_VERSION)
     expect(fake.calls).toHaveLength(PLATFORM_ALL_COUNT)
   })
 
@@ -459,7 +477,7 @@ describe('platform pack ledger (package-separation S-02)', () => {
 
     await ensureMigrations(db, kv, CTX, { local: 'memory', remote: CATALOG })
 
-    expect(store.get(PLATFORM_KEY)).toBe(2)
+    expect(store.get(PLATFORM_KEY)).toBe(PLATFORM_VERSION)
     const firstPlatform = fake.calls.findIndex(c => c.sql.includes('CREATE TABLE IF NOT EXISTS memory.insight'))
     expect(firstPlatform).toBe(HEALTH_BASELINE_COUNT + HEALTH_UPGRADE_COUNT)
   })

@@ -36,6 +36,8 @@ export interface CreateMcpServerConfig {
   /** Server version advertised on `initialize`. Default `'0.1.0'`. */
   version?: string
   logger?: ToolsLogger
+  /** The text copy of a structured result (see `ToMcpToolsOptions.text`). Default `'json'`. */
+  text?: 'json' | 'render'
 }
 
 export interface McpServerHandle {
@@ -54,7 +56,7 @@ export function createMcpServer(
   // `shouldStartMcpServer`) so a prod runtime can never wire a server.
   assertMcpAllowed()
 
-  const mcpTools: McpTool[] = toMcpTools(config.toolsHandle)
+  const mcpTools: McpTool[] = toMcpTools(config.toolsHandle, { text: config.text })
   const byName = new Map(mcpTools.map(t => [t.name, t] as const))
 
   const server = new Server(
@@ -68,12 +70,17 @@ export function createMcpServer(
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: mcpTools.map(t => ({
       name: t.name,
+      ...(t.title ? { title: t.title } : {}),
       description: t.description,
       inputSchema: t.inputSchema as {
         type: 'object'
         properties?: Record<string, unknown>
         required?: string[]
       },
+      ...(t.outputSchema
+        ? { outputSchema: t.outputSchema as { type: 'object', properties?: Record<string, unknown>, required?: string[] } }
+        : {}),
+      annotations: t.annotations,
     })),
   }))
 

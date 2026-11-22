@@ -1,82 +1,104 @@
 /**
- * `toMcpTools` — adapt the six wrapped AI SDK v4 tools that back
- * `AnalyticsToolsHandle` into the shape MCP servers speak.
+ * `toMcpTools` — adapt the wrapped AI SDK tools of an
+ * `AnalyticsToolsHandle` (`handle.tools`: every pack's tools and every tool
+ * passed to `handle.add`) into the shape MCP servers speak.
  *
- * MCP servers want `{ name, description, inputSchema (JSON Schema),
- * handler(args) => { content: [{ type: 'text', text }] } }`. Our
- * factory returns AI SDK v4 tools whose `execute(args, opts) =>
- * Promise<string>` already runs the full
- * rate → auth → execute → budget → audit chain — so the adapter is
- * a thin translation layer, not a second wrapper.
+ * The adapter is a thin translation layer, not a second wrapper: each
+ * handler runs the tool's own `execute`, so MCP calls get the same chain
+ * (validation, rate limit, authorization, output checks, copy guard,
+ * budget, audit, `onResult` with `source: 'mcp'`). MCP calls never join an
+ * app's answer, so they are not capped or cached per answer.
  *
- * The input schema is the JSON Schema `makeTool` already built (the
- * input view: a `.default()` field is optional and carries its default),
- * minus the `$schema` marker.
- *
- * `isError` is set whenever the call did not succeed: refused arguments,
- * rate limited, not authorized, no context, or a failed execution. The
- * text is unchanged; the result is read from the wrapper (`toolCallResult`)
- * rather than matched against message strings. MCP 2025-11-25 reports
- * argument errors this way too, so the client's model can correct them.
+ * | MCP                      | value                                                         |
+ * | `name`/`title`/`description` | from the definition                                        |
+ * | `inputSchema`            | the input-view JSON Schema `makeTool` built, minus `$schema`   |
+ * | `outputSchema`           | the envelope's JSON Schema, `data` typed from the tool's `outputSchema` (structured tools only) |
+ * | `annotations`            | `{ readOnlyHint: true, idempotentHint: true, openWorldHint: false }` merged with the definition's |
+ * | `structuredContent`      | the `ToolOutcome` the call ended with (structured tools only)  |
+ * | `content`                | one text item: the envelope as JSON (`text: 'json'`, default), or the model's rendered string (`text: 'render'`). A compatibility tool sends its text. |
+ * | `isError`                | `status === 'error'` (every code, `invalid_args` included, per MCP 2025-11-25); a compatibility tool: any outcome but success |
  */
 
+import type { ToolAnnotations } from '../define'
 import type { AnalyticsToolsHandle } from '../factory'
-import { toolCallResult } from '../wrap'
+import { toolOutcomeJsonSchema } from '../outcome-schema'
+import { markMcpCall, toolCallRecord, toolMeta } from '../wrap'
+
+export const DEFAULT_MCP_ANNOTATIONS: Readonly<ToolAnnotations> = Object.freeze({
+  readOnlyHint: true,
+  idempotentHint: true,
+  openWorldHint: false,
+})
 
 export interface McpTool {
   name: string
+  title?: string
   description: string
   inputSchema: Record<string, unknown>
+  /** Structured tools only. */
+  outputSchema?: Record<string, unknown>
+  annotations: ToolAnnotations
   handler: (args: unknown) => Promise<{
     content: { type: 'text', text: string }[]
+    structuredContent?: Record<string, unknown>
     isError?: boolean
   }>
 }
 
-export function toMcpTools(handle: AnalyticsToolsHandle): McpTool[] {
-  const entries = Object.entries(handle.tools) as [
-    keyof AnalyticsToolsHandle['tools'],
-    AnalyticsToolsHandle['tools'][keyof AnalyticsToolsHandle['tools']],
-  ][]
+export interface ToMcpToolsOptions {
+  /**
+   * The text copy of a structured result: `'json'` (default) is the
+   * serialized envelope, which MCP says a structured result SHOULD carry;
+   * `'render'` is the exact string the model would read, for comparing a
+   * desktop model against the on-device one.
+   */
+  text?: 'json' | 'render'
+}
 
-  return entries.map(([name, tool]) => {
-    // `makeTool` now hands the AI SDK a finished JSON Schema (see
-    // wrap.ts:toJsonSchema — the SDK's Zod path emits `type: "None"` for
-    // zod-4 schemas), so `tool.parameters` is a Schema wrapper carrying
-    // `.jsonSchema` rather than a Zod object. Read it straight through
-    // instead of converting a second time.
+export function toMcpTools(handle: AnalyticsToolsHandle, opts: ToMcpToolsOptions = {}): McpTool[] {
+  return Object.entries(handle.tools).map(([name, tool]) => {
+    const meta = toolMeta(tool)
+    // `makeTool` hands the AI SDK a finished JSON Schema (`jsonSchema()`),
+    // so `tool.parameters` carries `.jsonSchema`; read it straight through.
     const rawSchema = {
-      ...((tool.parameters as unknown as { jsonSchema?: Record<string, unknown> })
-        .jsonSchema ?? {}),
+      ...(meta?.inputSchema
+        ?? (tool.parameters as unknown as { jsonSchema?: Record<string, unknown> }).jsonSchema
+        ?? {}),
     }
-
-    // Strip the top-level $schema marker — MCP clients don't need it,
-    // and its presence bloats every list_tools response.
+    // MCP clients do not need the `$schema` marker, and it bloats every list.
     const { $schema: _drop, ...inputSchema } = rawSchema
+    const structured = meta?.outputSchema !== undefined
+    const outputSchema = structured ? toolOutcomeJsonSchema(meta!.outputSchema!) : undefined
 
     return {
-      name: String(name),
+      name,
+      ...(meta?.title ? { title: meta.title } : {}),
       description: tool.description ?? '',
       inputSchema,
+      ...(outputSchema ? { outputSchema } : {}),
+      annotations: { ...DEFAULT_MCP_ANNOTATIONS, ...(meta?.annotations ?? {}) },
       handler: async (args: unknown) => {
         if (!tool.execute) {
           return {
-            content: [{
-              type: 'text' as const,
-              text: `Tool ${String(name)} is not executable.`,
-            }],
+            content: [{ type: 'text' as const, text: `Tool ${name} is not executable.` }],
             isError: true,
           }
         }
-        const options = {
-          toolCallId: `mcp:${String(name)}`,
-          messages: [],
+        const options = { toolCallId: `mcp:${name}`, messages: [] }
+        markMcpCall(options)
+        const text = String(await tool.execute(args as never, options))
+        const record = toolCallRecord(options)
+        if (!structured || !record || record.legacy) {
+          return {
+            content: [{ type: 'text' as const, text }],
+            ...(record !== undefined && record.result !== 'success' ? { isError: true } : {}),
+          }
         }
-        const text = await tool.execute(args as never, options)
-        const result = toolCallResult(options)
+        const outcome = record.outcome as unknown as Record<string, unknown>
         return {
-          content: [{ type: 'text' as const, text: String(text) }],
-          ...(result !== undefined && result !== 'success' ? { isError: true } : {}),
+          content: [{ type: 'text' as const, text: opts.text === 'render' ? text : JSON.stringify(outcome) }],
+          structuredContent: outcome,
+          ...(record.outcome.status === 'error' ? { isError: true } : {}),
         }
       },
     }

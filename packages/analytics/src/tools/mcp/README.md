@@ -193,15 +193,32 @@ Consumers call this before importing SDK-touching modules. The helper
 is intentionally pure — importing it does not import the SDK. It does
 not gate anything at runtime; `assertMcpAllowed()` does.
 
-### `toMcpTools(handle): McpTool[]`
+### `toMcpTools(handle, { text? }): McpTool[]`
 
-Lower-level adapter used internally by `createMcpServer`. Converts
-each wrapped AI SDK tool into
-`{ name, description, inputSchema (JSON Schema), handler }`. The
-schema is the input view `makeTool` built: a `.default()` field is
-optional and carries its default. The handler sets `isError: true` for
-every call that did not succeed (refused arguments, rate limited, not
-authorized, no context, failed), with the wrapper's text unchanged.
+Lower-level adapter used internally by `createMcpServer` (which takes the
+same `text` option). Converts each tool in `handle.tools` (every pack's,
+plus every one passed to `handle.add`) into
+`{ name, title?, description, inputSchema, outputSchema?, annotations,
+handler }`. The input schema is the input view `makeTool` built: a
+`.default()` field is optional and carries its default.
+
+For a structured tool (one with an `outputSchema`, 0.62.0):
+
+- `outputSchema` is the JSON Schema of the whole `ToolOutcome` envelope,
+  with `data` typed from the tool's schema (output view; zod 3 and zod 4);
+- `structuredContent` is the envelope the call ended with, and the text
+  item is its JSON (`text: 'json'`, default) or the exact string the model
+  would read (`text: 'render'`, for comparing a desktop model with the
+  on-device one);
+- `isError` is `status === 'error'`, for every error code
+  (`invalid_args` included, per MCP 2025-11-25).
+
+`annotations` default to `{ readOnlyHint: true, idempotentHint: true,
+openWorldHint: false }`, merged with the definition's. A compatibility
+(`ToolResult`) tool sends its text only, with `isError: true` for every
+call that did not succeed, as before. MCP calls never join an app's open
+answer (`beginTurn`), so they are not capped or cached per answer, and
+their `onResult` events carry `source: 'mcp'`.
 Exposed for callers wiring a custom MCP server layout.
 
 ## Design notes

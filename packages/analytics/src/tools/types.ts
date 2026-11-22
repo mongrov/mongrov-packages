@@ -6,6 +6,8 @@
  */
 
 import type { AnalyticsEngine, AnalyticsLogger, FamilyMembersProvider } from '../core/types'
+import type { ToolOutcome } from './outcome'
+import type { ToolRenderConfig } from './render'
 
 /** Runtime context threaded through every tool impl and authorize hook. */
 export interface ToolContext {
@@ -21,7 +23,15 @@ export interface ToolContext {
   readonly timezone?: string
 }
 
-/** Bounded text summary returned by every tool impl. */
+/**
+ * Bounded text summary returned by a tool impl.
+ *
+ * Superseded in 0.62.0 for new tools: return a `ToolOutcome` from a
+ * `defineTool` impl instead. Impls returning `ToolResult` keep working
+ * unchanged (the compatibility path); the type is removed only once every
+ * pack has moved to the envelope. (Not tagged `@deprecated`, so a consumer's
+ * deprecation lint does not fail on the packs still using it.)
+ */
 export interface ToolResult {
   readonly text: string
   readonly rowCount: number
@@ -73,18 +83,29 @@ export type ToolImpl<Input> = (
 /**
  * Outcome recorded in `tool_call_audit.outcome`. Enum discipline —
  * every wrapper code path resolves to exactly one of these.
+ *
+ * Renamed from `ToolOutcome` in 0.62.0, which now names the result envelope.
+ * `invalid_args` (before 0.62.0 folded into `error`) and `call_limit` are new.
  */
-export type ToolOutcome
+export type AuditOutcome
   = | 'success'
+    | 'invalid_args'
+    | 'call_limit'
     | 'rate_limited'
     | 'authorized_reject'
     | 'error'
 
 /**
  * A single row destined for `tool_call_audit`. Column mapping (see
- * `core/schemas.ts` line 189):
+ * `core/platform-tables.ts`):
  *   ts, brand, family_id, requester_user_id, tool_name, args,
- *   result_bytes, result_row_count, latency_ms, outcome, error_message
+ *   result_bytes, result_row_count, latency_ms, outcome, error_message,
+ *   and since 0.62.0 (platform migration 3, all nullable):
+ *   result_status, error_code, result_digest, render_chars,
+ *   truncated_items, turn_id, call_index, cached
+ *
+ * No result content is stored: `resultDigest` is a 16-hex FNV-1a-64 of the
+ * text the model received, enough to tell two results apart, not to read one.
  */
 export interface AuditEntry {
   readonly ts: Date
@@ -96,8 +117,23 @@ export interface AuditEntry {
   readonly resultBytes: number | null
   readonly resultRowCount: number | null
   readonly latencyMs: number | null
-  readonly outcome: ToolOutcome
+  readonly outcome: AuditOutcome
   readonly errorMessage: string | null
+  /** ok / empty / insufficient / error. */
+  readonly resultStatus?: ToolOutcome['status'] | null
+  /** The envelope's `error.code`, or null. */
+  readonly errorCode?: string | null
+  readonly resultDigest?: string | null
+  /** Length of the text the model received. */
+  readonly renderChars?: number | null
+  /** Items the budget dropped (0 when none). */
+  readonly truncatedItems?: number | null
+  /** The answer this call belongs to (`handle.beginTurn`), or null. */
+  readonly turnId?: string | null
+  /** 1-based index of the call within its answer, or null. */
+  readonly callIndex?: number | null
+  /** A repeated call in the same answer, served from the answer's cache. */
+  readonly cached?: boolean | null
 }
 
 /**
@@ -146,8 +182,52 @@ export interface AnalyticsToolsConfig {
     flushIntervalMs?: number
     retentionDays?: number
   }
-  outputBudget?: Partial<OutputBudget>
+  /**
+   * `maxBytes` / `maxRows`: the byte budget of `ToolResult` (compatibility)
+   * text. `maxChars` (default 1200): the character budget of one structured
+   * result; `turnChars` (default 3600): of every structured result in one
+   * answer together.
+   */
+  outputBudget?: Partial<OutputBudget & { maxChars: number, turnChars: number }>
+  /**
+   * When a structured result breaks the envelope rules or its `outputSchema`:
+   * `'throw'` fails the call loudly (the default under a test runner, so a bad
+   * fixture fails its test), `'error_outcome'` returns `error/output_invalid`
+   * to the model (the default everywhere else: a throw would end an on-device
+   * model's whole generation).
+   */
+  outputValidation?: 'throw' | 'error_outcome'
+  /** Renderer choice for every structured tool (see `renderers`). */
+  render?: ToolRenderConfig
+  /**
+   * Calls allowed in one answer (`handle.beginTurn`). Default
+   * `{ perTurn: 4, dedupe: true }`: the 5th call is refused `call_limit`, and
+   * a repeat of the same tool with the same arguments is answered from the
+   * answer's cache and not counted. `false` turns both off. No answer, no cap.
+   */
+  callLimit?: { perTurn: number, dedupe?: boolean } | false
+  /** Called once per call, after its audit record, for every terminal state. */
+  onResult?: (event: ToolResultEvent) => void
   logger?: ToolsLogger
   familyMembersProvider?: FamilyMembersProvider
   clock?: () => number
+}
+
+/** One finished call, as `onResult` listeners see it. */
+export interface ToolResultEvent {
+  readonly toolName: string
+  readonly source: 'ai' | 'mcp'
+  readonly turnId: string | null
+  readonly callIndex: number | null
+  /** Validated args, host-supplied ones included (or the raw args of a refused call). */
+  readonly args: Readonly<Record<string, unknown>>
+  /** Deep-frozen copy, so a listener cannot change what was audited. */
+  readonly outcome: ToolOutcome<unknown>
+  /** Exactly the string the model received. */
+  readonly rendered: string
+  /** The tool returned a `ToolResult` (compatibility path); `outcome.data` is null. */
+  readonly legacy: boolean
+  readonly cached: boolean
+  readonly latencyMs: number
+  readonly auditOutcome: AuditOutcome
 }

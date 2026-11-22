@@ -57,7 +57,15 @@ export const PLATFORM_SCHEMAS: Readonly<Record<PlatformTableName, string>> = Obj
   result_row_count INTEGER,
   latency_ms INTEGER,
   outcome VARCHAR NOT NULL,
-  error_message VARCHAR
+  error_message VARCHAR,
+  result_status VARCHAR,
+  error_code VARCHAR,
+  result_digest VARCHAR,
+  render_chars INTEGER,
+  truncated_items INTEGER,
+  turn_id VARCHAR,
+  call_index INTEGER,
+  cached BOOLEAN
 ) PARTITIONED BY (day(ts));`,
 
   // Sprint 5 §7 — shared baseline source of truth for rules, tools, and
@@ -106,7 +114,10 @@ export const PLATFORM_TABLES: Readonly<Record<PlatformTableName, PackTable>> = O
   },
   // An append-only audit log keyed by requester, so the sweep is scoped by
   // brand and family only. Two identical calls at the same instant are two
-  // real events, so no identity key.
+  // real events, so no identity key. The columns after `error_message` came
+  // with platform migration 3 (0.62.0) and are nullable: a row written
+  // before it has none of them. No result content is stored, only a digest.
+  // Must agree with `TOOL_CALL_AUDIT_V3_COLUMNS` (platform-pack.ts).
   tool_call_audit: {
     ddl: PLATFORM_SCHEMAS.tool_call_audit,
     timeColumn: 'ts',

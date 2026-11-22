@@ -92,11 +92,14 @@ describe.each(Object.entries(schemas))('makeTool argument validation (%s)', (_la
     const t = build(schema)
     const out = await t.run({ userId: 'alice', days })
     expect(out).toBe(`Invalid arguments: ${clause}.`)
-    // The impl never ran, and the call is audited as an error that says why.
+    // The impl never ran, and the call is audited as refused arguments,
+    // with the message that says why (0.62.0: its own outcome, no longer
+    // `error` with an `invalid_args:` prefix).
     expect(t.seen).toEqual([])
     expect(t.audit.records).toHaveLength(1)
-    expect(t.audit.records[0].outcome).toBe('error')
-    expect(t.audit.records[0].errorMessage).toBe(`invalid_args: Invalid arguments: ${clause}.`)
+    expect(t.audit.records[0].outcome).toBe('invalid_args')
+    expect(t.audit.records[0].errorCode).toBe('invalid_args')
+    expect(t.audit.records[0].errorMessage).toBe(`Invalid arguments: ${clause}.`)
   })
 
   it('names a missing required field', async () => {
