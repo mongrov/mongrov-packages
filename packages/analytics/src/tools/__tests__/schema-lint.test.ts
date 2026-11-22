@@ -67,7 +67,7 @@ describe('lintToolInputSchema', () => {
     const schema = toJsonSchemaObject(z3.object({
       userId: z3.string(),
       kind: z3.enum(['a', 'b']),
-      day: z3.string().regex(/^(today|yesterday|\d{4}-\d{2}-\d{2})$/).optional().describe('today, yesterday or YYYY-MM-DD'),
+      day: z3.string().regex(/today|yesterday|\d{4}-\d{2}-\d{2}/).optional().describe('today, yesterday or YYYY-MM-DD'),
       compare: z3.enum(['none', 'previous_period']).optional(),
     }))
     expect(lintToolInputSchema(schema)).toEqual([])
@@ -100,6 +100,37 @@ describe('lintToolInputSchema', () => {
 
   it('a pattern outside the portable subset is an error', () => {
     expect(rules(obj({ a: { type: 'string', pattern: '(?<=x)y' } }))).toContain('a:pattern-portable')
+  })
+
+  it.each([
+    ['anchored at the start', '^\\d{4}'],
+    ['anchored at the end', '\\d{4}$'],
+    ['anchored at both ends', '^\\d{4}-\\d{2}-\\d{2}$'],
+    ['anchored at the end after an escaped backslash', 'a\\\\$'],
+  ])('a pattern %s is an error (on-device generation fails every request)', (_case, pattern) => {
+    expect(rules(obj({ a: { type: 'string', pattern } }))).toContain('a:pattern-anchored')
+    expect(parseLikeAppleBridge(obj({ a: { type: 'string', pattern } })).error).toBeNull()
+  })
+
+  it.each([
+    ['unanchored', '\\d{4}-\\d{2}-\\d{2}'],
+    ['ending in an escaped dollar', 'cost \\d+\\$'],
+    ['with a ^ or $ inside a class', '[$^]\\d'],
+  ])('a pattern %s is fine', (_case, pattern) => {
+    expect(rules(obj({ a: { type: 'string', pattern } }))).toEqual([])
+  })
+
+  it.each([
+    ['zod 3', z3.object({ day: z3.string().regex(/\d{4}-\d{2}-\d{2}/).refine(s => /^\d{4}-\d{2}-\d{2}$/.test(s)) })],
+    ['zod 4', z4.object({ day: z4.string().regex(/\d{4}-\d{2}-\d{2}/).refine(s => /^\d{4}-\d{2}-\d{2}$/.test(s)) })],
+  ])('an unanchored pattern with the exact check in a refine lints clean (%s)', (_zod, schema) => {
+    expect(lintToolInputSchema(toJsonSchemaObject(schema as never))).toEqual([])
+    expect(schema.safeParse({ day: 'x2026-11-22' }).success).toBe(false)
+  })
+
+  it('the anchored error names the fix', () => {
+    const issue = lintToolInputSchema(obj({ a: { type: 'string', pattern: '^x$' } })).find(i => i.rule === 'pattern-anchored')
+    expect(issue?.message).toMatch(/drop the anchors.*refine/)
   })
 
   it('warns on a long field description, more than 5 fields, and ignored keywords', () => {
@@ -140,6 +171,10 @@ describe('defineTool', () => {
     expect(() => defineTool({ ...base, inputSchema: z3.object({ a: z3.string().nullable() }) })).toThrow(/tool "getSeries": .*a: a type list/)
   })
 
+  it('throws under a test runner on an anchored input pattern', () => {
+    expect(() => defineTool({ ...base, inputSchema: z3.object({ day: z3.string().regex(/^\d{4}-\d{2}-\d{2}$/) }) })).toThrow(/tool "getSeries": .*day: an anchored pattern/)
+  })
+
   it('throws on a bad name', () => {
     expect(() => defineTool({ ...base, name: 'Get-Series' })).toThrow(/must match/)
   })
@@ -157,7 +192,7 @@ describe('every schema the package ships survives the bridge', () => {
     const tools = {
       ...Object.assign({}, ...packExtensions<Record<string, { inputSchema: never }>>('tools')),
       getSeries: { inputSchema: SeriesInput },
-      getSeries4: { inputSchema: z4.object({ userId: z4.string(), period: z4.enum(['this_week', 'last_7_days']).optional(), day: z4.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }) },
+      getSeries4: { inputSchema: z4.object({ userId: z4.string(), period: z4.enum(['this_week', 'last_7_days']).optional(), day: z4.string().regex(/\d{4}-\d{2}-\d{2}/).optional() }) },
     } as Record<string, { inputSchema: never }>
     expect(Object.keys(tools)).toContain('getInsights')
     for (const [name, t] of Object.entries(tools)) {

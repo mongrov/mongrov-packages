@@ -31,6 +31,12 @@
  * few house rules (one level of nesting, string-only unions, short field
  * descriptions) that keep a definition small and unambiguous for a small
  * model. `defineTool` runs it in dev and test and throws on any error.
+ *
+ * One runtime failure the parser does not show: an anchored `pattern`
+ * (leading `^` or trailing unescaped `$`) is accepted by the parser, but
+ * Apple Foundation Models then fails every request before any tool runs.
+ * The unanchored pattern works (guided generation constrains the whole value
+ * anyway), so the lint reports anchors as an error.
  */
 
 export interface LintIssue {
@@ -56,8 +62,9 @@ const IGNORED_KEYWORDS = ['format', 'minLength', 'maxLength', 'const'] as const
 
 /**
  * Regex features outside the subset both JS and Swift `Regex` read the same
- * way. The bridge compiles the pattern in Swift; keep to anchors,
- * alternation, groups, classes, `\d` / `\w` / `\s` and counted repeats.
+ * way. The bridge compiles the pattern in Swift; keep to alternation,
+ * groups, classes, `\d` / `\w` / `\s` and counted repeats (no anchors, see
+ * `isAnchoredPattern`).
  */
 const UNPORTABLE_REGEX: readonly [RegExp, string][] = [
   [/\(\?<[=!]/, 'lookbehind'],
@@ -66,6 +73,22 @@ const UNPORTABLE_REGEX: readonly [RegExp, string][] = [
   [/\\[1-9]/, 'backreference'],
   [/\\k</, 'named backreference'],
 ]
+
+/**
+ * True when a pattern starts with `^` or ends with an unescaped `$`. On-device
+ * structured generation fails every request on such a pattern, though the
+ * bridge's parser accepts it.
+ */
+export function isAnchoredPattern(pattern: string): boolean {
+  if (pattern.startsWith('^'))
+    return true
+  if (!pattern.endsWith('$'))
+    return false
+  let slashes = 0
+  for (let i = pattern.length - 2; i >= 0 && pattern[i] === '\\'; i--)
+    slashes++
+  return slashes % 2 === 0
+}
 
 function isAllStrings(v: unknown): v is string[] {
   return Array.isArray(v) && v.every(x => typeof x === 'string')
@@ -216,6 +239,8 @@ export function lintToolInputSchema(schema: Json, opts: LintOptions = {}): LintI
       if (n.enum !== undefined && !isAllStrings(n.enum))
         err(path, 'string-enum', 'a string enum must list strings')
       if (typeof n.pattern === 'string') {
+        if (isAnchoredPattern(n.pattern))
+          err(path, 'pattern-anchored', 'an anchored pattern (^ or $) makes on-device generation fail every request; drop the anchors (the whole value is constrained anyway) and check the exact form with a refine or in the tool')
         for (const [re, what] of UNPORTABLE_REGEX) {
           if (re.test(n.pattern))
             err(path, 'pattern-portable', `pattern uses a ${what}, which Swift Regex may read differently`)
