@@ -3,6 +3,57 @@
 Notes for releases before 0.60 ship in those versions' own
 `UPGRADING.md` (and stay in the repository's git history).
 
+## 0.61.1 → 0.62.0
+
+**Breaking (type only):** the audit union `ToolOutcome` is now
+`AuditOutcome`. Rename any import:
+
+```ts
+// before
+import type { ToolOutcome } from '@mongrov/analytics/tools'   // 'success' | 'rate_limited' | …
+// after
+import type { AuditOutcome } from '@mongrov/analytics/tools'  // + 'invalid_args' | 'call_limit'
+```
+
+`ToolOutcome` is now the result envelope, so code that kept the old import
+fails to typecheck rather than silently changing meaning. `ToolCallResult`
+still names the audit union.
+
+**Database:** on the next attach, platform migration 3 runs
+`ALTER TABLE tool_call_audit ADD COLUMN …` for eight nullable columns.
+Existing rows are kept (the new columns are NULL); it is idempotent, and a
+fresh install only probes. Hosts that verify DDL on their device engine
+should run that check for this release (new `ALTER` and a wider audit
+`INSERT`).
+
+**Audit rows:** refused arguments are now `outcome = 'invalid_args'` (were
+`error` with an `invalid_args:` message prefix; the prefix is gone). A
+dashboard or query filtering on either needs both forms for rows written
+before and after the upgrade.
+
+Nothing else changes for a tool that returns `ToolResult`. To adopt the new
+pieces:
+
+- **One answer = one turn.** Around each model answer:
+
+  ```ts
+  const turn = toolsHandle.beginTurn()
+  try { /* generate */ } finally { turn.end() }
+  ```
+
+  This moves a per-answer call cap into the framework (default 4; the 5th
+  call gets `CALL_LIMIT_GUIDANCE`, the same sentence a host cap typically
+  returned) and answers repeated identical calls from the answer's cache. A
+  host that kept its own cap and result-length cap can drop both: structured
+  results are capped at `outputBudget.maxChars` (1,200) and
+  `outputBudget.turnChars` (3,600 per answer).
+- **Host tools**: `handle.add(defineTool({ … }))` instead of `handle.wrap` to
+  have MCP list them as well.
+- **Structured tools**: declare `outputSchema`, return `outcome.ok(data,
+  { window, asOf, guidance })`. In tests, a result that breaks its schema
+  throws `ToolOutputError`; at runtime it becomes `error/output_invalid`.
+- **Structured results for the host**: `toolsHandle.onResult(event => …)`.
+
 ## 0.61.0 → 0.61.1
 
 Nothing to change for a correct caller. What a caller may notice:
