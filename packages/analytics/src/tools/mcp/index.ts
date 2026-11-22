@@ -9,8 +9,8 @@
  * runtime entirely.
  */
 
-export { toMcpTools } from './adapter'
-export type { McpTool } from './adapter'
+export { DEFAULT_MCP_ANNOTATIONS, toMcpTools } from './adapter'
+export type { McpTool, ToMcpToolsOptions } from './adapter'
 
 export { assertMcpAllowed, McpDisabledError, shouldStartMcpServer } from './guard'
 

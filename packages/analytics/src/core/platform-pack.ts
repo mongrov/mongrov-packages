@@ -3,9 +3,10 @@
  *
  * Its migrations run under their own key
  * (`analytics:pack_schema_version:platform:<brand>:<tenantId>`). On an
- * install that predates packs both steps are no-ops — the tables exist and
- * `insight` already has its v2 shape — so they only cost two `IF NOT EXISTS`
- * statements and a column probe, once.
+ * install that predates packs the first two migrations are no-ops — the tables
+ * exist and `insight` already has its v2 shape — so they only cost two
+ * `IF NOT EXISTS` statements and a column probe, once. Step 3 (0.62.0) adds
+ * the structured-result columns to `tool_call_audit`.
  */
 
 import type { AnalyticsPack, PackMigration } from './packs'
@@ -24,6 +25,21 @@ import { ensureSchemas } from './schemas'
 export function insightIndexDdl(catalog: string): string {
   return `CREATE INDEX IF NOT EXISTS idx_insight_lookup ON ${quoteQualifier(catalog)}.insight (user_id, metric, dismissed_at, ts);`
 }
+
+/**
+ * The `tool_call_audit` columns platform migration 3 adds (0.62.0), in DDL
+ * order. All nullable: rows written before it keep NULL in each.
+ */
+export const TOOL_CALL_AUDIT_V3_COLUMNS: readonly (readonly [column: string, type: string])[] = Object.freeze([
+  ['result_status', 'VARCHAR'],
+  ['error_code', 'VARCHAR'],
+  ['result_digest', 'VARCHAR'],
+  ['render_chars', 'INTEGER'],
+  ['truncated_items', 'INTEGER'],
+  ['turn_id', 'VARCHAR'],
+  ['call_index', 'INTEGER'],
+  ['cached', 'BOOLEAN'],
+] as const)
 
 function localDdl(table: PlatformTableName): string {
   return addIdentityKey(toLocalDdl(PLATFORM_SCHEMAS[table]), PLATFORM_TABLES[table].identity)
@@ -94,6 +110,44 @@ const PLATFORM_MIGRATIONS: readonly PackMigration[] = Object.freeze([
       await db.execute(insightIndexDdl(catalogs.local))
       if (catalogs.remote) {
         await db.execute(qualifyDdl(PLATFORM_SCHEMAS.insight, 'insight', `${quoteQualifier(catalogs.remote)}.${REMOTE_NAMESPACE}`))
+      }
+    },
+  },
+  {
+    version: 3,
+    name: 'tool_call_audit v3 (result_status / error_code / result_digest / render_chars / truncated_items / turn_id / call_index / cached)',
+    // The structured-result audit (analytics 0.62.0). `ADD COLUMN` of
+    // nullable columns, so existing rows stay valid and nothing is copied;
+    // the table has no key, so no constraint can fire (principle 66).
+    //
+    // Idempotent: each column is added only when the probe does not list it,
+    // so a re-run (KV advances only after full success) adds nothing, and a
+    // fresh install, whose step 1 already created the new shape, issues
+    // only the probe. A table the probe cannot see is left to step 1.
+    //
+    // Derived tables keyed to the table's shape (mongrov-packages#109): the
+    // flusher's `<table>__stg` / `<table>__probe` mirrors are created once
+    // from the table and written by position, so a mirror built before this
+    // ALTER would be one-shape-old forever. `tool_call_audit` is written by
+    // the audit writer's INSERT, never by the flusher, so none should exist;
+    // any that does is empty between flushes by construction, so it is
+    // dropped whenever a column was added and is rebuilt from the new shape
+    // on first use.
+    //
+    // Remote: the table is never pushed (`syncable: false`), so an existing
+    // remote copy is left as it is (the client never rewrites the attached
+    // catalog's tables); a fresh remote gets the new shape from step 1.
+    async up(db, catalogs) {
+      const local = quoteQualifier(catalogs.local)
+      const cols = await listColumns(db, catalogs.local, 'tool_call_audit')
+      if (cols.length === 0)
+        return
+      const missing = TOOL_CALL_AUDIT_V3_COLUMNS.filter(([c]) => !cols.includes(c))
+      for (const [column, type] of missing)
+        await db.execute(`ALTER TABLE ${local}.tool_call_audit ADD COLUMN ${column} ${type};`)
+      if (missing.length > 0) {
+        await db.execute(`DROP TABLE IF EXISTS ${local}.tool_call_audit__stg;`)
+        await db.execute(`DROP TABLE IF EXISTS ${local}.tool_call_audit__probe;`)
       }
     },
   },

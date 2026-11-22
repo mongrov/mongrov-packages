@@ -22,7 +22,11 @@ import type { DropReport } from '../sync/drops'
 import type { BatchFlusher, FlushReason } from '../sync/flusher'
 import type { SchedulerLogger } from '../sync/scheduler'
 import type { FlushResult } from '../sync/types'
-import type { ToolImpl } from '../tools/types'
+import type { ToolAnnotations, ToolExecContext } from '../tools/define'
+import type { ToolBudget } from '../tools/fit'
+import type { ToolOutcome } from '../tools/outcome'
+import type { ToolRenderer } from '../tools/render'
+import type { ToolImpl, ToolResult } from '../tools/types'
 import type { HybridDuckDB } from './engine'
 import type { MigrationCatalogs } from './migrations'
 import type { AttachContext, KVStore } from './types'
@@ -302,13 +306,29 @@ export interface RulePack {
 
 // -------------------- tools --------------------
 
-/** One AI tool a pack offers (`pack.tools`); the framework wraps it. */
+/**
+ * One AI tool a pack offers (`pack.tools`); the framework wraps it.
+ *
+ * A `ToolDefinition` (`defineTool`) is one: since 0.62.0 a tool may declare
+ * an `outputSchema` and return a `ToolOutcome` envelope, which the framework
+ * validates, renders and budgets. An impl returning `ToolResult` text is the
+ * compatibility path and behaves as before.
+ */
 export interface PackTool {
+  /** Only `handle.add` reads it (the tool's name); a pack keys its tools by name. */
+  name?: string
+  /** MCP `title`. */
+  title?: string
   /** What the model reads to decide when to call it. */
   description: string
   /** Zod schema of the arguments. */
   inputSchema: ZodTypeAny
-  impl: ToolImpl<any>
+  /** Zod schema of `ToolOutcome.data`. */
+  outputSchema?: ZodTypeAny
+  render?: ToolRenderer<any>
+  budget?: ToolBudget
+  annotations?: ToolAnnotations
+  impl: ToolImpl<any> | ((input: any, ctx: ToolExecContext) => Promise<ToolOutcome<any> | ToolResult>)
 }
 
 // -------------------- the pack --------------------

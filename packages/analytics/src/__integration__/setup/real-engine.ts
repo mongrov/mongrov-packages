@@ -34,14 +34,14 @@
  *   avoids any interface change to production code.
  */
 
-import type { DuckDBConnection, DuckDBValue } from '@duckdb/node-api'
+import type { DuckDBConnection, DuckDBType, DuckDBValue } from '@duckdb/node-api'
 import type { DuckDBAppender, DuckDBInstance } from '../../core/engine'
 import {
-
   DuckDBTimestampValue,
-
   DuckDBAppender as NodeAppender,
   DuckDBInstance as NodeInstance,
+  TIMESTAMP,
+  VARCHAR,
 } from '@duckdb/node-api'
 import bindings from '@duckdb/node-bindings'
 
@@ -73,6 +73,31 @@ export async function createRealDuckDB(
   return adapt(inst, conn)
 }
 
+/**
+ * `@duckdb/node-api` infers a parameter's type from its JS value, and two
+ * values the device's engine binds have none ("Cannot create values of type
+ * ANY"): `null`, typed here as VARCHAR (it casts to any column type), and a
+ * `Date`, bound as a TIMESTAMP of the same instant (naive UTC, as stored).
+ */
+function bindable(params: Record<string, unknown>): [Record<string, DuckDBValue>, Record<string, DuckDBType> | undefined] {
+  const values: Record<string, DuckDBValue> = {}
+  const types: Record<string, DuckDBType> = {}
+  for (const [k, v] of Object.entries(params)) {
+    if (v === null || v === undefined) {
+      values[k] = null
+      types[k] = VARCHAR
+    }
+    else if (v instanceof Date) {
+      values[k] = new DuckDBTimestampValue(BigInt(v.getTime()) * 1000n)
+      types[k] = TIMESTAMP
+    }
+    else {
+      values[k] = v as DuckDBValue
+    }
+  }
+  return [values, Object.keys(types).length > 0 ? types : undefined]
+}
+
 /** Reusable adapter — kept separate so setup helpers can compose it. */
 function adapt(inst: NodeInstance, conn: DuckDBConnection): DuckDBInstance {
   return {
@@ -82,7 +107,7 @@ function adapt(inst: NodeInstance, conn: DuckDBConnection): DuckDBInstance {
         return normaliseRows(await r.getRowObjects())
       }
       const stmt = await conn.prepare(sql)
-      stmt.bind(params as Record<string, DuckDBValue>)
+      stmt.bind(...bindable(params))
       const r = await stmt.run()
       return normaliseRows(await r.getRowObjects())
     },
@@ -92,7 +117,7 @@ function adapt(inst: NodeInstance, conn: DuckDBConnection): DuckDBInstance {
       let r
       if (hasParams) {
         const stmt = await conn.prepare(sql)
-        stmt.bind(params as Record<string, DuckDBValue>)
+        stmt.bind(...bindable(params))
         r = await stmt.stream()
       }
       else {

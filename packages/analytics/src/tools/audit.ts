@@ -27,19 +27,32 @@ const DEFAULT_BATCH_SIZE = 10
 const DEFAULT_FLUSH_INTERVAL_MS = 1000
 const MAX_CONSECUTIVE_FAILURES = 5
 
-const COLUMNS = [
-  'ts',
-  'brand',
-  'family_id',
-  'requester_user_id',
-  'tool_name',
-  'args',
-  'result_bytes',
-  'result_row_count',
-  'latency_ms',
-  'outcome',
-  'error_message',
+/** Every column the writer fills, with its DDL type (`core/platform-tables.ts`). */
+const COLUMN_TYPES = [
+  ['ts', 'TIMESTAMP'],
+  ['brand', 'VARCHAR'],
+  ['family_id', 'VARCHAR'],
+  ['requester_user_id', 'VARCHAR'],
+  ['tool_name', 'VARCHAR'],
+  ['args', 'VARCHAR'],
+  ['result_bytes', 'INTEGER'],
+  ['result_row_count', 'INTEGER'],
+  ['latency_ms', 'INTEGER'],
+  ['outcome', 'VARCHAR'],
+  ['error_message', 'VARCHAR'],
+  // platform migration 3 (0.62.0)
+  ['result_status', 'VARCHAR'],
+  ['error_code', 'VARCHAR'],
+  ['result_digest', 'VARCHAR'],
+  ['render_chars', 'INTEGER'],
+  ['truncated_items', 'INTEGER'],
+  ['turn_id', 'VARCHAR'],
+  ['call_index', 'INTEGER'],
+  ['cached', 'BOOLEAN'],
 ] as const
+
+/** @internal The writer's columns, for the DDL contract test. */
+export const AUDIT_COLUMNS: readonly string[] = COLUMN_TYPES.map(([c]) => c)
 
 export interface CreateAuditWriterConfig {
   analytics: AnalyticsEngine
@@ -164,7 +177,7 @@ async function writeBatch(
 
   batch.forEach((entry, i) => {
     const prefix = `p${i}`
-    const placeholders = COLUMNS.map(col => `$${prefix}_${col}`)
+    const placeholders = AUDIT_COLUMNS.map(col => `$${prefix}_${col}`)
     tuples.push(`(${placeholders.join(', ')})`)
 
     params[`${prefix}_ts`] = entry.ts
@@ -178,10 +191,18 @@ async function writeBatch(
     params[`${prefix}_latency_ms`] = entry.latencyMs
     params[`${prefix}_outcome`] = entry.outcome
     params[`${prefix}_error_message`] = entry.errorMessage
+    params[`${prefix}_result_status`] = entry.resultStatus ?? null
+    params[`${prefix}_error_code`] = entry.errorCode ?? null
+    params[`${prefix}_result_digest`] = entry.resultDigest ?? null
+    params[`${prefix}_render_chars`] = entry.renderChars ?? null
+    params[`${prefix}_truncated_items`] = entry.truncatedItems ?? null
+    params[`${prefix}_turn_id`] = entry.turnId ?? null
+    params[`${prefix}_call_index`] = entry.callIndex ?? null
+    params[`${prefix}_cached`] = entry.cached ?? null
   })
 
   const sql
-    = `INSERT INTO tool_call_audit (${COLUMNS.join(', ')}) VALUES ${tuples.join(', ')}`
+    = `INSERT INTO tool_call_audit (${AUDIT_COLUMNS.join(', ')}) VALUES ${tuples.join(', ')}`
 
   await analytics.execute(sql, params)
 }
