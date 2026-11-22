@@ -56,6 +56,7 @@ export * from './types'
 
 export {
   CALL_LIMIT_GUIDANCE,
+  DUPLICATE_CALL_GUIDANCE,
   makeTool,
   type MakeToolConfig,
   type StructuredToolImpl,

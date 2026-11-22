@@ -218,10 +218,24 @@ Inside an answer the framework counts calls: the 5th (`callLimit.perTurn`,
 default 4) is refused `call_limit` with "No more tool calls for this
 question. Answer now with what you already have." (a compatibility tool gets
 exactly that text), audited and delivered to `onResult`. Calls with refused
-arguments count too, so a model cannot loop on them. A repeat of the same
-tool with the same validated arguments is answered from the answer's cache,
-audited `cached = true`, and not counted. No answer open (MCP, tests): no cap
-and no cache, only the rate limit. MCP calls never join an open answer.
+arguments count too, so a model cannot loop on them.
+
+Identical calls (same tool, same validated arguments) in one answer get **one
+cached repeat**: the first repeat is answered from the answer's cache,
+audited `cached = true`, and not counted. The second and later repeats are
+refused without running or rendering anything: the model gets exactly
+`You already have this result above; answer from it.`
+(`DUPLICATE_CALL_GUIDANCE`, on the structured and compatibility paths
+alike); the envelope is `error` with code `call_limit` and that message; the
+audit row is `outcome = 'call_limit'`, `result_status = 'error'`,
+`error_code = 'call_limit'`, `cached = true`, with the answer's `turn_id` and
+`call_index` and `error_message = 'identical repeat <n>'`. A refused repeat
+counts toward `callLimit.perTurn` and toward the summary's `refused`, so a
+model looping on one call also runs into the cap. Small on-device contexts
+are the reason: each copy of a result costs context the answer needs.
+
+No answer open (MCP, tests): no cap and no cache, only the rate limit. MCP
+calls never join an open answer.
 
 ### `onResult`
 

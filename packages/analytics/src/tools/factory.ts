@@ -74,7 +74,8 @@ export interface AnalyticsToolsHandle {
   add: (def: PackTool & { name: string }) => ReturnType<typeof makeTool<any>>
   /**
    * Open an answer: until `end()`, calls are capped (`callLimit.perTurn`),
-   * repeats are served from the answer's cache, and the results share one
+   * the first identical repeat is served from the answer's cache (later ones
+   * are refused with one short line), and the results share one
    * character budget. Opening one closes any still open. Call `end()` in a
    * `finally`.
    */
