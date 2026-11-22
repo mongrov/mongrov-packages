@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.62.1] - 2026-11-22
+
+A fix to the per-answer cache of `@mongrov/analytics/tools`. One additive
+export.
+
+### Fixed
+
+- **Identical calls in one answer get one cached repeat.** The first repeat
+  of the same tool with the same validated arguments is still answered from
+  the answer's cache and not counted. The second and later repeats are
+  refused without running or rendering: the model gets exactly
+  `You already have this result above; answer from it.` (the same line on
+  structured and compatibility tools), the envelope is `error` with code
+  `call_limit`, and the audit row is `outcome = 'call_limit'`,
+  `error_code = 'call_limit'`, `cached = true`, with `turn_id`, `call_index`
+  and `error_message = 'identical repeat <n>'`. A refused repeat counts
+  toward `callLimit.perTurn` and toward `TurnSummary.refused`. Before, every
+  repeat returned the full cached result uncounted, so a model could loop on
+  one call and fill a small context with copies of it.
+
+### Added
+
+- `DUPLICATE_CALL_GUIDANCE`, the refusal line above.
+
 ## [0.62.0] - 2026-11-21
 
 Typed tool results for `@mongrov/analytics/tools`. Additive for tools that
