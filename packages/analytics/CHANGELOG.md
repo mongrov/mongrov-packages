@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.62.2] - 2026-11-22
+
+A lint rule for tool input schemas in `@mongrov/analytics/tools`.
+
+### Fixed
+
+- **`lintToolInputSchema` errors on an anchored string `pattern`**
+  (rule `pattern-anchored`, #116): one that starts with `^` or ends with an
+  unescaped `$` (`\$` is a literal dollar, not an anchor). The bridge's
+  schema parser accepts it, but on-device structured generation with Apple
+  Foundation Models then fails every request before any tool runs. The
+  unanchored pattern works (the on-device guide constrains the whole value
+  anyway). Drop the anchors and check the exact form with a refine or in
+  the tool. `defineTool` throws on it in dev and test, like every lint
+  error.
+
 ## [0.62.1] - 2026-11-22
 
 A fix to the per-answer cache of `@mongrov/analytics/tools`. One additive
