@@ -3,6 +3,20 @@
 Notes for releases before 0.60 ship in those versions' own
 `UPGRADING.md` (and stay in the repository's git history).
 
+## 0.62.1 → 0.62.2
+
+**Tool input patterns must be unanchored.** `defineTool` now throws in dev
+and test on a `pattern` that starts with `^` or ends with an unescaped `$`
+(rule `pattern-anchored`); such a pattern makes on-device generation fail
+every request. Drop the anchors, and keep the exact check in a refine:
+
+```ts
+// before
+day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+// after
+day: z.string().regex(/\d{4}-\d{2}-\d{2}/).refine(s => /^\d{4}-\d{2}-\d{2}$/.test(s))
+```
+
 ## 0.62.0 → 0.62.1
 
 Nothing to change for a correct caller. What a caller may notice:
