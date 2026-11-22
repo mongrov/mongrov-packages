@@ -138,7 +138,11 @@ export const getRain = defineTool({
   and throws on an error: the on-device JSON Schema subset (a flat object;
   no nullable fields or type lists, no `$ref`/`oneOf`, no `multipleOf`, no
   numeric range — the on-device bridge keeps only the maximum — string-only
-  unions, portable regex patterns). `parseLikeAppleBridge` replicates the
+  unions, portable regex patterns, no `^`/`$` anchors on a `pattern`). An
+  anchored pattern passes the bridge's parser but makes Apple Foundation
+  Models fail every request before any tool runs; write it unanchored (the
+  on-device guide constrains the whole value anyway) and check the exact
+  form with a refine or in the tool. `parseLikeAppleBridge` replicates the
   `@react-native-ai/apple` 0.12 schema parser for tests.
 
 ## Writing a compatibility (`ToolResult`) tool
