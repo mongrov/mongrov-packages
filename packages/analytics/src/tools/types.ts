@@ -132,7 +132,11 @@ export interface AuditEntry {
   readonly turnId?: string | null
   /** 1-based index of the call within its answer, or null. */
   readonly callIndex?: number | null
-  /** A repeated call in the same answer, served from the answer's cache. */
+  /**
+   * A repeated call in the same answer: served from the answer's cache
+   * (`outcome = 'success'`), or, from the second repeat on, refused
+   * (`outcome = 'call_limit'`, `error_code = 'call_limit'`).
+   */
   readonly cached?: boolean | null
 }
 
@@ -201,9 +205,11 @@ export interface AnalyticsToolsConfig {
   render?: ToolRenderConfig
   /**
    * Calls allowed in one answer (`handle.beginTurn`). Default
-   * `{ perTurn: 4, dedupe: true }`: the 5th call is refused `call_limit`, and
-   * a repeat of the same tool with the same arguments is answered from the
-   * answer's cache and not counted. `false` turns both off. No answer, no cap.
+   * `{ perTurn: 4, dedupe: true }`: the 5th call is refused `call_limit`. The
+   * first repeat of the same tool with the same arguments is answered from
+   * the answer's cache and not counted; the second and later are refused
+   * `call_limit` with `DUPLICATE_CALL_GUIDANCE` only, and counted. `false`
+   * turns both off. No answer, no cap.
    */
   callLimit?: { perTurn: number, dedupe?: boolean } | false
   /** Called once per call, after its audit record, for every terminal state. */

@@ -6,8 +6,10 @@
  *    1. Input check → parse the arguments with the tool's Zod schema, so
  *                     defaults apply and bounds hold whatever the caller
  *                     checked (no runtime on any path validates them first).
- *                     A repeat of an earlier call in the same answer is
- *                     answered here from the answer's cache, uncounted.
+ *                     The first repeat of an earlier call in the same
+ *                     answer is answered here from the answer's cache,
+ *                     uncounted; a second or later one is refused
+ *                     `call_limit` with one short line, and counted.
  *    2. Answer cap  → inside an answer (`handle.beginTurn`), the call is
  *                     counted; past `callLimit.perTurn` it is refused
  *                     `call_limit`. Calls with bad arguments count too, so a
@@ -77,6 +79,12 @@ const NO_CONTEXT_MESSAGE = 'Tool call failed: request context not set.'
 const CALL_LIMIT_MESSAGE = 'The tool call limit for this question is reached.'
 /** What the model reads when an answer's calls are spent (a compatibility tool gets exactly this text). */
 export const CALL_LIMIT_GUIDANCE = 'No more tool calls for this question. Answer now with what you already have.'
+/**
+ * What the model reads for the second and later identical call in one answer
+ * (since 0.62.1): the whole text, on every path, kept short because it costs
+ * context.
+ */
+export const DUPLICATE_CALL_GUIDANCE = 'You already have this result above; answer from it.'
 /** What the model reads when a result could not be trusted (output_invalid, copy_guard, internal). */
 export const UNREADABLE_GUIDANCE = 'Say the data could not be read right now; do not give any value.'
 
@@ -360,6 +368,26 @@ export function makeTool<Input>(cfg: MakeToolConfig<Input>) {
           key = callKey(cfg.name, args)
           const hit = turn.cache.get(key)
           if (hit) {
+            const repeat = (turn.repeats.get(key) ?? 0) + 1
+            turn.repeats.set(key, repeat)
+            if (repeat > 1) {
+              // A model that loops on one call fills a small context with
+              // copies of a result it already has: the second repeat and later
+              // are refused with one line (never the result again) and count
+              // toward the cap, so the loop also runs into it.
+              if (perTurn !== null)
+                turn.counted += 1
+              turn.refused += 1
+              cfg.logger?.warn('tool call repeated', { toolName: cfg.name, turnId: turn.id, repeat })
+              return finish({
+                result: 'call_limit',
+                text: DUPLICATE_CALL_GUIDANCE,
+                outcome: errorOutcome('call_limit', DUPLICATE_CALL_GUIDANCE),
+                legacy: hit.legacy,
+                cached: true,
+                errorMessage: `identical repeat ${repeat}`,
+              })
+            }
             return finish({
               result: hit.auditOutcome,
               text: hit.text,

@@ -5,8 +5,10 @@
  * `finally`). Inside it the framework:
  *   - caps the calls (`callLimit.perTurn`, default 4): a later call is
  *     refused `call_limit`, audited, and reaches `onResult`;
- *   - answers a repeat of the same tool with the same arguments from the
- *     turn's cache (`dedupe`, default on): audited `cached`, not counted;
+ *   - answers the first repeat of the same tool with the same arguments
+ *     from the turn's cache (`dedupe`, default on): audited `cached`, not
+ *     counted; the second and later repeats are refused `call_limit` with
+ *     `DUPLICATE_CALL_GUIDANCE` only (audited `cached`, counted);
  *   - shares one character budget across the answer's results (`turnChars`).
  * Outside a turn (MCP, tests) there is no cap and no cache, only the rate
  * limit.
@@ -30,19 +32,21 @@ export interface TurnState {
   readonly id: string
   /** Every call made in the turn, cached and refused ones included (the next call's index). */
   calls: number
-  /** Calls counted against the cap (cached repeats are not). */
+  /** Calls counted against the cap (a served repeat is not; a refused one is). */
   counted: number
   refused: number
   /** Characters returned to the model so far. */
   chars: number
   readonly cache: Map<string, CachedCall>
+  /** Repeats of each cached call so far (the first is served, later ones refused). */
+  readonly repeats: Map<string, number>
   open: boolean
 }
 
 export interface TurnSummary {
   /** Calls made, cached repeats included. */
   readonly calls: number
-  /** Calls refused (`call_limit`, invalid arguments, rate limit, authorization, no context). */
+  /** Calls refused (`call_limit` incl. refused repeats, invalid arguments, rate limit, authorization, no context). */
   readonly refused: number
   /** Characters returned to the model. */
   readonly chars: number
@@ -77,6 +81,7 @@ export function createTurnTracker() {
         refused: 0,
         chars: 0,
         cache: new Map(),
+        repeats: new Map(),
         open: true,
       }
       current = state
