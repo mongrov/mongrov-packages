@@ -3,6 +3,21 @@
 Notes for releases before 0.60 ship in those versions' own
 `UPGRADING.md` (and stay in the repository's git history).
 
+## 0.62.0 → 0.62.1
+
+Nothing to change for a correct caller. What a caller may notice:
+
+- **A second identical call in one answer is refused.** Inside
+  `beginTurn()`, the first repeat of a call (same tool, same validated
+  arguments) still returns the cached result; the second and later return
+  only `DUPLICATE_CALL_GUIDANCE` and count toward the cap. A host that
+  re-issued an identical call on purpose within one answer should reuse the
+  first result instead. Calls outside an answer (MCP, tests) are unchanged.
+- **Audit rows:** refused repeats are `outcome = 'call_limit'` with
+  `cached = true`; cap refusals keep `cached = false`. A query that counted
+  `cached = true` as served-from-cache should also filter
+  `outcome = 'success'`.
+
 ## 0.61.1 → 0.62.0
 
 **Breaking (type only):** the audit union `ToolOutcome` is now
