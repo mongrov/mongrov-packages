@@ -1,5 +1,74 @@
 # Changelog
 
+## [0.62.0] - 2026-11-21
+
+Typed tool results for `@mongrov/analytics/tools`. Additive for tools that
+return `ToolResult` text: their output, budget and refusals are unchanged
+byte for byte. One type rename (see Breaking).
+
+### Breaking
+
+- The audit union `ToolOutcome` is renamed **`AuditOutcome`**; the name
+  `ToolOutcome` now belongs to the result envelope below, so no alias is
+  possible. `ToolCallResult` (the same union) is still exported.
+- `AuditOutcome` gains `invalid_args` (refused arguments were recorded as
+  `error` with an `invalid_args:` message prefix; now their own outcome, the
+  message without the prefix) and `call_limit`.
+
+### Added
+
+- **`defineTool`** — a tool with input and output Zod schemas, an impl that
+  returns a **`ToolOutcome<D>`** envelope (`status` ok / empty / insufficient
+  / error, `data`, `window { from, to, timezone, partialToday, label? }`,
+  `asOf`, `error { code, message, retryable }`, `truncated`, `guidance`),
+  and optional `render`, `budget`, `annotations`, `title`. `outcome.ok /
+  empty / insufficient / invalid` build envelopes. `PackTool` widens
+  additively, so a definition goes in `pack.tools` or to `handle.add`.
+- **The chain** for structured tools: input check → answer cap → rate limit
+  → authorize → execute → output check → copy guard over every string →
+  render → budget → audit → `onResult` → one string to the model.
+  - Output check: the envelope rules and `outputSchema`. A failure is
+    `error/output_invalid` (the audit lists paths, never values); under a
+    test runner it throws `ToolOutputError` (`outputValidation` overrides).
+- **Renderers**: `renderers.lines` (default; `key: value` lines),
+  `renderers.json`, `renderers.sentence(template)`; chosen by
+  `config.render.byTool` → the definition → `config.render.default`.
+- **Character budget** for structured results: `outputBudget.maxChars`
+  (default 1,200 per result) and `outputBudget.turnChars` (default 3,600 per
+  answer). Whole items of declared lists (`budget.listPaths`) go first,
+  oldest first, then a line cut. `truncated` is set by the framework only.
+- **Answers**: `handle.beginTurn()` returns `{ id, end() }`. Within it the
+  call cap (`callLimit.perTurn`, default 4) refuses later calls with
+  `call_limit`, and a repeat of the same tool with the same arguments is
+  answered from the answer's cache, audited `cached`, and not counted.
+- **`onResult`** (`config.onResult`, `handle.onResult(listener)`): one
+  `ToolResultEvent` per call, refusals included, after its audit record.
+- **`handle.add(def)`**: wraps a host tool and lists it in `handle.tools`.
+- **Audit** (platform migration 3): `tool_call_audit` gains nullable
+  `result_status`, `error_code`, `result_digest` (FNV-1a-64 of the text the
+  model got; no result content is stored), `render_chars`,
+  `truncated_items`, `turn_id`, `call_index`, `cached`. Refused calls
+  (`call_limit`, `invalid_args`, `rate_limited`, `authorized_reject`) each
+  write a row.
+- **MCP**: structured tools list `outputSchema` (the envelope) and return
+  `structuredContent`, a JSON text copy (or the model's string with
+  `text: 'render'`), and `isError` from the status; every tool lists
+  `annotations` (read-only, idempotent, closed-world by default) and `title`.
+  Tools added with `handle.add` are listed.
+- **`lintToolInputSchema`** and **`parseLikeAppleBridge`**: the on-device
+  JSON Schema subset, mirroring the `@react-native-ai/apple` 0.12 schema
+  parser rule for rule. `defineTool` throws on a lint error in dev and test.
+- Exports: `toolOutcomeJsonSchema`, `toOutputJsonSchema`, `fnv1a64`,
+  `describeAge`, `CALL_LIMIT_GUIDANCE`, `UNREADABLE_GUIDANCE`,
+  `DEFAULT_CALL_LIMIT`, `DEFAULT_MAX_CHARS`, `DEFAULT_TURN_CHARS`.
+
+### Changed
+
+- `ToolResult` is superseded for new tools by `defineTool` and the envelope.
+  It keeps working (not tagged `@deprecated`, so a consumer's deprecation
+  lint does not fail) and is removed only after every pack has moved.
+- `getInsights` is unchanged (it stays on the `ToolResult` path).
+
 ## [0.61.1] - 2026-11-21
 
 Fixes to the AI tool framework (`@mongrov/analytics/tools`). Tool names and
