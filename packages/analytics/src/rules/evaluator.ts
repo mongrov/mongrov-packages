@@ -33,7 +33,8 @@ import { AnalyticsError, describeError } from '../core/errors'
 import { tailId } from '../core/logger'
 import { metricDefinition } from '../core/metrics'
 import { userSettingKey } from '../core/user-setting-key'
-import { BAND_SCALE_PARAM, BASELINE_OFFSET_PARAM, USER_SETTING_PARAM } from './compiler'
+import { BAND_SCALE_PARAM, BASELINE_OFFSET_PARAM, DEVICE_ID_PARAM, USER_SETTING_PARAM } from './compiler'
+import { rawSqlSettingType } from './schema'
 
 export interface EvaluatorConfig {
   registry: RulesRegistry
@@ -59,6 +60,8 @@ export interface EvaluatorConfig {
   logger?: RulesLogger
   /** The user's own IANA zone; day-cadence rules are skipped without it. */
   userTimezoneProvider?: (userId: string) => Promise<string | undefined>
+  /** The device a user's `rawSql` rules are scoped to (`$deviceId`); NULL without it. */
+  userDeviceProvider?: (userId: string) => Promise<string | undefined>
 }
 
 interface EvaluationRow {
@@ -100,10 +103,39 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
     logger,
     storage,
     userTimezoneProvider,
+    userDeviceProvider,
   } = config
 
   /** Per-pass zone cache, reset with `settingCache` in `newPass`. */
   let tzCache = new Map<string, string | undefined>()
+  /** Per-pass device cache, reset with `settingCache` in `newPass`. */
+  let deviceCache = new Map<string, string | null>()
+
+  /**
+   * `$deviceId` for a `rawSql` rule that reads it: the id the app's
+   * `userDeviceProvider` names, or null. Never throws, and never skips the
+   * rule: NULL is a defined value the rule's SQL decides about.
+   */
+  async function resolveDevice(userId: string): Promise<string | null> {
+    const cached = deviceCache.get(userId)
+    if (cached !== undefined)
+      return cached
+    let id: string | null = null
+    if (userDeviceProvider) {
+      try {
+        const got = await userDeviceProvider(userId)
+        id = typeof got === 'string' && got.length > 0 ? got : null
+      }
+      catch (err) {
+        logger?.warn('rules.evaluator: userDeviceProvider threw; binding NULL', {
+          userId: tailId(userId),
+          err: describeError(err),
+        })
+      }
+    }
+    deviceCache.set(userId, id)
+    return id
+  }
 
   /**
    * The user's own zone, or undefined.
@@ -143,6 +175,45 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
    * thresholds within one pass if the user saved mid-batch.
    */
   let settingCache = new Map<string, number>()
+  /** The same, for `rawSqlSettings` string entries (a separate map: one key, two readings). */
+  let stringSettingCache = new Map<string, string>()
+
+  /**
+   * A string `rawSqlSettings` value. A stored non-empty string is bound
+   * (surrounding JSON quotes removed, as the band scale reads its name);
+   * anything else (a number, an object, an empty string, a read error)
+   * binds the default. Never throws.
+   */
+  async function resolveStringSetting(
+    userId: string,
+    key: string,
+    defaultValue: string,
+    ruleId: string,
+  ): Promise<string> {
+    const cacheKey = `${userId} ${key}`
+    const cached = stringSettingCache.get(cacheKey)
+    if (cached !== undefined)
+      return cached
+    let value = defaultValue
+    if (storage) {
+      try {
+        const stored = await storage.get<unknown>(userSettingKey(userId, key))
+        const text = typeof stored === 'string' ? stored.replace(JSON_QUOTES_RE, '') : undefined
+        if (text !== undefined && text.length > 0)
+          value = text
+      }
+      catch (err) {
+        logger?.warn('rules.evaluator: user_setting read failed, using default', {
+          ruleId,
+          userId: tailId(userId),
+          key,
+          err: describeError(err),
+        })
+      }
+    }
+    stringSettingCache.set(cacheKey, value)
+    return value
+  }
 
   /**
    * T-23 — resolve a `user_setting` threshold at eval time.
@@ -269,7 +340,9 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
   }
   function newPass(): PassIssues {
     settingCache = new Map()
+    stringSettingCache = new Map()
     tzCache = new Map()
+    deviceCache = new Map()
     return { noTimezone: new Set(), failedRules: new Set(), failures: 0, evaluated: 0, throttled: 0, startedAt: Date.now() }
   }
 
@@ -389,9 +462,15 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       // `rawSqlSettings` — each declared placeholder bound from the user's
       // stored setting, falling back to its default; never interpolated.
       if (compiled.settingParams !== undefined) {
-        for (const [name, { key, defaultValue }] of Object.entries(compiled.settingParams))
-          params[name] = await resolveUserSetting(ctx.userId, key, defaultValue, rule.id)
+        for (const [name, setting] of Object.entries(compiled.settingParams)) {
+          params[name] = rawSqlSettingType(setting) === 'string'
+            ? await resolveStringSetting(ctx.userId, setting.key, String(setting.defaultValue), rule.id)
+            : await resolveUserSetting(ctx.userId, setting.key, Number(setting.defaultValue), rule.id)
+        }
       }
+      // `$deviceId` — the app's chosen device for this user, or NULL.
+      if (compiled.needsDeviceId)
+        params[DEVICE_ID_PARAM] = await resolveDevice(ctx.userId)
       // mongrov-packages#44 — the bounded form when every macro exists for
       // this attach; the views otherwise. Same rows either way. A bounded
       // statement that throws is retried as the view form in this same pass,
@@ -449,6 +528,8 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
                 Object.entries(compiled.settingParams).map(([name, { key }]) => [name, { key, value: params[name] }]),
               ),
             }),
+        // Only on a rawSql rule that reads `$deviceId`: which device it judged.
+        ...(compiled?.needsDeviceId ? { deviceId: params[DEVICE_ID_PARAM] ?? null } : {}),
       },
     }
 

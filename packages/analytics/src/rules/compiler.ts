@@ -136,7 +136,13 @@ export function emitContextJoin(context: RuleContext, table?: string, qualityRel
  */
 export const TZ_PARAM = 'tz'
 
-const ALLOWED_RAW_PLACEHOLDERS = new Set(['userId', 'brand', 'familyId', TZ_PARAM])
+/**
+ * The device a `rawSql` body is scoped to. Bound by the evaluator from
+ * `userDeviceProvider`; NULL when it names none.
+ */
+export const DEVICE_ID_PARAM = 'deviceId'
+
+const ALLOWED_RAW_PLACEHOLDERS = new Set(['userId', 'brand', 'familyId', TZ_PARAM, DEVICE_ID_PARAM])
 
 /** Names a `rawSqlSettings` entry may not take: the evaluator binds these itself. */
 const RESERVED_RAW_PLACEHOLDERS: ReadonlySet<string> = ALLOWED_RAW_PLACEHOLDERS
@@ -927,10 +933,12 @@ function compileRawSql(rule: Rule, rawSql: string): CompiledRule {
     params: {},
     description: `rawSql:${rule.metric}`,
   }
-  // Only set when used, so a rawSql rule that reads neither compiles to the
-  // same object it always did.
+  // Only set when used, so a rawSql rule that reads none of these compiles
+  // to the same object it always did.
   if (placeholders.includes(TZ_PARAM))
     compiled.needsTimezone = true
+  if (placeholders.includes(DEVICE_ID_PARAM))
+    compiled.needsDeviceId = true
   if (settings && Object.keys(settings).length > 0)
     compiled.settingParams = settings
   return compiled
