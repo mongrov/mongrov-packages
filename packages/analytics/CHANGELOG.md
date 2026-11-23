@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.63.0] - 2026-11-22
+
+Rules a pack writes on the same SQL its screens run. Additive; existing
+rules compile and evaluate unchanged.
+
+### Added
+
+- **`rawSql` may read `$tz`** (#118): the evaluator binds the user's IANA
+  zone from `userTimezoneProvider`, and skips the rule for a user with no
+  zone, as it does for day cadence. Grouping by local hour or local day is
+  now expressible in a rule.
+- **`rawSqlSettings: { name: { key, defaultValue } }`** (#118): binds
+  `$name` to the user's stored numeric setting (the default when unset or
+  unusable), resolved like a `user_setting` threshold. Keys must be
+  rule-readable in the packs' settings registry; `userId`, `brand`,
+  `familyId` and `tz` are reserved. The values used are reported in the
+  violation's `evidence.rawSqlSettingsUsed`. With `$tz`, this covers
+  per-session rules on a value the pack computes.
+- **`baseline_offset.percentile`** (#118): `p05 | p10 | p50 | p90 | p95`,
+  default `p50`, on the window and day-cadence paths. An omitted percentile
+  compiles to the identical SQL. Exported: `BASELINE_PERCENTILES`,
+  `BaselinePercentile`.
+
 ## [0.62.2] - 2026-11-22
 
 A lint rule for tool input schemas in `@mongrov/analytics/tools`.

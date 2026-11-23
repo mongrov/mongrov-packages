@@ -3,6 +3,14 @@
 Notes for releases before 0.60 ship in those versions' own
 `UPGRADING.md` (and stay in the repository's git history).
 
+## 0.62.2 → 0.63.0
+
+No action needed. New, optional: `rawSql` rules can read `$tz` and declare
+`rawSqlSettings`, and `baseline_offset` takes `percentile` (default `p50`);
+see `src/rules/README.md` ("`rawSql` binds"). A `rawSql` body that declared
+`tz` in `rawSqlParams` used to fail unbound at run time; it is now bound,
+and the rule is skipped for a user with no zone.
+
 ## 0.62.1 → 0.62.2
 
 **Tool input patterns must be unanchored.** `defineTool` now throws in dev
