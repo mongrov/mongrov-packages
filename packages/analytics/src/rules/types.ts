@@ -91,6 +91,16 @@ export interface CompiledRule {
   bandScaleKey?: string
   bandScales?: Readonly<Record<string, number>>
   bandScaleDefault?: string
+  /**
+   * `rawSql` reads `$tz`: the evaluator binds the user's zone, and skips the
+   * rule for a user with none (as for day cadence).
+   */
+  needsTimezone?: boolean
+  /**
+   * `rawSql` setting binds: placeholder name → KVStore key + fallback. The
+   * evaluator resolves each per user, exactly like `userSettingKey`.
+   */
+  settingParams?: Readonly<Record<string, { key: string, defaultValue: number }>>
 }
 
 /** Structured violation delivered to `on('violation', handler)` subscribers. */

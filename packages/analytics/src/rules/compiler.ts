@@ -34,7 +34,7 @@
  *   `local.{table}` or `r2.default.{table}` (principle 19).
  */
 
-import type { Aggregation, Compare, Rule, RuleContext, Target, Window } from './schema'
+import type { Aggregation, BaselinePercentile, Compare, Rule, RuleContext, Target, Window } from './schema'
 import type { CompiledRule } from './types'
 import { boundedRelation, daysInterval, hoursInterval, SPARE_DAYS } from '../core/bounded-read'
 import { metricDefinition } from '../core/metrics'
@@ -42,9 +42,8 @@ import { cleanRelation, hasQualityRelations, qualityRelation, readRelation } fro
 import { timeColumnFor } from '../core/table_metadata'
 import { contextJoin } from './contexts'
 import {
-
+  BASELINE_PERCENTILES,
   RuleValidationError,
-
 } from './schema'
 
 /** Sanitize an identifier for direct interpolation. */
@@ -131,7 +130,16 @@ export function emitContextJoin(context: RuleContext, table?: string, qualityRel
   return contextJoin(context, { table: table ?? '', qualityRelation })
 }
 
-const ALLOWED_RAW_PLACEHOLDERS = new Set(['userId', 'brand', 'familyId'])
+/**
+ * The user's IANA zone. Bound by the evaluator for day cadence, `minDays`,
+ * and any `rawSql` body that reads it.
+ */
+export const TZ_PARAM = 'tz'
+
+const ALLOWED_RAW_PLACEHOLDERS = new Set(['userId', 'brand', 'familyId', TZ_PARAM])
+
+/** Names a `rawSqlSettings` entry may not take: the evaluator binds these itself. */
+const RESERVED_RAW_PLACEHOLDERS: ReadonlySet<string> = ALLOWED_RAW_PLACEHOLDERS
 
 /** Extract every `$name` placeholder from a SQL string. */
 function placeholdersOf(sql: string): string[] {
@@ -168,6 +176,18 @@ export const BAND_SCALE_PARAM = 'bandScale'
  */
 export function localDayExpr(tsColumn: string): string {
   return `date_trunc('day', timezone(CAST($tz AS VARCHAR), timezone('UTC', ${tsColumn})))`
+}
+
+/**
+ * The `user_baseline` column a `baseline_offset` target compares against.
+ * From the schema's enum, re-checked here because it is inlined as an
+ * identifier; `p50` when the target does not name one.
+ */
+function baselinePercentileColumn(target: Extract<Target, { type: 'baseline_offset' }>): BaselinePercentile {
+  const pct = target.percentile ?? 'p50'
+  if (!BASELINE_PERCENTILES.includes(pct))
+    throw new RuleValidationError(`baseline_offset percentile '${String(pct)}' is not one of ${BASELINE_PERCENTILES.join(', ')}.`)
+  return pct
 }
 
 /** Compile a validated rule to a `CompiledRule`. */
@@ -276,7 +296,7 @@ function describeTarget(target: Target): string {
     case 'range': return `[${target.min}, ${target.max}]`
     case 'user_setting': return `user setting ${target.key} (default ${target.defaultValue})`
     case 'baseline_offset': return (
-      `${target.offset} ${target.direction} ${target.windowDays}d baseline p50${
+      `${target.offset} ${target.direction} ${target.windowDays}d baseline ${target.percentile ?? 'p50'}${
         target.offsetKey ? ` (key ${target.offsetKey})` : ''}`
     )
     case 'phase_band': return (
@@ -415,16 +435,17 @@ HAVING ${outside}${floor};`
 
     const sign = target.direction === 'below' ? '-' : '+'
     const operator = target.direction === 'below' ? 'less_than' : 'greater_than'
+    const pct = baselinePercentileColumn(target)
 
     const sql = `WITH baseline AS (
-  SELECT p50
+  SELECT ${pct}
   FROM user_baseline
   WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
     AND metric = CAST($baselineMetric AS VARCHAR)
     AND window_days = CAST($baselineDays AS INTEGER)
 )
 SELECT ${agg} AS observed_value,
-       (SELECT p50 FROM baseline) ${sign} CAST($baselineOffset AS DOUBLE) AS threshold_value
+       (SELECT ${pct} FROM baseline) ${sign} CAST($baselineOffset AS DOUBLE) AS threshold_value
 ${from}
 ${where}
 HAVING ${compareClause(operator, 'observed_value', 'threshold_value')}${floor};`
@@ -573,15 +594,16 @@ function buildDayCadence(args: BuildArgs): {
     if (target.offsetKey === undefined)
       params.baselineOffset = target.offset
     const sign = target.direction === 'below' ? '-' : '+'
+    const pct = baselinePercentileColumn(target)
     baselineCte = `baseline AS (
-  SELECT p50
+  SELECT ${pct}
   FROM user_baseline
   WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
     AND metric = CAST($baselineMetric AS VARCHAR)
     AND window_days = CAST($baselineDays AS INTEGER)
 ),
 `
-    thresholdExpr = `(SELECT p50 FROM baseline) ${sign} CAST($${BASELINE_OFFSET_PARAM} AS DOUBLE)`
+    thresholdExpr = `(SELECT ${pct} FROM baseline) ${sign} CAST($${BASELINE_OFFSET_PARAM} AS DOUBLE)`
   }
 
   const direction = target.type === 'baseline_offset' && target.direction === 'above'
@@ -882,18 +904,34 @@ function compileRawSql(rule: Rule, rawSql: string): CompiledRule {
   for (const p of rule.rawSqlParams ?? []) {
     allowed.add(p)
   }
+  const settings = rule.rawSqlSettings
+  for (const name of Object.keys(settings ?? {})) {
+    if (RESERVED_RAW_PLACEHOLDERS.has(name)) {
+      throw new RuleValidationError(
+        `Rule ${rule.id}: rawSqlSettings name '${name}' is bound by the engine; choose another.`,
+      )
+    }
+    allowed.add(name)
+  }
   for (const p of placeholders) {
     if (!allowed.has(p)) {
       throw new RuleValidationError(
-        `Rule ${rule.id}: rawSql placeholder $${p} not declared in rawSqlParams.`,
+        `Rule ${rule.id}: rawSql placeholder $${p} not declared in rawSqlParams or rawSqlSettings.`,
       )
     }
   }
-  return {
+  const compiled: CompiledRule = {
     ruleId: rule.id,
     metric: rule.metric,
     sql: rawSql,
     params: {},
     description: `rawSql:${rule.metric}`,
   }
+  // Only set when used, so a rawSql rule that reads neither compiles to the
+  // same object it always did.
+  if (placeholders.includes(TZ_PARAM))
+    compiled.needsTimezone = true
+  if (settings && Object.keys(settings).length > 0)
+    compiled.settingParams = settings
+  return compiled
 }
