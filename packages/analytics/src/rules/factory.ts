@@ -26,6 +26,7 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
     eventBus,
     logger,
     userTimezoneProvider,
+    userDeviceProvider,
     clock = () => new Date(),
   } = config
 
@@ -50,6 +51,7 @@ export function createRulesEngine(config: RulesEngineConfig): RulesEngine {
     eventBus,
     logger,
     userTimezoneProvider,
+    userDeviceProvider,
     // Sprint 5 T-23 — same KVStore the throttle uses; user_setting
     // thresholds live under `analytics:{userId}:{key}`.
     storage,

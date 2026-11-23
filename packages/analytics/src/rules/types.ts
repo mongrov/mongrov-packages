@@ -14,7 +14,7 @@ import type {
   KVStore,
   Unsubscribe,
 } from '../core/types'
-import type { Rule, RuleCadence } from './schema'
+import type { RawSqlSetting, Rule, RuleCadence } from './schema'
 
 export type { Unsubscribe }
 
@@ -97,10 +97,16 @@ export interface CompiledRule {
    */
   needsTimezone?: boolean
   /**
-   * `rawSql` setting binds: placeholder name → KVStore key + fallback. The
-   * evaluator resolves each per user, exactly like `userSettingKey`.
+   * `rawSql` reads `$deviceId`: the evaluator binds the id
+   * `userDeviceProvider` returns for the user, or NULL when it returns none.
    */
-  settingParams?: Readonly<Record<string, { key: string, defaultValue: number }>>
+  needsDeviceId?: boolean
+  /**
+   * `rawSql` setting binds: placeholder name → the rule's `rawSqlSettings`
+   * entry (KVStore key, fallback, optional type). The evaluator resolves each
+   * per user, exactly like `userSettingKey`; a string entry binds a string.
+   */
+  settingParams?: Readonly<Record<string, RawSqlSetting>>
 }
 
 /** Structured violation delivered to `on('violation', handler)` subscribers. */
@@ -158,6 +164,19 @@ export interface RulesEngineConfig {
    * failure mode this guards against.
    */
   userTimezoneProvider?: (userId: string) => Promise<string | undefined>
+  /**
+   * The device a user's `rawSql` rules are scoped to, bound as `$deviceId`
+   * (e.g. the one in use now, when the user has several). Asked only
+   * for a rule whose `rawSql` reads `$deviceId`, once per user per pass.
+   *
+   * When absent, or when it returns undefined or throws, `$deviceId` is
+   * bound as NULL and the rule still runs: write the filter as
+   * `(CAST($deviceId AS VARCHAR) IS NULL OR device_id = CAST($deviceId AS VARCHAR))`
+   * to read every device in that case. Unlike `$tz`, there is no safe
+   * default to refuse here; a rule that must not run unscoped can say so in
+   * its own SQL (`... AND CAST($deviceId AS VARCHAR) IS NOT NULL`).
+   */
+  userDeviceProvider?: (userId: string) => Promise<string | undefined>
   logger?: RulesLogger
   clock?: Clock
 }

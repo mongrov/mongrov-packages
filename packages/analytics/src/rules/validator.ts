@@ -12,7 +12,7 @@ import type { Rule, Window } from './schema'
 import type { RulesLogger } from './types'
 import { collectedOnlyColumns, metricDefinition, samplingLabelFor } from '../core/metrics'
 import { packExtensions } from '../core/packs'
-import { RuleValidationError, WINDOWS } from './schema'
+import { rawSqlSettingType, RuleValidationError, WINDOWS } from './schema'
 
 function rulePacks(): RulePack[] {
   return packExtensions<RulePack>('rules')
@@ -274,10 +274,15 @@ function validateUserSettingKey(rule: Rule): void {
 }
 
 /**
- * `rawSqlSettings` — every key must be rule-readable, for the same reason a
+ * `rawSqlSettings` — every key must be in the registry, for the same reason a
  * `user_setting` key must be: a typo would otherwise bind the default forever
  * with no error anywhere. Settings without a `rawSql` body bind nothing, so
  * they are rejected rather than ignored.
+ *
+ * A number entry's key must be rule-readable (a threshold). A string entry's
+ * key must be a registered STRING setting, as a `phase_band` `scaleKey` must:
+ * a named choice (a sensitivity, a mode) is not a threshold, and a number key
+ * read as a string would never match the names the SQL compares against.
  */
 function validateRawSqlSettings(rule: Rule): void {
   const entries = Object.entries(rule.rawSqlSettings ?? {})
@@ -286,7 +291,16 @@ function validateRawSqlSettings(rule: Rule): void {
   if (!rule.rawSql)
     throw new RuleValidationError(`Rule ${rule.id}: rawSqlSettings needs a rawSql body.`)
   const registry = settings()
-  for (const [name, { key }] of entries) {
+  for (const [name, setting] of entries) {
+    const { key } = setting
+    if (rawSqlSettingType(setting) === 'string') {
+      if (registry?.registered(key) && registry.valueType(key) === 'string')
+        continue
+      throw new RuleValidationError(
+        `Rule ${rule.id}: rawSqlSettings.${name} key '${key}' is not a registered string setting `
+        + `(a string entry reads a string value).`,
+      )
+    }
     if (registry?.readable(key))
       continue
     throw new RuleValidationError(

@@ -253,6 +253,39 @@ export type Throttle = z.infer<typeof ThrottleSchema>
 export const CADENCES = ['reading', 'day'] as const
 export type RuleCadence = (typeof CADENCES)[number]
 
+/** The value types a `rawSqlSettings` entry may bind. */
+export const RAW_SQL_SETTING_TYPES = ['number', 'string'] as const
+export type RawSqlSettingType = (typeof RAW_SQL_SETTING_TYPES)[number]
+
+/**
+ * One `rawSqlSettings` entry: the KVStore key, the value bound when the user
+ * has none (or an unusable one), and the value's type.
+ *
+ * `type` is optional and inferred from `typeof defaultValue`, so every 0.63
+ * entry (`{ key, defaultValue: <number> }`) is a number setting, unchanged.
+ * When given it must agree with the default.
+ *
+ * - `number`: a stored number, or a numeric string, is bound; anything else
+ *   binds the default (exactly as in 0.63).
+ * - `string`: a stored non-empty string is bound (surrounding JSON quotes
+ *   removed); a stored number, boolean, object, or empty string binds the
+ *   default. The value is a bound parameter and never part of the SQL text.
+ */
+export const RawSqlSettingSchema = z.object({
+  key: z.string().min(1),
+  defaultValue: z.union([z.number(), z.string()]),
+  type: z.enum(RAW_SQL_SETTING_TYPES).optional(),
+}).refine(
+  s => s.type === undefined || s.type === (typeof s.defaultValue === 'string' ? 'string' : 'number'),
+  { message: 'rawSqlSettings: type must match typeof defaultValue.' },
+)
+export type RawSqlSetting = z.infer<typeof RawSqlSettingSchema>
+
+/** The type a `rawSqlSettings` entry binds: its `type`, else `typeof defaultValue`. */
+export function rawSqlSettingType(setting: RawSqlSetting): RawSqlSettingType {
+  return setting.type ?? (typeof setting.defaultValue === 'string' ? 'string' : 'number')
+}
+
 export const RuleSchema = z.object({
   id: z.string().min(1),
   brand: z.string().optional(),
@@ -302,16 +335,19 @@ export const RuleSchema = z.object({
    * Per-user setting values a `rawSql` body binds, keyed by placeholder name:
    * `{ floor: { key, defaultValue } }` binds `$floor` to the user's stored
    * value of `key` (falling back to `defaultValue`), read the same way a
-   * `user_setting` target's threshold is. Each key must be rule-readable in
-   * the packs' settings registry (validator). Bound, never interpolated.
+   * `user_setting` target's threshold is. A string `defaultValue` (or
+   * `type: 'string'`) binds the stored string instead (`RawSqlSettingSchema`).
+   * Keys are checked against the packs' settings registry (validator).
+   * Bound, never interpolated.
    *
    * A `rawSql` body may also read `$tz` (the user's IANA zone): the
    * evaluator binds it from `userTimezoneProvider`, and skips the rule for a
-   * user with no zone, exactly as it does for day cadence.
+   * user with no zone, exactly as it does for day cadence. `$deviceId` is
+   * bound from `userDeviceProvider`, NULL when it names no device.
    */
   rawSqlSettings: z.record(
     z.string().regex(/^[A-Z_]\w*$/i),
-    z.object({ key: z.string().min(1), defaultValue: z.number() }),
+    RawSqlSettingSchema,
   ).optional(),
   /**
    * Required-true when `rawSql` references `collected_only` columns
