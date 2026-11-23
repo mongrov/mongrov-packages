@@ -67,13 +67,15 @@ await engine.evaluateScheduled()
     | { type: 'range', min, max }
     | { type: 'baseline_percent', windowDays, percent }
     | { type: 'baseline_stddev', windowDays, stddevs }
-    | { type: 'baseline_offset', windowDays, offset, direction, offsetKey? }
+    | { type: 'baseline_offset', windowDays, offset, direction, offsetKey?,
+        percentile?: 'p05' | 'p10' | 'p50' | 'p90' | 'p95' }   // default p50
     | { type: 'user_setting', key, defaultValue }
     | { type: 'phase_band', band, windowDays, defaultLo?, defaultHi?, scaleKey?, scales?, defaultScale? },
   severity: 'info' | 'warn' | 'critical',
   throttle: { minGapMinutes, maxPerDay },  // defaults 60 / 3
   rawSql?: string,              // escape hatch — allow-listed placeholders only
   rawSqlParams?: string[],
+  rawSqlSettings?: Record<string, { key, defaultValue }>, // $name ← user setting
   exposureOverride?: boolean,   // required when rawSql reads collected_only columns
 }
 ```
@@ -83,7 +85,9 @@ Targets, briefly:
 - `baseline_percent` / `baseline_stddev` compare against a mean computed
   inline over the window.
 - `baseline_offset` compares against the user's stored baseline
-  (`user_baseline.p50`) minus or plus a fixed offset.
+  (`user_baseline.p50`, or the column `percentile` names) minus or plus a
+  fixed offset. `percentile: 'p90'` with `direction: 'above'` fires above the
+  top of the user's usual range rather than its middle.
 - `user_setting` reads the threshold from a KV setting at evaluation time;
   the key must be registered in the packs' `RuleSettings`.
 - `phase_band` (the name is historical; it means *a stored per-user band*)
@@ -124,8 +128,50 @@ samples only, not computed over everything and then filtered.
 - Rules read the `v_<table>` union views (`viewFor`), or a pack's clean
   relation when it declares quality views.
 - `rawSql` is passed through with an allow-list check: every `$name`
-  placeholder must be `userId`, `brand`, `familyId` or declared in
-  `rawSqlParams`.
+  placeholder must be `userId`, `brand`, `familyId`, `tz`, a
+  `rawSqlSettings` name, or declared in `rawSqlParams`.
+
+### `rawSql` binds
+
+A pack can write a rule on the same SQL its screens run — grouped by local
+hour or local day, over a session table, on a value it computes — with the
+user's zone and settings as bound parameters, never interpolated:
+
+- `$tz` — the user's IANA zone from `userTimezoneProvider`. A rule whose
+  `rawSql` reads it is skipped for a user with no zone, as day cadence is.
+- `rawSqlSettings: { name: { key, defaultValue } }` binds `$name` to the
+  user's stored value of `key` (numeric; `defaultValue` when unset or
+  unusable), read like a `user_setting` threshold. Each key must be
+  rule-readable in the packs' settings registry. Names `userId`, `brand`,
+  `familyId` and `tz` are reserved. The values used are in the violation's
+  `evidence.rawSqlSettingsUsed`.
+
+The body must project `observed_value` and `threshold_value`, one row per
+violation (the first row is used). CAST every bound value where it is used
+(`CAST($tz AS VARCHAR)`, `CAST($floor AS DOUBLE)`, `CAST($n AS BIGINT)`):
+on device a parameter's type resolves from SQL context at prepare time.
+For local time of a naive-UTC column, use
+`timezone(CAST($tz AS VARCHAR), timezone('UTC', ts))`.
+
+```ts
+// Any local hour of the last day that averaged above the user's level.
+{
+  id: 'acme.hour-above-level', name: 'Hour above level', metric: 'gauge_level',
+  window: '24h', compare: 'greater_than', severity: 'info',
+  target: { type: 'absolute', value: 0 }, // unused by rawSql
+  rawSqlSettings: { level: { key: 'user:gaugeLevel', defaultValue: 60 } },
+  rawSql: `
+    WITH hourly AS (
+      SELECT date_trunc('hour', timezone(CAST($tz AS VARCHAR), timezone('UTC', ts))) AS h,
+             AVG(level) AS v
+      FROM v_gauge
+      WHERE user_id = $userId AND brand = $brand AND family_id = $familyId
+        AND ts > NOW() - INTERVAL 1 DAY
+      GROUP BY h)
+    SELECT MAX(v) AS observed_value, CAST($level AS DOUBLE) AS threshold_value
+    FROM hourly HAVING MAX(v) > CAST($level AS DOUBLE)`,
+}
+```
 
 Compiled SQL is memoized by `(ruleId, registry revision)`; register / enable
 / disable bump the revision.

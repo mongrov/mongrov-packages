@@ -140,6 +140,14 @@ const TargetUserSetting = z.object({
  * evaluator resolves it from KVStore per user. `offset` is the fallback when
  * the key is unset, and is required so a rule always has a defined threshold.
  */
+/**
+ * The stored `user_baseline` percentile columns a `baseline_offset` target
+ * may compare against. Omitted means `p50` — the behaviour before the field
+ * existed, so a rule written without it compiles to the same SQL.
+ */
+export const BASELINE_PERCENTILES = ['p05', 'p10', 'p50', 'p90', 'p95'] as const
+export type BaselinePercentile = (typeof BASELINE_PERCENTILES)[number]
+
 const TargetBaselineOffset = z.object({
   type: z.literal('baseline_offset'),
   windowDays: z.number().int().positive(),
@@ -148,6 +156,12 @@ const TargetBaselineOffset = z.object({
   direction: z.enum(['below', 'above']),
   /** KVStore key overriding `offset` at eval time. Registry-validated. */
   offsetKey: z.string().min(1).optional(),
+  /**
+   * Which stored percentile is "usual": `p90` compares against the top of the
+   * user's range rather than its middle. Default `p50`. The column name comes
+   * from this enum and is inlined; it is never user input.
+   */
+  percentile: z.enum(BASELINE_PERCENTILES).optional(),
 })
 
 /**
@@ -284,6 +298,21 @@ export const RuleSchema = z.object({
   throttle: ThrottleSchema,
   rawSql: z.string().optional(),
   rawSqlParams: z.array(z.string()).optional(),
+  /**
+   * Per-user setting values a `rawSql` body binds, keyed by placeholder name:
+   * `{ floor: { key, defaultValue } }` binds `$floor` to the user's stored
+   * value of `key` (falling back to `defaultValue`), read the same way a
+   * `user_setting` target's threshold is. Each key must be rule-readable in
+   * the packs' settings registry (validator). Bound, never interpolated.
+   *
+   * A `rawSql` body may also read `$tz` (the user's IANA zone): the
+   * evaluator binds it from `userTimezoneProvider`, and skips the rule for a
+   * user with no zone, exactly as it does for day cadence.
+   */
+  rawSqlSettings: z.record(
+    z.string().regex(/^[A-Z_]\w*$/i),
+    z.object({ key: z.string().min(1), defaultValue: z.number() }),
+  ).optional(),
   /**
    * Required-true when `rawSql` references `collected_only` columns
    * (BP, vascular aging). Validator enforces.

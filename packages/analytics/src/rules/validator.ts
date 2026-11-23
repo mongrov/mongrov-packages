@@ -74,6 +74,7 @@ export function validateRule(rule: Rule, logger?: RulesLogger): void {
   validateMinDays(rule)
   for (const pack of rulePacks()) pack.validate?.(rule)
   validateUserSettingKey(rule)
+  validateRawSqlSettings(rule)
   validatePhaseBand(rule)
 
   const allowed = allowedWindowsFor(rule.metric)
@@ -270,6 +271,29 @@ function validateUserSettingKey(rule: Rule): void {
     + `Add new keys to ${registry?.registryName ?? 'a pack\'s settings registry'} — a key `
     + `absent from the registry would silently fall back to defaultValue.`,
   )
+}
+
+/**
+ * `rawSqlSettings` — every key must be rule-readable, for the same reason a
+ * `user_setting` key must be: a typo would otherwise bind the default forever
+ * with no error anywhere. Settings without a `rawSql` body bind nothing, so
+ * they are rejected rather than ignored.
+ */
+function validateRawSqlSettings(rule: Rule): void {
+  const entries = Object.entries(rule.rawSqlSettings ?? {})
+  if (entries.length === 0)
+    return
+  if (!rule.rawSql)
+    throw new RuleValidationError(`Rule ${rule.id}: rawSqlSettings needs a rawSql body.`)
+  const registry = settings()
+  for (const [name, { key }] of entries) {
+    if (registry?.readable(key))
+      continue
+    throw new RuleValidationError(
+      `Rule ${rule.id}: rawSqlSettings.${name} key '${key}' is not a rule-readable setting. `
+      + `Rule-readable keys are [${(registry?.readableKeys() ?? []).join(', ')}].`,
+    )
+  }
 }
 
 /**

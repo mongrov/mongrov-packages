@@ -350,7 +350,9 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       // the boundary is unknowable: skip the rule and say so, rather than
       // bucketing on UTC and firing a day early for anyone west of it.
       // QA #108 — a `minDays` floor counts local days the same way.
-      if (compiled.cadence === 'day' || compiled.minDays !== undefined) {
+      // A `rawSql` body that reads `$tz` gets the same zone, under the same
+      // rule: no zone, no evaluation.
+      if (compiled.cadence === 'day' || compiled.minDays !== undefined || compiled.needsTimezone) {
         const tz = await resolveTimezone(ctx.userId)
         if (tz === undefined) {
           pass.noTimezone.add(ctx.userId)
@@ -384,6 +386,12 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
       // scale: an unreadable setting must not silence the alert.
       if (compiled.bandScaleKey !== undefined)
         params[BAND_SCALE_PARAM] = await resolveBandScale(ctx.userId, compiled, rule.id)
+      // `rawSqlSettings` — each declared placeholder bound from the user's
+      // stored setting, falling back to its default; never interpolated.
+      if (compiled.settingParams !== undefined) {
+        for (const [name, { key, defaultValue }] of Object.entries(compiled.settingParams))
+          params[name] = await resolveUserSetting(ctx.userId, key, defaultValue, rule.id)
+      }
       // mongrov-packages#44 — the bounded form when every macro exists for
       // this attach; the views otherwise. Same rows either way. A bounded
       // statement that throws is retried as the view form in this same pass,
@@ -432,6 +440,15 @@ export function createEvaluator(config: EvaluatorConfig): Evaluator {
         settingsUsed: compiled?.userSettingKey === undefined
           ? undefined
           : { key: compiled.userSettingKey, value: params[USER_SETTING_PARAM] },
+        // Only present on a rawSql rule that declares settings, so every
+        // other rule's evidence is unchanged.
+        ...(compiled?.settingParams === undefined
+          ? {}
+          : {
+              rawSqlSettingsUsed: Object.fromEntries(
+                Object.entries(compiled.settingParams).map(([name, { key }]) => [name, { key, value: params[name] }]),
+              ),
+            }),
       },
     }
 

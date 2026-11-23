@@ -56,6 +56,7 @@ export {
 // R1 — schema + types
 export {
   AGGREGATIONS,
+  BASELINE_PERCENTILES,
   COMPARES,
   RuleSchema,
   RuleValidationError,
@@ -67,6 +68,7 @@ export {
 
 export type {
   Aggregation,
+  BaselinePercentile,
   Compare,
   Rule,
   Severity,
