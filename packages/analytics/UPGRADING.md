@@ -3,6 +3,15 @@
 Notes for releases before 0.60 ship in those versions' own
 `UPGRADING.md` (and stay in the repository's git history).
 
+## 0.63.0 → 0.64.0
+
+No action needed. New, optional: a `rawSqlSettings` entry may take a string
+`defaultValue` (or `type: 'string'`) to bind a named setting, and `rawSql`
+may read `$deviceId`, bound from `createRulesEngine({ userDeviceProvider })`
+(NULL without one); see `src/rules/README.md` ("`rawSql` binds"). A body
+that declared `deviceId` in `rawSqlParams` used to fail unbound at run time;
+it is now bound. A `rawSqlSettings` entry named `deviceId` is now rejected.
+
 ## 0.62.2 → 0.63.0
 
 No action needed. New, optional: `rawSql` rules can read `$tz` and declare

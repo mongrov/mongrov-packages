@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.64.0] - 2026-11-23
+
+`rawSql` rules that read a named setting or judge one device. Additive;
+existing rules compile and evaluate unchanged.
+
+### Added
+
+- **String `rawSqlSettings`** (#120): an entry is
+  `{ key, defaultValue: number | string, type?: 'number' | 'string' }`;
+  `type` defaults to `typeof defaultValue` (so 0.63 entries are number
+  settings, unchanged) and must agree with it when given. A string entry
+  binds the stored non-empty string (JSON quotes removed); a stored
+  non-string or empty string binds the default. Its key must be a
+  registered string setting (it need not be a threshold). Always a bound
+  parameter. Exported: `RawSqlSettingSchema`, `RawSqlSetting`,
+  `RAW_SQL_SETTING_TYPES`, `RawSqlSettingType`, `rawSqlSettingType`.
+- **`rawSql` may read `$deviceId`** (#120): bound from the new optional
+  `createRulesEngine({ userDeviceProvider })`, once per user per pass;
+  NULL when there is no provider, it names no device, or it throws, and the
+  rule still runs. Filter with
+  `(CAST($deviceId AS VARCHAR) IS NULL OR device_id = CAST($deviceId AS VARCHAR))`.
+  The value used is in the violation's `evidence.deviceId`. `deviceId` is
+  now a reserved placeholder name.
+
 ## [0.63.0] - 2026-11-22
 
 Rules a pack writes on the same SQL its screens run. Additive; existing
